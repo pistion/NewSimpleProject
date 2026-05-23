@@ -24,16 +24,15 @@ services:
       - key: APP_NAME
         value: glondia-backend
 
-      # Set these to your actual Render service URLs after first deploy
       - key: APP_URL
         value: https://glondia-backend.onrender.com
       - key: API_BASE_URL
         value: https://glondia-backend.onrender.com/api/v1
+      # Primary custom domain — both apex and www are allowed
       - key: FRONTEND_URL
-        value: https://glondiasites.onrender.com
-      # Comma-separated list — add custom domains here too
+        value: https://www.glondiasites.com
       - key: CORS_ORIGINS
-        value: https://glondiasites.onrender.com,https://glondia-backend.onrender.com
+        value: https://www.glondiasites.com,https://glondiasites.com,https://glondiasites-vrjm.onrender.com
 
       # ── Database (auto-linked from Render Postgres) ─────────────────────
       - key: DATABASE_URL
@@ -125,9 +124,12 @@ services:
         source: /*
         destination: /index.html
     envVars:
-      # Points the React app at the deployed backend
+      # Points the React app at the deployed backend API
       - key: VITE_API_BASE_URL
         value: https://glondia-backend.onrender.com/api/v1
+      # Custom domain — set in Render dashboard → glondiasites → Custom Domains
+      # www.glondiasites.com  CNAME  glondiasites-vrjm.onrender.com
+      # glondiasites.com      A      216.24.57.1
 
   # ── Redis ────────────────────────────────────────────────────────────────────
   - type: redis

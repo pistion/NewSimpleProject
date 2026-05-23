@@ -21,6 +21,26 @@ export class UpdateProjectDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(40)
+  repositoryProvider?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  repositoryOwner?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  repositoryName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  repositoryId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   productionBranch?: string;
 

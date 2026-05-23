@@ -34,6 +34,16 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
 
+  // GitHub OAuth integration
+  GITHUB_CLIENT_ID: z.string().default(''),
+  GITHUB_CLIENT_SECRET: z.string().default(''),
+  // Full callback URL — must match exactly what's registered in the GitHub OAuth app
+  GITHUB_REDIRECT_URI: z.string().url().default('http://localhost:4000/api/v1/github/callback'),
+  // Secret for validating incoming webhook payloads (set in GitHub repo/org → Settings → Webhooks)
+  GITHUB_WEBHOOK_SECRET: z.string().default(''),
+  // Optional PAT for cloning private repos when user OAuth token is unavailable
+  GITHUB_TOKEN: z.string().default(''),
+
   // Render hosting provider
   RENDER_API_KEY: z.string().default(''),
   RENDER_API_BASE_URL: z.string().url().default('https://api.render.com/v1'),

@@ -5,12 +5,13 @@ import { GD } from './data';
 import { StatusBadge, Tabs, Stat, Badge, Empty } from './components';
 import { useProjects } from './use-projects';
 import { useDeploymentLogs, useProjectArtifacts, useProjectDeployments, useProjectEnvVars } from './use-project-detail-data';
-import { archiveProject, cancelDeployment, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, exportEnvVars, linkRenderService, listRenderServices, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
+import { archiveProject, cancelDeployment, connectGitHubUrl, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, disconnectGitHub, exportEnvVars, getGitHubStatus, linkProjectRepo, linkRenderService, listGitHubBranches, listGitHubRepos, listRenderServices, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
 import { useDomains } from './use-domains';
 
 export function HostingList({ navigate }) {
   const { projects, loading, source, error } = useProjects();
   const [showCreate, setShowCreate] = useStateH(false);
+  const [showImport, setShowImport] = useStateH(false);
   const [creating, setCreating] = useStateH(false);
   const [createError, setCreateError] = useStateH(null);
   const [projectForm, setProjectForm] = useStateH({
@@ -57,10 +58,17 @@ export function HostingList({ navigate }) {
           <p className="sub">Every site, app, and preview environment in your workspace.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-outline"><ICN.Git size={14} /> Import from Git</button>
+          <button className="btn btn-outline" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New project</button>
         </div>
       </div>
+
+      {showImport && (
+        <ImportFromGitModal
+          onClose={() => setShowImport(false)}
+          onCreated={(project) => { setShowImport(false); navigate({ view: "hosting-detail", params: { id: project.id } }); }}
+        />
+      )}
 
       {source === "api" && (
         <div className="card" style={{ padding: "10px 14px", fontSize: 13 }}>
@@ -130,7 +138,7 @@ export function HostingList({ navigate }) {
             body="Import a Git repository or create a new project to get started."
             action={
               <div className="row" style={{ gap: 8 }}>
-                <button className="btn btn-outline"><ICN.Git size={14} /> Import from Git</button>
+                <button className="btn btn-outline" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
                 <button className="btn btn-primary" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New project</button>
               </div>
             } />
@@ -1125,6 +1133,8 @@ function ProjectSettingsTab({ p }) {
         </div>
       </form>
 
+      <GitHubCard p={p} />
+
       <RenderLinkCard p={p} />
 
       <div className="card">
@@ -1145,6 +1155,256 @@ function ProjectSettingsTab({ p }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── GitHub import modal ───────────────────────────────────────────────────────
+function ImportFromGitModal({ onClose, onCreated }) {
+  const [ghStatus, setGhStatus] = useStateH(null);
+  const [loadingStatus, setLoadingStatus] = useStateH(true);
+  const [repos, setRepos] = useStateH([]);
+  const [loadingRepos, setLoadingRepos] = useStateH(false);
+  const [branches, setBranches] = useStateH([]);
+  const [loadingBranches, setLoadingBranches] = useStateH(false);
+  const [selectedRepo, setSelectedRepo] = useStateH('');
+  const [selectedBranch, setSelectedBranch] = useStateH('main');
+  const [projectName, setProjectName] = useStateH('');
+  const [framework, setFramework] = useStateH('Next.js');
+  const [creating, setCreating] = useStateH(false);
+  const [err, setErr] = useStateH(null);
+
+  const loadRepos = () => {
+    setLoadingRepos(true);
+    listGitHubRepos()
+      .then(r => setRepos(r || []))
+      .catch(() => setRepos([]))
+      .finally(() => setLoadingRepos(false));
+  };
+
+  React.useEffect(() => {
+    getGitHubStatus()
+      .then(s => { setGhStatus(s); if (s?.connected) loadRepos(); })
+      .catch(() => setGhStatus({ connected: false }))
+      .finally(() => setLoadingStatus(false));
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedRepo) { setBranches([]); return; }
+    const [owner, repo] = selectedRepo.split('/');
+    setLoadingBranches(true);
+    listGitHubBranches(owner, repo)
+      .then(b => { setBranches(b || []); setSelectedBranch(b?.[0]?.name || 'main'); })
+      .catch(() => setBranches([]))
+      .finally(() => setLoadingBranches(false));
+  }, [selectedRepo]);
+
+  React.useEffect(() => {
+    if (selectedRepo && !projectName) {
+      setProjectName(selectedRepo.split('/')[1] || '');
+    }
+  }, [selectedRepo]);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!selectedRepo) return;
+    const [owner, repo] = selectedRepo.split('/');
+    const repoData = repos.find(r => r.full_name === selectedRepo);
+    setCreating(true); setErr(null);
+    try {
+      const project = await createProject({
+        name: projectName || repo,
+        framework,
+        repositoryProvider: 'github',
+        repositoryOwner: owner,
+        repositoryName: repo,
+        repositoryId: String(repoData?.id || ''),
+        productionBranch: selectedBranch,
+      });
+      onCreated(project);
+    } catch (e) { setErr(e.message); }
+    finally { setCreating(false); }
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="card" style={{ width: "min(520px, 94vw)", maxHeight: "85vh", overflowY: "auto" }}>
+        <div className="row between" style={{ marginBottom: 18 }}>
+          <h2 style={{ margin: 0 }}><ICN.Git size={18} style={{ marginRight: 8 }} />Import from GitHub</h2>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+        </div>
+
+        {loadingStatus ? (
+          <div className="muted" style={{ fontSize: 13, padding: "12px 0" }}>Checking GitHub connection…</div>
+        ) : !ghStatus?.connected ? (
+          <div style={{ textAlign: "center", padding: "28px 0" }}>
+            <div className="muted" style={{ marginBottom: 18, fontSize: 14 }}>
+              Connect your GitHub account to browse and import repositories.
+            </div>
+            <button className="btn btn-primary" onClick={() => { window.location.href = connectGitHubUrl(); }}>
+              <ICN.Git size={14} /> Connect GitHub
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleCreate}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label className="label">Repository</label>
+                <select className="select" value={selectedRepo} onChange={e => setSelectedRepo(e.target.value)} disabled={loadingRepos} required>
+                  <option value="">— Select a repository —</option>
+                  {repos.map(r => <option key={r.id} value={r.full_name}>{r.full_name}{r.private ? ' 🔒' : ''}</option>)}
+                </select>
+                {loadingRepos && <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>Loading repositories…</div>}
+              </div>
+              <div>
+                <label className="label">Branch to deploy</label>
+                <select className="select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} disabled={!selectedRepo || loadingBranches}>
+                  {branches.length > 0
+                    ? branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)
+                    : <option value="main">main</option>}
+                </select>
+              </div>
+              <div>
+                <label className="label">Project name</label>
+                <input className="input" value={projectName} onChange={e => setProjectName(e.target.value)} required minLength={2} placeholder="my-project" />
+              </div>
+              <div>
+                <label className="label">Framework</label>
+                <select className="select" value={framework} onChange={e => setFramework(e.target.value)}>
+                  {GD.frameworks.map(f => <option key={f}>{f}</option>)}
+                </select>
+              </div>
+            </div>
+            {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 12 }}>{err}</div>}
+            <div className="row" style={{ justifyContent: "flex-end", marginTop: 18, gap: 8 }}>
+              <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={!selectedRepo || creating || loadingRepos}>
+                {creating ? 'Creating project…' : 'Import project'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── GitHub repo card (project settings) ──────────────────────────────────────
+function GitHubCard({ p }) {
+  const [status, setStatus] = useStateH(null);
+  const [loadingStatus, setLoadingStatus] = useStateH(true);
+  const [repos, setRepos] = useStateH([]);
+  const [loadingRepos, setLoadingRepos] = useStateH(false);
+  const [branches, setBranches] = useStateH([]);
+  const [loadingBranches, setLoadingBranches] = useStateH(false);
+  const [selectedRepo, setSelectedRepo] = useStateH('');
+  const [selectedBranch, setSelectedBranch] = useStateH(p.branch || 'main');
+  const [linking, setLinking] = useStateH(false);
+  const [linkMsg, setLinkMsg] = useStateH(null);
+  const [linkErr, setLinkErr] = useStateH(null);
+
+  const loadRepos = () => {
+    setLoadingRepos(true);
+    listGitHubRepos()
+      .then(r => setRepos(r || []))
+      .catch(() => setRepos([]))
+      .finally(() => setLoadingRepos(false));
+  };
+
+  React.useEffect(() => {
+    getGitHubStatus()
+      .then(s => { setStatus(s); if (s?.connected) loadRepos(); })
+      .catch(() => setStatus({ connected: false }))
+      .finally(() => setLoadingStatus(false));
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedRepo) { setBranches([]); return; }
+    const [owner, repoName] = selectedRepo.split('/');
+    setLoadingBranches(true);
+    listGitHubBranches(owner, repoName)
+      .then(b => { setBranches(b || []); })
+      .catch(() => setBranches([]))
+      .finally(() => setLoadingBranches(false));
+  }, [selectedRepo]);
+
+  const handleLink = async () => {
+    if (!selectedRepo) return;
+    const [owner, repoName] = selectedRepo.split('/');
+    const repoData = repos.find(r => r.full_name === selectedRepo);
+    setLinking(true); setLinkMsg(null); setLinkErr(null);
+    try {
+      await linkProjectRepo(p.id, { owner, repo: repoName, branch: selectedBranch, repoId: repoData?.id });
+      setLinkMsg(`Linked to ${selectedRepo} on branch ${selectedBranch}. Push to that branch to trigger an auto-deploy.`);
+    } catch (e) { setLinkErr(e.message); }
+    finally { setLinking(false); }
+  };
+
+  const handleDisconnect = async () => {
+    setLinkErr(null);
+    try {
+      await disconnectGitHub();
+      setStatus({ connected: false });
+      setRepos([]);
+      setSelectedRepo('');
+    } catch (e) { setLinkErr(e.message); }
+  };
+
+  return (
+    <div className="card">
+      <div className="row between" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>GitHub repository</h2>
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Link a repository to enable auto-deploy on every push to the production branch.
+          </div>
+        </div>
+        {status?.connected && (
+          <div className="row" style={{ gap: 8 }}>
+            <Badge tone="success" dot={false}>@{status.githubUserId}</Badge>
+            <button className="btn btn-sm btn-ghost" onClick={handleDisconnect}>Disconnect</button>
+          </div>
+        )}
+      </div>
+
+      {p.repo && p.repo !== 'No repository' && (
+        <div className="kv" style={{ gridTemplateColumns: "130px 1fr", marginBottom: 14 }}>
+          <dt>Linked repo</dt><dd className="mono">{p.repo}</dd>
+          <dt>Branch</dt><dd className="mono">{p.branch}</dd>
+        </div>
+      )}
+
+      {loadingStatus ? (
+        <div className="muted" style={{ fontSize: 13 }}>Checking GitHub connection…</div>
+      ) : !status?.connected ? (
+        <button className="btn btn-outline" onClick={() => { window.location.href = connectGitHubUrl(); }}>
+          <ICN.Git size={14} /> Connect GitHub
+        </button>
+      ) : (
+        <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+          <select className="select" value={selectedRepo} onChange={e => setSelectedRepo(e.target.value)}
+            disabled={loadingRepos || linking} style={{ flex: 2, minWidth: 200 }}>
+            <option value="">— Select repository —</option>
+            {repos.map(r => <option key={r.id} value={r.full_name}>{r.full_name}{r.private ? ' 🔒' : ''}</option>)}
+          </select>
+          <select className="select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
+            disabled={!selectedRepo || loadingBranches || linking} style={{ minWidth: 120 }}>
+            {branches.length > 0
+              ? branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)
+              : <option value={p.branch || 'main'}>{p.branch || 'main'}</option>}
+          </select>
+          <button className="btn btn-primary" onClick={handleLink} disabled={!selectedRepo || linking || loadingRepos}>
+            {linking ? 'Linking…' : 'Link repo'}
+          </button>
+        </div>
+      )}
+
+      {loadingRepos && <div style={{ marginTop: 10, fontSize: 13, color: "var(--text-muted)" }}>Loading repositories…</div>}
+      {linkMsg && <div style={{ marginTop: 10, fontSize: 13, color: "var(--accent)" }}>{linkMsg}</div>}
+      {linkErr && <div style={{ marginTop: 10, fontSize: 13, color: "var(--danger)" }}>{linkErr}</div>}
+    </div>
   );
 }
 

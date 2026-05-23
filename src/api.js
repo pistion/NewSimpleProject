@@ -166,6 +166,60 @@ export async function exportEnvVars(projectId, environment) {
   return apiRequest(`/projects/${projectId}/env-vars/export${qs}`);
 }
 
+// ─── GitHub integration ───────────────────────────────────────────────────────
+
+/**
+ * Redirect the browser to GitHub OAuth — call as window.location.href = connectGitHub()
+ * Returns the URL to navigate to (not a fetch call).
+ */
+export function connectGitHubUrl(returnPath = '') {
+  const { accessToken } = getStoredAuth();
+  if (!accessToken) throw new Error('Must be logged in to connect GitHub.');
+  const params = returnPath ? `?return=${encodeURIComponent(returnPath)}` : '';
+  return `${API_BASE_URL}/github/auth${params}`;
+}
+
+/** Check whether the current user has GitHub connected. */
+export async function getGitHubStatus() {
+  return apiRequest('/github/status');
+}
+
+/** Remove the stored GitHub OAuth token. */
+export async function disconnectGitHub() {
+  const result = await apiRequest('/github/disconnect', { method: 'DELETE' });
+  notifyDataChanged();
+  return result;
+}
+
+/** List repos accessible to the connected GitHub account. */
+export async function listGitHubRepos() {
+  return apiRequest('/github/repos');
+}
+
+/** List branches for a specific repo. */
+export async function listGitHubBranches(owner, repo) {
+  return apiRequest(`/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`);
+}
+
+/**
+ * Link a GitHub repo to a project (owner, repo, branch, provider).
+ * Calls PATCH /projects/:id with the repo fields.
+ */
+export async function linkProjectRepo(projectId, { owner, repo, branch, repoId }) {
+  const project = await apiRequest(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      repositoryProvider: 'github',
+      repositoryOwner: owner,
+      repositoryName: repo,
+      repositoryId: String(repoId ?? ''),
+      productionBranch: branch || 'main',
+    }),
+  });
+  notifyDataChanged();
+  return mapApiProject(project);
+}
+
 // ─── Render integration ───────────────────────────────────────────────────────
 export async function listRenderServices() {
   return apiRequest('/render/services');

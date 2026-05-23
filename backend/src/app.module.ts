@@ -14,6 +14,7 @@ import { BillingModule } from './modules/billing/billing.module';
 import { BuilderModule } from './modules/builder/builder.module';
 import { DeploymentsModule } from './modules/deployments/deployments.module';
 import { DomainsModule } from './modules/domains/domains.module';
+import { GitHubModule } from './integrations/github/github.module';
 import { RenderModule } from './integrations/render/render.module';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -60,6 +61,7 @@ import { WorkspaceModule } from './modules/workspace/workspace.module';
     DomainsModule,
     HealthModule,
     ProjectsModule,
+    GitHubModule,
     RenderModule,
     WorkspaceModule,
 

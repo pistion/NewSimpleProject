@@ -24,6 +24,7 @@ import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
 import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor } from './builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
+import { notifyDataChanged } from './api';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
@@ -65,12 +66,31 @@ function applyFontPair(pair) {
 export default function App() {
   const [route, setRoute] = useStateApp({ view: "marketing" });
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [githubBanner, setGithubBanner] = useStateApp(null);
 
   // Apply theme/accent/density to root
   useEffectApp(() => { document.documentElement.dataset.theme = t.theme; }, [t.theme]);
   useEffectApp(() => { document.documentElement.dataset.density = t.density; }, [t.density]);
   useEffectApp(() => { applyAccent(t.accent); }, [t.accent]);
   useEffectApp(() => { applyFontPair(t.fontPair); }, [t.fontPair]);
+
+  // GitHub OAuth callback — backend redirects back with ?github_connected=1&login=xxx
+  useEffectApp(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('github_connected') === '1') {
+      const login = params.get('login') || '';
+      setGithubBanner(login ? `GitHub connected as @${login}.` : 'GitHub connected successfully.');
+      // Clear query params without reload
+      const clean = new URL(window.location.href);
+      clean.search = '';
+      window.history.replaceState({}, '', clean.toString());
+      // Land on hosting so the user can start importing
+      setRoute({ view: 'hosting-list' });
+      notifyDataChanged();
+      const t = setTimeout(() => setGithubBanner(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   // Marketing has its own nav, scroll to anchor on view change
   useEffectApp(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [route.view, route.params?.id]);
@@ -135,6 +155,18 @@ export default function App() {
         ? renderView()
         : (
           <div className="dash">
+            {githubBanner && (
+              <div style={{
+                position: "fixed", top: 0, left: 0, right: 0, zIndex: 300,
+                background: "var(--accent-soft)", color: "var(--accent)",
+                borderBottom: "1px solid var(--accent)", padding: "10px 20px",
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                fontSize: 13, fontWeight: 500,
+              }}>
+                <span><ICN.Git size={14} style={{ marginRight: 6 }} />{githubBanner}</span>
+                <button className="btn btn-sm btn-ghost" onClick={() => setGithubBanner(null)} style={{ color: "var(--accent)" }}>✕</button>
+              </div>
+            )}
             <DashSidebar active={activeKey} navigate={navigate} />
             <main className="dash-main">
               <DashTopbar crumbs={crumbs} navigate={navigate} theme={t.theme} toggleTheme={toggleTheme} />
