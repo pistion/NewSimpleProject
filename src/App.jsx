@@ -74,7 +74,7 @@ export default function App() {
   useEffectApp(() => { applyAccent(t.accent); }, [t.accent]);
   useEffectApp(() => { applyFontPair(t.fontPair); }, [t.fontPair]);
 
-  // GitHub OAuth callback — backend redirects back with ?github_connected=1&login=xxx
+  // GitHub OAuth callback compatibility for previously connected URLs.
   useEffectApp(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('github_connected') === '1') {

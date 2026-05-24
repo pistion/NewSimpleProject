@@ -581,7 +581,7 @@ function EnvVarsTab({ projectId, project }) {
           <div className="grid-2" style={{ gap: 14 }}>
             <div>
               <label className="label">Key</label>
-              <input className="input mono" value={form.key} onChange={(e) => updateForm('key', e.target.value.toUpperCase())} placeholder="DATABASE_URL" pattern="[A-Z_][A-Z0-9_]*" required />
+              <input className="input mono" value={form.key} onChange={(e) => updateForm('key', e.target.value.toUpperCase())} placeholder="VITE_PUBLIC_URL" pattern="[A-Z_][A-Z0-9_]*" required />
             </div>
             <div>
               <label className="label">Environment</label>

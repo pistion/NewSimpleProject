@@ -1,4 +1,4 @@
-// use-sites.js — loads the user's builder sites from the backend API.
+// use-sites.js — loads the user's builder sites from local browser storage.
 import { useEffect, useMemo, useState } from 'react';
 import { AUTH_CHANGED_EVENT, DATA_CHANGED_EVENT, apiRequest, getStoredAuth } from './api';
 

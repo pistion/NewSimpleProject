@@ -25,5 +25,5 @@ This project is a React + Vite frontend remake of Glondia as an ecommerce websit
 - `src/components` contains shared public and dashboard components
 - `src/features` contains route-level feature pages
 - `src/data` contains connected mock data used across the public site and dashboard
-- `src/services` contains placeholder async service functions for later backend work
+- `src/services` contains local async service helpers for prototype flows
 - `src/styles` contains Bootstrap overrides and app-wide styling

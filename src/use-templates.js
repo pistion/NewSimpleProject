@@ -1,4 +1,4 @@
-// use-templates.js — loads the template catalogue from the backend API.
+// use-templates.js — loads the template catalogue from the local app API.
 // Falls back to the local GD.templates reference data so the gallery always renders
 // even when the user isn't logged in or the API is unreachable.
 //

@@ -1,6 +1,6 @@
-# Render Blueprint - single Glondia Sites deployment.
-# One public web service serves the React app and proxies /api to the Nest backend
-# running on an internal localhost port inside the same Render instance.
+# Render Blueprint - clean Glondia Sites Vite deployment.
+# One Node web service serves the built React app from dist.
+# No Nest backend, no Prisma migrations, no Postgres, no Redis, no JWT secrets.
 
 services:
   - type: web
@@ -8,9 +8,9 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    buildCommand: npm ci && npm --prefix backend ci --cache /tmp/.npm-cache && npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build
-    startCommand: node server/render-single-service.mjs
-    healthCheckPath: /api/v1/health
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
 
     disk:
       name: glondia-disk
@@ -20,114 +20,3 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: APP_NAME
-        value: glondia-backend
-      - key: INTERNAL_API_PORT
-        value: 4001
-
-      # Public single-service URLs.
-      - key: APP_URL
-        value: https://glondiasites.onrender.com
-      - key: API_BASE_URL
-        value: https://glondiasites.onrender.com/api/v1
-      - key: FRONTEND_URL
-        value: https://glondiasites.onrender.com
-      - key: CORS_ORIGINS
-        value: https://www.glondiasites.com,https://glondiasites.com,https://glondiasites.onrender.com
-
-      - key: DATABASE_URL
-        value: file:/var/glondia/data/glondia.db
-
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: glondia-redis
-          property: connectionString
-
-      - key: JWT_ACCESS_SECRET
-        generateValue: true
-      - key: JWT_REFRESH_SECRET
-        generateValue: true
-      - key: FIELD_ENCRYPTION_KEY
-        generateValue: true
-      - key: ACCESS_TOKEN_TTL_MINUTES
-        value: 15
-      - key: REFRESH_TOKEN_TTL_DAYS
-        value: 30
-
-      - key: GITHUB_CLIENT_ID
-        sync: false
-      - key: GITHUB_CLIENT_SECRET
-        sync: false
-      - key: GITHUB_REDIRECT_URI
-        value: https://glondiasites.onrender.com/api/v1/github/callback
-      - key: GITHUB_WEBHOOK_SECRET
-        sync: false
-      - key: GITHUB_TOKEN
-        sync: false
-
-      - key: RENDER_API_KEY
-        sync: false
-      - key: RENDER_API_BASE_URL
-        value: https://api.render.com/v1
-
-      - key: SPACESHIP_API_KEY
-        sync: false
-      - key: SPACESHIP_API_SECRET
-        sync: false
-
-      - key: EMAIL_PROVIDER
-        value: log
-      - key: EMAIL_FROM
-        value: no-reply@glondia.app
-      - key: RESEND_API_KEY
-        sync: false
-
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
-        sync: false
-      - key: PAYPAL_WEBHOOK_ID
-        sync: false
-      - key: PAYPAL_SANDBOX
-        value: "false"
-
-      - key: S3_ENDPOINT
-        value: https://s3.amazonaws.com
-      - key: S3_REGION
-        value: ap-southeast-2
-      - key: S3_ACCESS_KEY_ID
-        sync: false
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false
-      - key: S3_ASSETS_BUCKET
-        value: glondia-assets
-      - key: S3_ARTIFACTS_BUCKET
-        value: glondia-artifacts
-      - key: S3_PUBLIC_URL
-        sync: false
-
-      - key: DATA_DIR
-        value: /var/glondia/data
-      - key: BUILD_TEMP_DIR
-        value: /var/glondia/tmp
-      - key: STORAGE_DRIVER
-        value: local
-
-      - key: RATE_LIMIT_TTL_SECONDS
-        value: 60
-      - key: RATE_LIMIT_MAX_REQUESTS
-        value: 200
-      - key: LOG_LEVEL
-        value: info
-
-  - type: redis
-    name: glondia-redis
-    region: oregon
-    plan: starter
-    maxmemoryPolicy: noeviction
