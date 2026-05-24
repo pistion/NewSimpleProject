@@ -128,6 +128,15 @@ app.get('/api/render/deploys', async (req, res, next) => {
   }
 });
 
+app.get('/api/render/services', async (req, res, next) => {
+  try {
+    const result = await listRenderServices();
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use('/sandbox/:siteId', (req, res, next) => {
   const siteId = sanitizeId(req.params.siteId);
   const sandboxDist = resolve(sandboxRoot, siteId, 'dist');
@@ -396,7 +405,7 @@ async function proxySandboxRuntime(req, res, next, port, siteId) {
 
 async function triggerRenderDeploy(input = {}) {
   const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL || input.deployHookUrl;
-  const serviceId = process.env.RENDER_SERVICE_ID || input.serviceId || input.renderServiceId;
+  const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
 
   if (deployHookUrl) {
@@ -473,7 +482,7 @@ function getRenderSettings(input = {}) {
 }
 
 async function listRenderDeploys(input = {}) {
-  const serviceId = process.env.RENDER_SERVICE_ID || input.serviceId || input.renderServiceId;
+  const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
   if (!apiKey || !serviceId) {
     return { status: 'configuration_required', deploys: [], settings: getRenderSettings(input) };
@@ -492,6 +501,56 @@ async function listRenderDeploys(input = {}) {
     return { status: 'failed', deploys: [], settings: getRenderSettings(input), error: body?.message || bodyText || `Render returned ${response.status}.` };
   }
   return { status: 'ok', deploys: Array.isArray(body) ? body : [], settings: getRenderSettings(input) };
+}
+
+async function resolveRenderServiceId(input = {}) {
+  if (input.serviceId || input.renderServiceId) return input.serviceId || input.renderServiceId;
+  if (process.env.RENDER_SERVICE_ID) return process.env.RENDER_SERVICE_ID;
+  const services = await listRenderServices().catch(() => []);
+  const repoNeedle = String(input.repo || input.repository || '').toLowerCase();
+  const nameNeedle = String(input.name || '').toLowerCase();
+  const match = services.find((service) => {
+    const haystack = [
+      service.id,
+      service.name,
+      service.slug,
+      service.repo,
+      service.url,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return (repoNeedle && haystack.includes(repoNeedle.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '')))
+      || (nameNeedle && haystack.includes(nameNeedle));
+  });
+  return match?.id || services[0]?.id || null;
+}
+
+async function listRenderServices() {
+  const apiKey = process.env.RENDER_API_KEY;
+  if (!apiKey) return [];
+  const response = await fetch('https://api.render.com/v1/services?limit=100', {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+    },
+  });
+  const bodyText = await response.text();
+  let body;
+  try { body = bodyText ? JSON.parse(bodyText) : []; } catch { body = []; }
+  if (!response.ok) return [];
+  const rows = Array.isArray(body) ? body : [];
+  return rows.map((item) => {
+    const svc = item.service || item;
+    return {
+      id: svc.id,
+      name: svc.name,
+      type: svc.type,
+      slug: svc.slug,
+      suspended: svc.suspended && svc.suspended !== 'not_suspended',
+      url: svc.serviceDetails?.url || svc.url || null,
+      region: svc.serviceDetails?.region || svc.region || null,
+      env: svc.serviceDetails?.env || svc.env || null,
+      repo: svc.repo || svc.repoUrl || svc.serviceDetails?.repo || null,
+    };
+  }).filter((service) => service.id);
 }
 
 // ── Error handler ────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ import {
   saveBuilderPage, publishBuilderSite,
   createBuilderPage, deleteBuilderPage, listPageVersions,
   uploadBuilderSitePackage, importBuilderSiteFromGithub,
-  getRenderSettings, listRenderDeploys, triggerRenderDeploy,
+  getRenderSettings, listRenderDeploys, listLiveRenderServices, triggerRenderDeploy,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -1008,7 +1008,8 @@ function ImportedGithubWorkspace({ content, site }) {
   const selectedContent = contents[selectedPath] || '';
   const summary = content._githubSummary || {};
   const loadedPaths = Object.keys(contents);
-  const [renderStatus, setRenderStatus] = useStateB({ loading: true, settings: null, deploys: [], error: null });
+  const [renderStatus, setRenderStatus] = useStateB({ loading: true, settings: null, services: [], deploys: [], error: null });
+  const [selectedRenderServiceId, setSelectedRenderServiceId] = useStateB('');
   const [deploying, setDeploying] = useStateB(false);
   const [deployMsg, setDeployMsg] = useStateB(null);
 
@@ -1018,17 +1019,20 @@ function ImportedGithubWorkspace({ content, site }) {
 
   const refreshRenderStatus = React.useCallback(() => {
     setRenderStatus((current) => ({ ...current, loading: true, error: null }));
-    Promise.all([getRenderSettings(), listRenderDeploys()])
-      .then(([settings, deploys]) => {
+    Promise.all([getRenderSettings(), listLiveRenderServices(), listRenderDeploys()])
+      .then(([settings, services, deploys]) => {
+        const activeServiceId = selectedRenderServiceId || settings?.serviceId || services?.[0]?.id || '';
+        if (!selectedRenderServiceId && activeServiceId) setSelectedRenderServiceId(activeServiceId);
         setRenderStatus({
           loading: false,
           settings,
+          services: services || [],
           deploys: deploys?.deploys || [],
           error: deploys?.error || settings?.error || null,
         });
       })
-      .catch((error) => setRenderStatus({ loading: false, settings: null, deploys: [], error: error.message }));
-  }, []);
+      .catch((error) => setRenderStatus({ loading: false, settings: null, services: [], deploys: [], error: error.message }));
+  }, [selectedRenderServiceId]);
 
   React.useEffect(() => {
     refreshRenderStatus();
@@ -1038,7 +1042,12 @@ function ImportedGithubWorkspace({ content, site }) {
     setDeploying(true);
     setDeployMsg(null);
     try {
-      const result = await triggerRenderDeploy({ siteId: site?.id });
+      const result = await triggerRenderDeploy({
+        siteId: site?.id,
+        serviceId: selectedRenderServiceId,
+        repo: content._repository,
+        name: content.siteName || content._repository,
+      });
       setDeployMsg(result.message || (result.status === 'triggered' ? 'Render deploy triggered.' : 'Render configuration needs attention.'));
       refreshRenderStatus();
     } finally {
@@ -1083,6 +1092,22 @@ function ImportedGithubWorkspace({ content, site }) {
             <dt>API key</dt><dd>{renderStatus.settings?.apiKeyPresent ? 'Configured' : 'Missing'}</dd>
             <dt>Service ID</dt><dd className="mono">{renderStatus.settings?.serviceId || 'Missing'}</dd>
             <dt>Deploy hook</dt><dd>{renderStatus.settings?.deployHookPresent ? 'Configured' : 'Optional'}</dd>
+          </div>
+          <div>
+            <div className="label">Active Render service</div>
+            <select className="select mono" value={selectedRenderServiceId} onChange={(e) => setSelectedRenderServiceId(e.target.value)} disabled={renderStatus.loading || deploying}>
+              <option value="">Select service</option>
+              {(renderStatus.services || []).map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name || service.id} - {service.type || 'service'} - {service.region || 'region unknown'}
+                </option>
+              ))}
+            </select>
+            {!renderStatus.services?.length && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                No Render services returned. Check that the API key has access to this workspace, or set RENDER_SERVICE_ID directly.
+              </div>
+            )}
           </div>
           {renderStatus.error && <div style={{ color: "var(--warning)", fontSize: 13 }}>{renderStatus.error}</div>}
           {deployMsg && <div style={{ color: "var(--accent)", fontSize: 13 }}>{deployMsg}</div>}

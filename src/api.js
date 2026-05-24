@@ -530,6 +530,16 @@ export async function listRenderDeploys() {
   }
 }
 
+export async function listLiveRenderServices() {
+  try {
+    const response = await fetch('/api/render/services');
+    if (!response.ok) throw new Error(`Render services returned ${response.status}.`);
+    return response.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function uploadBuilderSitePackage(file) {
   const db = readLocalDb();
   const site = makeBuilderSite({
