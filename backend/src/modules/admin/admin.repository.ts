@@ -9,8 +9,8 @@ export class AdminRepository {
     return this.prisma.user.findMany({
       where: {
         OR: [
-          { email: { contains: query, mode: 'insensitive' } },
-          { name: { contains: query, mode: 'insensitive' } }
+          { email: { contains: query } },
+          { name: { contains: query } }
         ]
       },
       select: {

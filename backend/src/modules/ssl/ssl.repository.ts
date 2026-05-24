@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SslCertificateStatus } from '@prisma/client';
+import { SslCertificateStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()

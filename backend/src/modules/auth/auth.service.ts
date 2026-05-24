@@ -3,7 +3,9 @@ import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { Prisma, UserStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { UserStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -87,7 +89,7 @@ export class AuthService {
           resourceId: user.id,
           ipAddress: context.ipAddress,
           userAgent: context.userAgent,
-          metadata: { sessionId: session.id }
+          metadata: jsonToDb({ sessionId: session.id })
         }
       });
 
@@ -154,7 +156,7 @@ export class AuthService {
           resourceId: session.id,
           ipAddress: context.ipAddress,
           userAgent: context.userAgent,
-          metadata: {}
+          metadata: jsonToDb({})
         }
       })
     ]);
@@ -221,7 +223,7 @@ export class AuthService {
         resourceId: session.id,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
-        metadata: {}
+        metadata: jsonToDb({})
       }
     });
 
@@ -261,7 +263,7 @@ export class AuthService {
           resourceId: session.id,
           ipAddress: context.ipAddress,
           userAgent: context.userAgent,
-          metadata: {}
+          metadata: jsonToDb({})
         }
       })
     ]);
@@ -326,7 +328,7 @@ export class AuthService {
         resourceId: userId,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
-        metadata: {}
+        metadata: jsonToDb({})
       }
     });
   }

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { jsonFromDb } from '../../common/json-field';
 import { CreatePageDto } from './dto/create-page.dto';
 import { CreateSiteDto } from './dto/create-site.dto';
 import { SavePageContentDto } from './dto/save-page-content.dto';
@@ -45,7 +46,7 @@ export class BuilderService {
     if (dto.templateId) {
       const template = await this.repo.findTemplateById(dto.templateId);
       if (!template) throw new NotFoundException('Template not found.');
-      templateContentJson = template.contentJson as Record<string, unknown> | null;
+      templateContentJson = jsonFromDb<Record<string, unknown>>(template.contentJson, {});
     }
 
     const slug = this.repo.generateSlug(dto.name);
@@ -125,12 +126,13 @@ export class BuilderService {
     const page = await this.getPage(siteId, pageId, context);
 
     // Snapshot previous content as a version
-    if (page.content && Object.keys(page.content as object).length > 0) {
+    const previousContent = jsonFromDb<Record<string, unknown>>(page.content, {});
+    if (Object.keys(previousContent).length > 0) {
       await this.repo.createPageVersion({
         organizationId: context.organizationId,
         siteId,
         pageId: page.id,
-        content: page.content as Prisma.InputJsonValue,
+        content: previousContent as Prisma.InputJsonValue,
         createdByUserId: context.userId
       });
     }

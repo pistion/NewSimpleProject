@@ -36,9 +36,7 @@ services:
         value: https://www.glondiasites.com,https://glondiasites.com,https://glondiasites.onrender.com
 
       - key: DATABASE_URL
-        fromDatabase:
-          name: glondia-db
-          property: connectionString
+        value: file:/var/glondia/data/glondia.db
 
       - key: REDIS_URL
         fromService:
@@ -118,6 +116,8 @@ services:
         value: /var/glondia/data
       - key: BUILD_TEMP_DIR
         value: /var/glondia/tmp
+      - key: STORAGE_DRIVER
+        value: local
 
       - key: RATE_LIMIT_TTL_SECONDS
         value: 60
@@ -131,10 +131,3 @@ services:
     region: oregon
     plan: starter
     maxmemoryPolicy: noeviction
-
-databases:
-  - name: glondia-db
-    region: oregon
-    plan: starter
-    databaseName: glondia
-    user: glondia

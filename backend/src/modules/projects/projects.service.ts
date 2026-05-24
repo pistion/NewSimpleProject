@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ProjectEnvironment, ProjectStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { ProjectEnvironment, ProjectStatus } from '../../common/prisma-enums';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateEnvVarDto } from './dto/create-env-var.dto';
@@ -202,7 +204,7 @@ export class ProjectsService {
         entityId: projectId,
         action,
         message,
-        metadata: {}
+        metadata: jsonToDb({})
       }
     });
   }
@@ -221,7 +223,7 @@ export class ProjectsService {
         action,
         resourceType,
         resourceId,
-        metadata
+        metadata: jsonToDb(metadata)
       }
     });
   }
@@ -238,7 +240,7 @@ export class ProjectsService {
   private toEnvVarResponse(envVar: {
     id: string;
     key: string;
-    environment: ProjectEnvironment;
+    environment: ProjectEnvironment | string;
     createdAt: Date;
     updatedAt: Date;
   }) {

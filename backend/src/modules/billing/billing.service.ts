@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { jsonFromDb } from '../../common/json-field';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { BillingRepository } from './billing.repository';
 
@@ -47,7 +48,7 @@ export class BillingService {
       features: {}
     };
 
-    const limits = (plan as { limits?: Record<string, unknown> }).limits ?? {};
+    const limits = jsonFromDb<Record<string, unknown>>((plan as { limits?: unknown }).limits, {});
 
     return {
       subscription: {

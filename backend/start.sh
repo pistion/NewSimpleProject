@@ -18,15 +18,15 @@ RETRY_DELAY=5
 attempt=0
 
 echo "[start] Running database migrations..."
-until npx prisma migrate deploy; do
+until npx prisma db push --accept-data-loss; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge "$MAX_RETRIES" ]; then
-    echo "[start] ERROR: Migration failed after $MAX_RETRIES attempts. Giving up."
+    echo "[start] ERROR: Database sync failed after $MAX_RETRIES attempts. Giving up."
     exit 1
   fi
-  echo "[start] Migration attempt $attempt/$MAX_RETRIES failed. Retrying in ${RETRY_DELAY}s..."
+  echo "[start] Database sync attempt $attempt/$MAX_RETRIES failed. Retrying in ${RETRY_DELAY}s..."
   sleep "$RETRY_DELAY"
 done
 
-echo "[start] Migrations complete. Starting NestJS..."
+echo "[start] Database ready. Starting NestJS..."
 exec node dist/main.js

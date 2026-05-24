@@ -1,4 +1,4 @@
-import { DeploymentStatus } from '@prisma/client';
+import { DeploymentStatus } from '../../common/prisma-enums';
 import { DeploymentProcessor } from './deployment.processor';
 import { PROCESS_DEPLOYMENT_BUILD_JOB } from '../queues/queue.constants';
 

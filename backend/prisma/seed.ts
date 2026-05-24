@@ -212,8 +212,8 @@ async function main() {
         priceMonthlyCents: plan.priceMonthlyCents,
         priceYearlyCents: plan.priceYearlyCents,
         isActive: plan.isActive,
-        limits: plan.limits,
-        features: plan.features
+        limits: JSON.stringify(plan.limits),
+        features: JSON.stringify(plan.features)
       },
       create: {
         key: plan.key,
@@ -222,8 +222,8 @@ async function main() {
         priceMonthlyCents: plan.priceMonthlyCents,
         priceYearlyCents: plan.priceYearlyCents,
         isActive: plan.isActive,
-        limits: plan.limits,
-        features: plan.features
+        limits: JSON.stringify(plan.limits),
+        features: JSON.stringify(plan.features)
       }
     });
   }
@@ -293,7 +293,12 @@ async function main() {
   // Seed templates (only if table is empty — idempotent)
   const templateCount = await prisma.template.count();
   if (templateCount === 0) {
-    await prisma.template.createMany({ data: templateSeeds });
+    await prisma.template.createMany({
+      data: templateSeeds.map((template) => ({
+        ...template,
+        contentJson: JSON.stringify(template.contentJson)
+      }))
+    });
     console.log(`Seeded ${templateSeeds.length} templates.`);
   } else {
     console.log(`Templates already seeded (${templateCount} rows), skipping.`);

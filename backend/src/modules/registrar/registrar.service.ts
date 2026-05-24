@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DnsRecord, DnsRecordStatus, DnsRecordType } from '@prisma/client';
+import { DnsRecord } from '@prisma/client';
+import { DnsRecordStatus, DnsRecordType } from '../../common/prisma-enums';
 import { DomainsRepository } from '../domains/domains.repository';
 import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateContactDto } from './dto/create-contact.dto';

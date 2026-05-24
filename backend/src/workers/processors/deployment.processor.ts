@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeploymentSource, DeploymentStatus, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { DeploymentSource, DeploymentStatus } from '../../common/prisma-enums';
 import { Job, Worker } from 'bullmq';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -349,12 +351,12 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
           sequence: sequence + 1,
           level: 'info',
           message: 'Deployment artifact recorded.',
-          metadata: {
+          metadata: jsonToDb({
             artifactId: artifact.id,
             bucket: descriptor.bucket,
             objectKey: descriptor.objectKey,
             outputDirectory: artifactInput.outputDirectory
-          }
+          })
         }
       });
     });
@@ -382,7 +384,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
 
       const sequence = await tx.deploymentLog.count({ where: { deploymentId } });
       await tx.deploymentLog.create({
-        data: { deploymentId, organizationId, sequence: sequence + 1, level: 'info', message, metadata }
+        data: { deploymentId, organizationId, sequence: sequence + 1, level: 'info', message, metadata: jsonToDb(metadata) }
       });
     });
   }
@@ -403,7 +405,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
             sequence,
             level: 'info',
             message,
-            metadata: { source: 'build-runner' }
+            metadata: jsonToDb({ source: 'build-runner' })
           }
         });
       }
@@ -419,7 +421,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
   ) {
     const sequence = await this.prisma.deploymentLog.count({ where: { deploymentId } });
     return this.prisma.deploymentLog.create({
-      data: { deploymentId, organizationId, sequence: sequence + 1, level, message, metadata }
+      data: { deploymentId, organizationId, sequence: sequence + 1, level, message, metadata: jsonToDb(metadata) }
     });
   }
 
@@ -455,7 +457,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
           sequence: sequence + 1,
           level: 'error',
           message: 'Deployment worker failed.',
-          metadata: { error: message }
+          metadata: jsonToDb({ error: message })
         }
       });
     });

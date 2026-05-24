@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { DeploymentStatus, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { DeploymentStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -54,8 +56,12 @@ export class DeploymentsRepository {
     });
   }
 
-  createLog(data: Prisma.DeploymentLogUncheckedCreateInput) {
-    return this.prisma.deploymentLog.create({ data });
+  createLog(data: Omit<Prisma.DeploymentLogUncheckedCreateInput, 'metadata'> & {
+    metadata: Prisma.InputJsonObject;
+  }) {
+    return this.prisma.deploymentLog.create({
+      data: { ...data, metadata: jsonToDb(data.metadata) }
+    });
   }
 
   updateStatus(

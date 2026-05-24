@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, WebhookDeliveryStatus } from '@prisma/client';
+import { jsonFromDb, jsonToDb } from '../../common/json-field';
+import { WebhookDeliveryStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -33,7 +34,7 @@ export class WebhooksRepository {
         organizationId: data.organizationId,
         createdByUserId: data.createdByUserId,
         url: data.url,
-        events: data.events,
+        events: jsonToDb(data.events, []),
         secret: data.secret ?? null,
         isActive: true
       }
@@ -46,7 +47,13 @@ export class WebhooksRepository {
     secret?: string | null;
     isActive?: boolean;
   }) {
-    return this.prisma.outgoingWebhookEndpoint.update({ where: { id }, data });
+    return this.prisma.outgoingWebhookEndpoint.update({
+      where: { id },
+      data: {
+        ...data,
+        events: data.events === undefined ? undefined : jsonToDb(data.events, [])
+      }
+    });
   }
 
   archiveEndpoint(id: string) {
@@ -79,7 +86,7 @@ export class WebhooksRepository {
         endpointId: data.endpointId,
         endpointUrl: data.endpointUrl,
         eventType: data.eventType,
-        payload: data.payload as Prisma.InputJsonValue,
+        payload: jsonToDb(data.payload, {}),
         status: WebhookDeliveryStatus.pending,
         attemptCount: 0
       }
@@ -107,17 +114,17 @@ export class WebhooksRepository {
     });
   }
 
-  findActiveEndpointsForEvent(organizationId: string, eventType: string) {
-    return this.prisma.outgoingWebhookEndpoint.findMany({
+  async findActiveEndpointsForEvent(organizationId: string, eventType: string) {
+    const endpoints = await this.prisma.outgoingWebhookEndpoint.findMany({
       where: {
         organizationId,
         isActive: true,
-        deletedAt: null,
-        OR: [
-          { events: { has: '*' } },
-          { events: { has: eventType } }
-        ]
+        deletedAt: null
       }
+    });
+    return endpoints.filter((endpoint) => {
+      const events = jsonFromDb<string[]>(endpoint.events, []);
+      return events.includes('*') || events.includes(eventType);
     });
   }
 }

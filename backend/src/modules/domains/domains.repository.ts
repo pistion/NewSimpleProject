@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { DnsRecordStatus, DnsRecordType, DomainStatus, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { DnsRecordStatus, DnsRecordType, DomainStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -114,7 +115,7 @@ export class DomainsRepository {
     proxied: boolean;
     status: DnsRecordStatus;
   }>) {
-    return this.prisma.dnsRecord.createMany({ data: records, skipDuplicates: false });
+    return this.prisma.dnsRecord.createMany({ data: records });
   }
 
   updateRecord(recordId: string, data: Prisma.DnsRecordUncheckedUpdateInput) {

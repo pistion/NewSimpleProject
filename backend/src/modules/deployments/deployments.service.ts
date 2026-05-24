@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { DeploymentEnvironment, DeploymentSource, DeploymentStatus, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { DeploymentEnvironment, DeploymentSource, DeploymentStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
 import { RenderService } from '../../integrations/render/render.service';
 import { DeploymentQueueService } from '../../workers/queues/deployment-queue.service';
@@ -121,7 +123,7 @@ export class DeploymentsService {
     const deployment = await this.get(deploymentId, context);
     const cancellableStatuses: DeploymentStatus[] = ['queued', 'building', 'uploading'];
 
-    if (!cancellableStatuses.includes(deployment.status)) {
+    if (!cancellableStatuses.includes(deployment.status as DeploymentStatus)) {
       throw new ConflictException('Deployment cannot be cancelled in its current state.');
     }
 
@@ -198,7 +200,7 @@ export class DeploymentsService {
         entityId: deploymentId,
         action,
         message,
-        metadata: { projectId }
+        metadata: jsonToDb({ projectId })
       }
     });
   }

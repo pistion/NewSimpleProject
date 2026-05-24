@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as https from 'https';
 import * as http from 'http';
+import { jsonFromDb } from '../../common/json-field';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { UpdateWebhookDto } from './dto/update-webhook.dto';
 import { WebhooksRepository } from './webhooks.repository';
@@ -70,7 +71,7 @@ export class WebhooksService {
       delivery.endpointUrl,
       delivery.endpoint.secret,
       delivery.eventType,
-      delivery.payload as Record<string, unknown>
+      jsonFromDb<Record<string, unknown>>(delivery.payload, {})
     );
   }
 

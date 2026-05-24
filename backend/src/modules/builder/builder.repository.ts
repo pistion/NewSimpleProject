@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -67,13 +68,13 @@ export class BuilderRepository {
     sortOrder?: number;
     content?: Prisma.InputJsonValue;
   }) {
-    return this.prisma.builderPage.create({ data: { ...data, content: data.content ?? {} } });
+    return this.prisma.builderPage.create({ data: { ...data, content: jsonToDb(data.content, {}) } });
   }
 
   updatePageContent(id: string, content: Prisma.InputJsonValue) {
     return this.prisma.builderPage.update({
       where: { id },
-      data: { content, updatedAt: new Date() }
+      data: { content: jsonToDb(content, {}), updatedAt: new Date() }
     });
   }
 
@@ -106,7 +107,7 @@ export class BuilderRepository {
         siteId: data.siteId,
         pageId: data.pageId,
         versionNumber,
-        contentJson: data.content,
+        contentJson: jsonToDb(data.content, {}),
         createdByUserId: data.createdByUserId,
         label: data.label ?? null
       }

@@ -11,7 +11,7 @@ const envSchema = z.object({
   API_BASE_URL: z.string().url().default('http://localhost:4000/api/v1'),
 
   // Database & cache
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z.string().min(1).default('file:/var/glondia/data/glondia.db'),
   REDIS_URL: z.string().min(1),
 
   // Auth
@@ -71,6 +71,7 @@ const envSchema = z.object({
   // Persistent disk paths (Render SSD, mounted at /var/glondia in production)
   DATA_DIR: z.string().default('./data'),
   BUILD_TEMP_DIR: z.string().optional(),   // falls back to os.tmpdir() when unset
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
 
   // Rate limiting
   RATE_LIMIT_TTL_SECONDS: z.coerce.number().int().positive().default(60),

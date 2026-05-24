@@ -18,8 +18,8 @@ Use the root `render.yaml`:
 2. Select this repository.
 3. Confirm it creates:
    - `glondiasites` as the only public Web Service
-   - `glondia-db` as Postgres
    - `glondia-redis` as Redis
+   - a persistent disk mounted at `/var/glondia`
 4. After first deploy, open `glondiasites` -> Environment and fill the `sync: false` secrets you actually use.
 
 ## Manual service settings
@@ -36,8 +36,11 @@ Use Web Service.
 
 - `NODE_ENV=production`
 - `INTERNAL_API_PORT=4001`
-- `DATABASE_URL`
+- `DATABASE_URL=file:/var/glondia/data/glondia.db`
 - `REDIS_URL`
+- `DATA_DIR=/var/glondia/data`
+- `BUILD_TEMP_DIR=/var/glondia/tmp`
+- `STORAGE_DRIVER=local`
 - `JWT_ACCESS_SECRET`
 - `JWT_REFRESH_SECRET`
 - `FIELD_ENCRYPTION_KEY`
@@ -49,6 +52,12 @@ Use Web Service.
 - `RENDER_API_KEY` if using Render deploy triggers
 
 Optional provider keys can stay blank until their feature is used.
+
+The SQLite database and local file storage live on the Render persistent disk:
+
+- database: `/var/glondia/data/glondia.db`
+- uploaded/generated files: `/var/glondia/data/storage`
+- temporary build work: `/var/glondia/tmp`
 
 If Render still logs `Missing script: "start"`, the service is not using this blueprint or latest commit. In Render, open the service settings and confirm:
 

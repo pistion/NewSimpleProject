@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
 import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
@@ -78,7 +78,7 @@ export class NotificationsRepository {
         title: data.title,
         body: data.body ?? null,
         actionUrl: data.actionUrl ?? null,
-        metadata: (data.metadata ?? {}) as Prisma.InputJsonValue
+        metadata: jsonToDb(data.metadata, {})
       }
     });
   }

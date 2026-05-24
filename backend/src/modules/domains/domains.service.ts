@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { DnsRecord, DnsRecordStatus, DnsRecordType, DomainStatus, Prisma } from '@prisma/client';
+import { DnsRecord, Prisma } from '@prisma/client';
+import { jsonToDb } from '../../common/json-field';
+import { DnsRecordStatus, DnsRecordType, DomainStatus } from '../../common/prisma-enums';
 import * as crypto from 'crypto';
 import { promises as dnsPromises } from 'dns';
 import { PrismaService } from '../../database/prisma.service';
@@ -345,8 +347,9 @@ export class DomainsService {
     const grouped = new Map<DnsRecordType, typeof records>();
     for (const type of ORDER) grouped.set(type, []);
     for (const r of records) {
-      if (!grouped.has(r.type)) grouped.set(r.type, []);
-      grouped.get(r.type)!.push(r);
+      const type = r.type as DnsRecordType;
+      if (!grouped.has(type)) grouped.set(type, []);
+      grouped.get(type)!.push(r);
     }
 
     for (const [type, recs] of grouped) {
@@ -599,7 +602,7 @@ export class DomainsService {
         entityId,
         action,
         message,
-        metadata: {}
+        metadata: jsonToDb({})
       }
     });
   }
@@ -618,7 +621,7 @@ export class DomainsService {
         action,
         resourceType,
         resourceId,
-        metadata
+        metadata: jsonToDb(metadata)
       }
     });
   }
