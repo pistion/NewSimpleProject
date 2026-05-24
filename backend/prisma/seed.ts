@@ -189,6 +189,18 @@ const billingPlans = [
   }
 ];
 
+const templateSeeds = [
+  { name: 'Portfolio',      category: 'Portfolio',    sortOrder: 1,  contentJson: { motif: 'monogram',  accent: '#1a1f1d', surface: '#f9f7f4', tagline: 'Show your work. Land the client.'           } },
+  { name: 'Small Business', category: 'Business',     sortOrder: 2,  contentJson: { motif: 'stripes',   accent: '#1d4e6e', surface: '#f0f4f7', tagline: 'From quote to booking in minutes.'          } },
+  { name: 'Restaurant',     category: 'Food & Drink', sortOrder: 3,  contentJson: { motif: 'menu',      accent: '#7c2d12', surface: '#fdf6ee', tagline: 'A menu worth sitting down for.'             } },
+  { name: 'Photography',    category: 'Creative',     sortOrder: 4,  contentJson: { motif: 'grid',      accent: '#1a1f1d', surface: '#0a0a0a', tagline: 'Full-bleed images, nothing in the way.'    } },
+  { name: 'Agency',         category: 'Business',     sortOrder: 5,  contentJson: { motif: 'blocks',    accent: '#2a4d9a', surface: '#f4f6fb', tagline: 'Case studies that close deals.'             } },
+  { name: 'Blog',           category: 'Publishing',   sortOrder: 6,  contentJson: { motif: 'lines',     accent: '#198754', surface: '#fafafa', tagline: 'Long-form writing with room to breathe.'   } },
+  { name: 'SaaS',           category: 'Technology',   sortOrder: 7,  contentJson: { motif: 'gradient',  accent: '#6d28d9', surface: '#0f0f14', tagline: 'Hero, features, pricing. Ship it.'         } },
+  { name: 'Event',          category: 'Events',       sortOrder: 8,  contentJson: { motif: 'spotlight', accent: '#c2410c', surface: '#09090b', tagline: 'Build anticipation, sell the night.'        } },
+  { name: 'Nonprofit',      category: 'Community',    sortOrder: 9,  contentJson: { motif: 'leaf',      accent: '#065f46', surface: '#f0faf6', tagline: 'Mission first. Donations follow.'          } },
+];
+
 async function main() {
   // Seed billing plans
   for (const plan of billingPlans) {
@@ -276,6 +288,15 @@ async function main() {
         }
       });
     }
+  }
+
+  // Seed templates (only if table is empty — idempotent)
+  const templateCount = await prisma.template.count();
+  if (templateCount === 0) {
+    await prisma.template.createMany({ data: templateSeeds });
+    console.log(`Seeded ${templateSeeds.length} templates.`);
+  } else {
+    console.log(`Templates already seeded (${templateCount} rows), skipping.`);
   }
 }
 

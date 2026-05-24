@@ -36,7 +36,17 @@ export const GD = {
     { tld: ".shop", price: 1.99, renewal: 34.99 },
   ],
 
-  templates: [],
+  templates: [
+    { id: "portfolio",    name: "Portfolio",      category: "Portfolio",     tagline: "Show your work. Land the client.",             accent: "#1a1f1d", surface: "#f9f7f4", motif: "monogram"  },
+    { id: "small-biz",   name: "Small Business", category: "Business",      tagline: "From quote to booking in minutes.",            accent: "#1d4e6e", surface: "#f0f4f7", motif: "stripes"  },
+    { id: "restaurant",  name: "Restaurant",     category: "Food & Drink",  tagline: "A menu worth sitting down for.",               accent: "#7c2d12", surface: "#fdf6ee", motif: "menu"     },
+    { id: "photography", name: "Photography",    category: "Creative",      tagline: "Full-bleed images, nothing in the way.",       accent: "#1a1f1d", surface: "#0a0a0a", motif: "grid"     },
+    { id: "agency",      name: "Agency",         category: "Business",      tagline: "Case studies that close deals.",               accent: "#2a4d9a", surface: "#f4f6fb", motif: "blocks"   },
+    { id: "blog",        name: "Blog",           category: "Publishing",    tagline: "Long-form writing with room to breathe.",      accent: "#198754", surface: "#fafafa", motif: "lines"    },
+    { id: "saas",        name: "SaaS",           category: "Technology",    tagline: "Hero, features, pricing. Ship it.",            accent: "#6d28d9", surface: "#0f0f14", motif: "gradient" },
+    { id: "event",       name: "Event",          category: "Events",        tagline: "Build anticipation, sell the night.",          accent: "#c2410c", surface: "#09090b", motif: "spotlight" },
+    { id: "nonprofit",   name: "Nonprofit",      category: "Community",     tagline: "Mission first. Donations follow.",             accent: "#065f46", surface: "#f0faf6", motif: "leaf"     },
+  ],
 
   regions: [
     "Sydney (syd1)",
