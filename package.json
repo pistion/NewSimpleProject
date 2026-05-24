@@ -3,9 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:render": "npm ci && npm --prefix backend ci --cache /tmp/.npm-cache && npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build",
+    "start": "node server/render-single-service.mjs",
     "preview": "vite preview",
     "backend:dev": "npm --prefix backend run start:dev",
     "backend:build": "npm --prefix backend run build",

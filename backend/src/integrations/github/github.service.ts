@@ -38,7 +38,7 @@ export class GitHubService {
   /** Build the GitHub OAuth authorization URL. */
   getAuthorizationUrl(userId: string, organizationId: string, returnPath?: string): string {
     const clientId = this.config.getOrThrow<string>('GITHUB_CLIENT_ID');
-    const redirectUri = this.config.getOrThrow<string>('GITHUB_REDIRECT_URI');
+    const redirectUri = this.getRedirectUri();
 
     // Short-lived state token to prevent CSRF
     const state = this.jwt.sign(
@@ -77,7 +77,7 @@ export class GitHubService {
         client_id: this.config.getOrThrow<string>('GITHUB_CLIENT_ID'),
         client_secret: this.config.getOrThrow<string>('GITHUB_CLIENT_SECRET'),
         code,
-        redirect_uri: this.config.getOrThrow<string>('GITHUB_REDIRECT_URI'),
+        redirect_uri: this.getRedirectUri(),
       }),
     });
 
@@ -112,6 +112,11 @@ export class GitHubService {
       githubLogin: ghUser.login,
       returnPath: state.returnPath,
     };
+  }
+
+  private getRedirectUri(): string {
+    return this.config.get<string>('GITHUB_REDIRECT_URI')
+      || `${this.config.getOrThrow<string>('API_BASE_URL')}/github/callback`;
   }
 
   // ─── Status & disconnect ──────────────────────────────────────────────────

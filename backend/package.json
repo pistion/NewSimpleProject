@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Glondia Sites backend API",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",

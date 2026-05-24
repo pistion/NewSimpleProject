@@ -45,7 +45,7 @@ const envSchema = z.object({
   GITHUB_CLIENT_ID: z.string().default(''),
   GITHUB_CLIENT_SECRET: z.string().default(''),
   // Full callback URL — must match exactly what's registered in the GitHub OAuth app
-  GITHUB_REDIRECT_URI: z.string().url().default('http://localhost:4000/api/v1/github/callback'),
+  GITHUB_REDIRECT_URI: z.string().url().optional(),
   // Secret for validating incoming webhook payloads (set in GitHub repo/org → Settings → Webhooks)
   GITHUB_WEBHOOK_SECRET: z.string().default(''),
   // Optional PAT for cloning private repos when user OAuth token is unavailable

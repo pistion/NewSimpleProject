@@ -1,28 +1,17 @@
-# Render Blueprint — full Glondia Sites deployment.
-# Deploy at: https://dashboard.render.com/blueprints → New Blueprint Instance
-# After first deploy, go to each service's Environment tab to fill in sync:false values.
-# Docs: https://render.com/docs/blueprint-spec
+# Render Blueprint - single Glondia Sites deployment.
+# One public web service serves the React app and proxies /api to the Nest backend
+# running on an internal localhost port inside the same Render instance.
 
 services:
-
-  # ── Backend API (NestJS) ────────────────────────────────────────────────────
   - type: web
-    name: glondia-backend
+    name: glondiasites
     runtime: node
     region: oregon
     plan: starter
-    rootDir: backend
-    # --cache /tmp/.npm-cache forces npm to use ephemeral /tmp during the
-    # build phase (the persistent disk isn't mounted yet). This also overrides
-    # any stale NPM_CONFIG_CACHE env var left in the Render dashboard.
-    buildCommand: npm ci --cache /tmp/.npm-cache && npx prisma generate && npm run build
-    startCommand: sh start.sh
+    buildCommand: npm run build:render
+    startCommand: npm start
     healthCheckPath: /api/v1/health
 
-    # ── Persistent SSD ────────────────────────────────────────────────────────
-    # Survives deploys and restarts. Stores the npm package cache (avoids
-    # re-downloading packages on every user build) and general app data.
-    # Minimum 1 GB on Starter; increase in the Render dashboard as needed.
     disk:
       name: glondia-disk
       mountPath: /var/glondia
@@ -31,36 +20,32 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Render assigns port 10000 to web services
-      - key: APP_PORT
-        value: 10000
       - key: APP_NAME
         value: glondia-backend
+      - key: INTERNAL_API_PORT
+        value: 4001
 
+      # Public single-service URLs.
       - key: APP_URL
-        value: https://glondia-backend.onrender.com
+        value: https://glondiasites.onrender.com
       - key: API_BASE_URL
-        value: https://glondia-backend.onrender.com/api/v1
-      # Primary custom domain — both apex and www are allowed
+        value: https://glondiasites.onrender.com/api/v1
       - key: FRONTEND_URL
-        value: https://www.glondiasites.com
+        value: https://glondiasites.onrender.com
       - key: CORS_ORIGINS
-        value: https://www.glondiasites.com,https://glondiasites.com,https://glondiasites-vrjm.onrender.com
+        value: https://www.glondiasites.com,https://glondiasites.com,https://glondiasites.onrender.com
 
-      # ── Database (auto-linked from Render Postgres) ─────────────────────
       - key: DATABASE_URL
         fromDatabase:
           name: glondia-db
           property: connectionString
 
-      # ── Redis (auto-linked from Render Redis) ───────────────────────────
       - key: REDIS_URL
         fromService:
           type: redis
           name: glondia-redis
           property: connectionString
 
-      # ── Auth secrets — Render auto-generates secure random values ────────
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -72,32 +57,27 @@ services:
       - key: REFRESH_TOKEN_TTL_DAYS
         value: 30
 
-      # ── GitHub OAuth + webhooks ──────────────────────────────────────────────
       - key: GITHUB_CLIENT_ID
         sync: false
       - key: GITHUB_CLIENT_SECRET
         sync: false
       - key: GITHUB_REDIRECT_URI
-        value: https://glondia-backend.onrender.com/api/v1/github/callback
+        value: https://glondiasites.onrender.com/api/v1/github/callback
       - key: GITHUB_WEBHOOK_SECRET
         sync: false
       - key: GITHUB_TOKEN
         sync: false
 
-      # ── Render integration ───────────────────────────────────────────────
-      # Set manually in Render dashboard after deploy
       - key: RENDER_API_KEY
         sync: false
       - key: RENDER_API_BASE_URL
         value: https://api.render.com/v1
 
-      # ── Spaceship registrar ──────────────────────────────────────────────
       - key: SPACESHIP_API_KEY
         sync: false
       - key: SPACESHIP_API_SECRET
         sync: false
 
-      # ── Email ─────────────────────────────────────────────────────────────
       - key: EMAIL_PROVIDER
         value: log
       - key: EMAIL_FROM
@@ -105,13 +85,11 @@ services:
       - key: RESEND_API_KEY
         sync: false
 
-      # ── Stripe ────────────────────────────────────────────────────────────
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
 
-      # ── PayPal ────────────────────────────────────────────────────────────
       - key: PAYPAL_CLIENT_ID
         sync: false
       - key: PAYPAL_CLIENT_SECRET
@@ -121,7 +99,6 @@ services:
       - key: PAYPAL_SANDBOX
         value: "false"
 
-      # ── S3 object storage ─────────────────────────────────────────────────
       - key: S3_ENDPOINT
         value: https://s3.amazonaws.com
       - key: S3_REGION
@@ -137,18 +114,11 @@ services:
       - key: S3_PUBLIC_URL
         sync: false
 
-      # ── Persistent disk paths ─────────────────────────────────────────────
-      # The disk mounts at runtime only — not during the build phase.
-      # DATA_DIR and BUILD_TEMP_DIR are only read by the running app so they
-      # are safe here.  NPM_CONFIG_CACHE must NOT be set as an env var because
-      # npm reads it during the build-phase `npm ci` before the disk exists;
-      # it is exported by start.sh at runtime instead.
       - key: DATA_DIR
         value: /var/glondia/data
       - key: BUILD_TEMP_DIR
         value: /var/glondia/tmp
 
-      # ── Rate limiting ─────────────────────────────────────────────────────
       - key: RATE_LIMIT_TTL_SECONDS
         value: 60
       - key: RATE_LIMIT_MAX_REQUESTS
@@ -156,35 +126,12 @@ services:
       - key: LOG_LEVEL
         value: info
 
-  # ── Frontend (React/Vite static site) ───────────────────────────────────────
-  - type: web
-    name: glondiasites
-    runtime: static
-    region: oregon
-    plan: starter
-    buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
-    routes:
-      # SPA fallback — all routes serve index.html
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      # Points the React app at the deployed backend API
-      - key: VITE_API_BASE_URL
-        value: https://glondia-backend.onrender.com/api/v1
-      # Custom domain — set in Render dashboard → glondiasites → Custom Domains
-      # www.glondiasites.com  CNAME  glondiasites-vrjm.onrender.com
-      # glondiasites.com      A      216.24.57.1
-
-  # ── Redis ────────────────────────────────────────────────────────────────────
   - type: redis
     name: glondia-redis
     region: oregon
     plan: starter
     maxmemoryPolicy: noeviction
 
-# ── PostgreSQL ───────────────────────────────────────────────────────────────────
 databases:
   - name: glondia-db
     region: oregon
