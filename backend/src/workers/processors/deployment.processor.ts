@@ -211,7 +211,10 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
   }): Promise<string> {
     const token = await this.resolveGitToken(input.provider, input.requestedByUserId ?? null);
     const cloneUrl = this.buildCloneUrl(input.provider, input.owner, input.repo, token);
-    const targetDir = path.join(os.tmpdir(), `glondia-src-${input.deploymentId}`);
+    // Prefer the persistent disk temp dir so interrupted clones don't exhaust
+    // ephemeral /tmp space and survive Render restarts during long builds.
+    const buildTempBase = this.config.get<string>('BUILD_TEMP_DIR') || os.tmpdir();
+    const targetDir = path.join(buildTempBase, `glondia-src-${input.deploymentId}`);
 
     await fs.promises.mkdir(targetDir, { recursive: true });
 

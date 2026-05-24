@@ -15,6 +15,16 @@ services:
     buildCommand: npm ci && npx prisma generate && npm run build
     startCommand: sh start.sh
     healthCheckPath: /api/v1/health
+
+    # ── Persistent SSD ────────────────────────────────────────────────────────
+    # Survives deploys and restarts. Stores the npm package cache (avoids
+    # re-downloading packages on every user build) and general app data.
+    # Minimum 1 GB on Starter; increase in the Render dashboard as needed.
+    disk:
+      name: glondia-disk
+      mountPath: /var/glondia
+      sizeGB: 10
+
     envVars:
       - key: NODE_ENV
         value: production
@@ -123,6 +133,20 @@ services:
         value: glondia-artifacts
       - key: S3_PUBLIC_URL
         sync: false
+
+      # ── Persistent disk paths ─────────────────────────────────────────────
+      # DATA_DIR  — general purpose persistent storage (uploads, etc.)
+      # NPM_CONFIG_CACHE — npm reuses this across user project builds,
+      #   dramatically cutting install time for packages already seen before.
+      # BUILD_TEMP_DIR — where the deployment worker clones repos and runs
+      #   builds; on the persistent disk so interrupted jobs don't leave
+      #   orphaned files on ephemeral storage.
+      - key: DATA_DIR
+        value: /var/glondia/data
+      - key: NPM_CONFIG_CACHE
+        value: /var/glondia/.npm-cache
+      - key: BUILD_TEMP_DIR
+        value: /var/glondia/tmp
 
       # ── Rate limiting ─────────────────────────────────────────────────────
       - key: RATE_LIMIT_TTL_SECONDS

@@ -68,6 +68,10 @@ const envSchema = z.object({
   // Example: https://glondiasites.onrender.com,https://www.glondia.app
   CORS_ORIGINS: z.string().default(''),
 
+  // Persistent disk paths (Render SSD, mounted at /var/glondia in production)
+  DATA_DIR: z.string().default('./data'),
+  BUILD_TEMP_DIR: z.string().optional(),   // falls back to os.tmpdir() when unset
+
   // Rate limiting
   RATE_LIMIT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
