@@ -17,7 +17,7 @@ MAX_RETRIES=15
 RETRY_DELAY=5
 attempt=0
 
-echo "[start] Running database migrations..."
+echo "[start] Running database sync..."
 until npx prisma db push --accept-data-loss; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge "$MAX_RETRIES" ]; then
@@ -29,4 +29,4 @@ until npx prisma db push --accept-data-loss; do
 done
 
 echo "[start] Database ready. Starting NestJS..."
-exec node dist/main.js
+exec node dist/src/main.js
