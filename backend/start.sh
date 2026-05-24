@@ -11,11 +11,18 @@
 # ERR_CONNECTION_REFUSED to the frontend until Render restarts it.
 
 # ── Create persistent-disk directories if the disk is mounted ────────────────
+# The disk is only available at runtime, not during the Render build phase.
+# We check for it before using it so local dev (no disk) still works fine.
 DISK=/var/glondia
 if [ -d "$DISK" ]; then
   echo "[start] Initialising persistent disk directories under $DISK …"
   mkdir -p "$DISK/data" "$DISK/tmp" "$DISK/.npm-cache"
-  echo "[start] Disk directories ready."
+  # Point npm's package cache at the persistent disk so that packages
+  # downloaded for one user's project build are reused by the next.
+  # This is set here (not as a Render env var) because the disk isn't
+  # mounted during the build phase and npm would error trying to write there.
+  export NPM_CONFIG_CACHE="$DISK/.npm-cache"
+  echo "[start] Disk ready. NPM_CONFIG_CACHE=$NPM_CONFIG_CACHE"
 fi
 
 MAX_RETRIES=15      # 15 × 5 s = up to 75 s wait

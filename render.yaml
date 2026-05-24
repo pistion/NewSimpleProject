@@ -135,16 +135,13 @@ services:
         sync: false
 
       # ── Persistent disk paths ─────────────────────────────────────────────
-      # DATA_DIR  — general purpose persistent storage (uploads, etc.)
-      # NPM_CONFIG_CACHE — npm reuses this across user project builds,
-      #   dramatically cutting install time for packages already seen before.
-      # BUILD_TEMP_DIR — where the deployment worker clones repos and runs
-      #   builds; on the persistent disk so interrupted jobs don't leave
-      #   orphaned files on ephemeral storage.
+      # The disk mounts at runtime only — not during the build phase.
+      # DATA_DIR and BUILD_TEMP_DIR are only read by the running app so they
+      # are safe here.  NPM_CONFIG_CACHE must NOT be set as an env var because
+      # npm reads it during the build-phase `npm ci` before the disk exists;
+      # it is exported by start.sh at runtime instead.
       - key: DATA_DIR
         value: /var/glondia/data
-      - key: NPM_CONFIG_CACHE
-        value: /var/glondia/.npm-cache
       - key: BUILD_TEMP_DIR
         value: /var/glondia/tmp
 
