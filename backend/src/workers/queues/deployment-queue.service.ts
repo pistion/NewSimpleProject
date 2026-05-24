@@ -8,7 +8,7 @@ export interface ProcessDeploymentBuildPayload {
   version: 1;
   organizationId: string;
   deploymentId: string;
-  requestedByUserId: string;
+  requestedByUserId: string | null;
 }
 
 @Injectable()

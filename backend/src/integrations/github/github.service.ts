@@ -246,9 +246,11 @@ export class GitHubService {
           },
         });
 
-        await this.queue.enqueueDeploymentBuild({
+        await this.queue.enqueueBuild({
+          version: 1,
           deploymentId: deployment.id,
           organizationId: project.organizationId,
+          requestedByUserId: null,
         });
 
         triggered.push(deployment.id);
