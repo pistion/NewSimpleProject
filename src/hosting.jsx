@@ -58,8 +58,8 @@ export function HostingList({ navigate }) {
           <p className="sub">Every site, app, and preview environment in your workspace.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-outline" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New project</button>
+          <button className="btn btn-outline" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New blank project</button>
+          <button className="btn btn-primary" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
         </div>
       </div>
 
@@ -82,10 +82,13 @@ export function HostingList({ navigate }) {
       )}
       {showCreate && (
         <form className="card" onSubmit={handleCreateProject}>
-          <div className="row between" style={{ marginBottom: 16 }}>
-            <h2 style={{ margin: 0 }}>New project</h2>
+          <div className="row between" style={{ marginBottom: 4 }}>
+            <h2 style={{ margin: 0 }}>New blank project</h2>
             <button type="button" className="btn btn-sm btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
           </div>
+          <p className="muted" style={{ margin: "0 0 16px", fontSize: 13 }}>
+            Creates an empty project with no repository. Link a GitHub repo later in Settings → GitHub repository, or use <button type="button" className="btn btn-sm btn-ghost" style={{ padding: "0 4px", height: "auto", color: "var(--accent)" }} onClick={() => { setShowCreate(false); setShowImport(true); }}>Import from Git</button> to connect one now.
+          </p>
           <div className="grid-2" style={{ gap: 14 }}>
             <div>
               <label className="label">Project name</label>
@@ -138,8 +141,8 @@ export function HostingList({ navigate }) {
             body="Import a Git repository or create a new project to get started."
             action={
               <div className="row" style={{ gap: 8 }}>
-                <button className="btn btn-outline" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
-                <button className="btn btn-primary" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New project</button>
+                <button className="btn btn-outline" onClick={() => setShowCreate(true)}><ICN.Plus size={14} /> New blank project</button>
+                <button className="btn btn-primary" onClick={() => setShowImport(true)}><ICN.Git size={14} /> Import from Git</button>
               </div>
             } />
         </div>
@@ -187,7 +190,13 @@ function ProjectCard({ p, navigate }) {
 
 export function HostingDetail({ id, navigate }) {
   const { projects } = useProjects();
-  const p = projects.find(x => x.id === id) || projects[0] || null;
+  // All hooks must be called unconditionally — before any early return.
+  const [tab, setTab] = useStateH("Deployments");
+  const [deploying, setDeploying] = useStateH(false);
+  const [deployError, setDeployError] = useStateH(null);
+
+  // Never fall back to projects[0] — that would silently show the wrong project.
+  const p = projects.find(x => x.id === id) || null;
 
   if (!p) {
     return (
@@ -198,9 +207,6 @@ export function HostingDetail({ id, navigate }) {
       </div>
     );
   }
-  const [tab, setTab] = useStateH("Deployments");
-  const [deploying, setDeploying] = useStateH(false);
-  const [deployError, setDeployError] = useStateH(null);
 
   const handleDeploy = async () => {
     setDeploying(true);
@@ -257,7 +263,7 @@ export function HostingDetail({ id, navigate }) {
 
       {tab === "Deployments" && <DeploymentsTab p={p} />}
       {tab === "Build logs" && <BuildLogsTab p={p} onRedeploy={handleDeploy} deploying={deploying} />}
-      {tab === "Environment variables" && <EnvVarsTab projectId={p.id} />}
+      {tab === "Environment variables" && <EnvVarsTab projectId={p.id} project={p} />}
       {tab === "Environments" && <EnvsTab />}
       {tab === "Domains" && <ProjectDomainsTabIntegrated p={p} navigate={navigate} />}
       {tab === "Analytics" && <ProjectAnalyticsTab p={p} />}
@@ -452,7 +458,7 @@ function BuildLogsTab({ p, onRedeploy, deploying }) {
   );
 }
 
-function EnvVarsTab({ projectId }) {
+function EnvVarsTab({ projectId, project }) {
   const { envVars, loading, source, error } = useProjectEnvVars(projectId);
   const [showForm, setShowForm] = useStateH(false);
   const [saving, setSaving] = useStateH(false);
@@ -645,15 +651,15 @@ function EnvVarsTab({ projectId }) {
       <div className="card">
         <div className="row between" style={{ marginBottom: 16 }}>
           <h2 style={{ margin: 0 }}>Build settings</h2>
-          <button className="btn btn-sm btn-outline">Edit</button>
+          <button className="btn btn-sm btn-outline" onClick={() => {}}>Edit in Settings</button>
         </div>
         <div className="grid-2" style={{ gap: 18 }}>
-          <Field label="Framework preset" value="Next.js (auto-detected)" mono />
-          <Field label="Node version" value="20.11.1" mono />
-          <Field label="Install command" value="npm ci" mono />
-          <Field label="Build command" value="npm run build" mono />
-          <Field label="Output directory" value=".next" mono />
-          <Field label="Root directory" value="./" mono />
+          <Field label="Framework" value={project?.framework || 'Static'} mono />
+          <Field label="Node version" value="20.x" mono />
+          <Field label="Install command" value={project?.installCommand || 'npm ci'} mono />
+          <Field label="Build command" value={project?.buildCommand || 'npm run build'} mono />
+          <Field label="Output directory" value={project?.outputDirectory || 'dist'} mono />
+          <Field label="Root directory" value={project?.rootDirectory || './'} mono />
         </div>
       </div>
     </>
@@ -976,7 +982,6 @@ function RenderLinkCard({ p }) {
   const [busy, setBusy] = useStateH(false);
   const [msg, setMsg] = useStateH(null);
   const [err, setErr] = useStateH(null);
-  const { getStoredAuth } = React.useMemo(() => ({ getStoredAuth: () => ({ accessToken: true }) }), []);
 
   React.useEffect(() => {
     setLoadingServices(true);
@@ -1170,6 +1175,9 @@ function ImportFromGitModal({ onClose, onCreated }) {
   const [selectedBranch, setSelectedBranch] = useStateH('main');
   const [projectName, setProjectName] = useStateH('');
   const [framework, setFramework] = useStateH('Next.js');
+  const [buildCommand, setBuildCommand] = useStateH('npm run build');
+  const [outputDirectory, setOutputDirectory] = useStateH('dist');
+  const [showAdvanced, setShowAdvanced] = useStateH(false);
   const [creating, setCreating] = useStateH(false);
   const [err, setErr] = useStateH(null);
 
@@ -1204,6 +1212,14 @@ function ImportFromGitModal({ onClose, onCreated }) {
     }
   }, [selectedRepo]);
 
+  // Auto-set output directory based on framework choice.
+  React.useEffect(() => {
+    if (framework === 'Next.js') setOutputDirectory('.next');
+    else if (framework === 'Remix') setOutputDirectory('public/build');
+    else if (framework === 'SvelteKit') setOutputDirectory('.svelte-kit/output');
+    else setOutputDirectory('dist');
+  }, [framework]);
+
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!selectedRepo) return;
@@ -1219,6 +1235,9 @@ function ImportFromGitModal({ onClose, onCreated }) {
         repositoryName: repo,
         repositoryId: String(repoData?.id || ''),
         productionBranch: selectedBranch,
+        buildCommand,
+        outputDirectory,
+        installCommand: 'npm ci',
       });
       onCreated(project);
     } catch (e) { setErr(e.message); }
@@ -1275,6 +1294,26 @@ function ImportFromGitModal({ onClose, onCreated }) {
                 <select className="select" value={framework} onChange={e => setFramework(e.target.value)}>
                   {GD.frameworks.map(f => <option key={f}>{f}</option>)}
                 </select>
+              </div>
+
+              {/* Advanced build settings — collapsed by default */}
+              <div>
+                <button type="button" className="btn btn-sm btn-ghost" style={{ padding: "4px 0", color: "var(--text-muted)", fontSize: 13 }}
+                  onClick={() => setShowAdvanced(v => !v)}>
+                  {showAdvanced ? '▾' : '▸'} Build settings
+                </button>
+                {showAdvanced && (
+                  <div className="grid-2" style={{ gap: 10, marginTop: 10 }}>
+                    <div>
+                      <label className="label">Build command</label>
+                      <input className="input mono" value={buildCommand} onChange={e => setBuildCommand(e.target.value)} placeholder="npm run build" />
+                    </div>
+                    <div>
+                      <label className="label">Output directory</label>
+                      <input className="input mono" value={outputDirectory} onChange={e => setOutputDirectory(e.target.value)} placeholder="dist" />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 12 }}>{err}</div>}
@@ -1342,7 +1381,19 @@ function GitHubCard({ p }) {
     finally { setLinking(false); }
   };
 
-  const handleDisconnect = async () => {
+  // Unlinks only this project's repo — does NOT disconnect the GitHub OAuth account.
+  const handleUnlinkRepo = async () => {
+    setLinking(true); setLinkMsg(null); setLinkErr(null);
+    try {
+      await linkProjectRepo(p.id, null);
+      setLinkMsg('Repository unlinked. Auto-deploy is disabled until you link a new repo.');
+    } catch (e) { setLinkErr(e.message); }
+    finally { setLinking(false); }
+  };
+
+  // Full account disconnect — disconnects GitHub OAuth for the entire account.
+  const handleDisconnectAccount = async () => {
+    if (!window.confirm('Disconnect GitHub from your account? This will stop auto-deploy for all projects that use your OAuth token.')) return;
     setLinkErr(null);
     try {
       await disconnectGitHub();
@@ -1364,7 +1415,10 @@ function GitHubCard({ p }) {
         {status?.connected && (
           <div className="row" style={{ gap: 8 }}>
             <Badge tone="success" dot={false}>@{status.githubUserId}</Badge>
-            <button className="btn btn-sm btn-ghost" onClick={handleDisconnect}>Disconnect</button>
+            {p.repo && p.repo !== 'No repository' && (
+              <button className="btn btn-sm btn-ghost" onClick={handleUnlinkRepo} disabled={linking}>Unlink repo</button>
+            )}
+            <button className="btn btn-sm btn-ghost" style={{ color: "var(--text-muted)", fontSize: 12 }} onClick={handleDisconnectAccount}>Disconnect account</button>
           </div>
         )}
       </div>
@@ -1409,15 +1463,19 @@ function GitHubCard({ p }) {
 }
 
 function projectSettingsFromProject(project) {
-  const outputDirectory = project.framework === 'Next.js' ? '.next' : 'dist';
+  // Derive a sensible output directory default only when the project doesn't have one stored.
+  const defaultOutput = project.framework === 'Next.js' ? '.next'
+    : project.framework === 'Remix' ? 'public/build'
+    : project.framework === 'SvelteKit' ? '.svelte-kit/output'
+    : 'dist';
 
   return {
     name: project.name || '',
     framework: project.framework || 'Static',
-    productionBranch: project.branch || 'main',
-    rootDirectory: './',
-    installCommand: 'npm ci',
-    buildCommand: 'npm run build',
-    outputDirectory,
+    productionBranch: project.productionBranch || project.branch || 'main',
+    rootDirectory: project.rootDirectory || './',
+    installCommand: project.installCommand || 'npm ci',
+    buildCommand: project.buildCommand || 'npm run build',
+    outputDirectory: project.outputDirectory || defaultOutput,
   };
 }
