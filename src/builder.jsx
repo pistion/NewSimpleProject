@@ -13,6 +13,7 @@ import {
   uploadBuilderSitePackage,
   getStoredAuth,
 } from './api';
+import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
 const ROXANNE_IMAGE = "/images/roxanne-ai-card.png";
 
@@ -570,8 +571,21 @@ export function BuilderImport({ navigate, mode = "github" }) {
 export function BuilderTemplates({ navigate }) {
   const { templates, loading, source, error } = useTemplates();
   const [cat, setCat] = useStateB("All");
+  const [sfCat, setSfCat] = useStateB("All");
+  const [previewTpl, setPreviewTpl] = useStateB(null);
+
+  // Storefront categories
+  const sfCats = ["All", ...Array.from(new Set(STOREFRONT_TEMPLATES.map(t => t.category)))];
+  const sfFiltered = sfCat === "All" ? STOREFRONT_TEMPLATES : STOREFRONT_TEMPLATES.filter(t => t.category === sfCat);
+
+  // General templates
   const cats = ["All", ...Array.from(new Set(templates.map(t => t.category)))];
   const filtered = cat === "All" ? templates : templates.filter(t => t.category === cat);
+
+  const handleUseStorefront = (t) => {
+    setPreviewTpl(null);
+    navigate({ view: "builder-editor", params: { id: t.id } });
+  };
 
   return (
     <>
@@ -580,13 +594,7 @@ export function BuilderTemplates({ navigate }) {
           <div className="page-eyebrow">Site builder</div>
           <h1>Pick a template</h1>
           <p className="sub">
-            Starter templates with Home, About, and Contact built in. Fill in your content and publish to your domain in minutes.
-            {TEMPLATES_REPO && (
-              <> All template source files live in{' '}
-                <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer"
-                   style={{ color: "var(--accent)" }}>your templates repo <ICN.ExternalLink size={12} /></a>.
-              </>
-            )}
+            Start with a live e-commerce design or a general-purpose starter. Fill in your content and publish to your domain in minutes.
           </p>
         </div>
         <div className="actions">
@@ -599,93 +607,198 @@ export function BuilderTemplates({ navigate }) {
         </div>
       </div>
 
-      {/* Source badge */}
-      {source === "api" && (
-        <div className="card" style={{ padding: "10px 14px", fontSize: 13 }}>
-          <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Templates loaded from backend</span>
+      {/* ── Storefront templates ─────────────────────────────────────────────── */}
+      <div>
+        <div className="row between" style={{ marginBottom: 14 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20 }}>Storefront templates</h2>
+            <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+              9 full e-commerce designs — hover to see the live page preview.
+            </p>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            {sfCats.map(c => (
+              <button key={c} onClick={() => setSfCat(c)} className="btn btn-sm"
+                style={{
+                  border: `1px solid ${sfCat === c ? "var(--accent)" : "var(--border)"}`,
+                  background: sfCat === c ? "var(--accent-soft)" : "var(--bg-elev)",
+                  color: sfCat === c ? "var(--accent-ink)" : "var(--text)",
+                  fontWeight: 500,
+                }}>
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
-      {error && (
-        <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-muted)" }}>
-          Backend unavailable — showing local template catalogue.
-        </div>
-      )}
 
-      {/* Category filter */}
-      <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-        {cats.map(c => (
-          <button key={c}
-            onClick={() => setCat(c)}
-            className="btn btn-sm"
-            style={{
-              border: `1px solid ${cat === c ? "var(--accent)" : "var(--border)"}`,
-              background: cat === c ? "var(--accent-soft)" : "var(--bg-elev)",
-              color: cat === c ? "var(--accent-ink)" : "var(--text)",
-              fontWeight: 500,
-            }}>
-            {c}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <div className="muted" style={{ fontSize: 13 }}>
-          {loading ? "Loading…" : `${filtered.length} of ${templates.length} templates`}
+        <div className="sf-tpl-grid">
+          {sfFiltered.map(t => (
+            <div className="sf-tpl-card" key={t.id}>
+              {/* Live preview thumbnail */}
+              <div className="sf-tpl-thumb">
+                <StorefrontPreview Comp={t.Comp} />
+                {/* Hover overlay */}
+                <div className="sf-tpl-overlay">
+                  <button className="btn btn-primary"
+                    onClick={() => setPreviewTpl(t)}>
+                    <ICN.Eye size={14} /> Full preview
+                  </button>
+                  <button className="btn btn-outline"
+                    style={{ background: "rgba(255,255,255,.92)", color: "var(--text)" }}
+                    onClick={() => handleUseStorefront(t)}>
+                    Use template
+                  </button>
+                </div>
+                {/* Badges */}
+                {t.badge && (
+                  <span style={{
+                    position: "absolute", top: 10, left: 10, zIndex: 2,
+                    background: t.featured ? "var(--accent)" : "var(--bg-elev)",
+                    color: t.featured ? "#fff" : "var(--text)",
+                    border: t.featured ? "none" : "1px solid var(--border)",
+                    borderRadius: 999, padding: "3px 9px",
+                    fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+                  }}>
+                    {t.badge}
+                  </span>
+                )}
+              </div>
+              {/* Card footer */}
+              <div className="sf-tpl-body">
+                <div className="row between" style={{ alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{t.name}</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t.tag}</div>
+                  </div>
+                  <span className="faint" style={{
+                    fontSize: 10, fontWeight: 600, letterSpacing: "0.06em",
+                    textTransform: "uppercase", marginTop: 2,
+                  }}>{t.category}</span>
+                </div>
+                <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                  <button className="btn btn-sm btn-primary" style={{ flex: 1 }}
+                    onClick={() => handleUseStorefront(t)}>
+                    Use {t.name} <ICN.ArrowRight size={12} />
+                  </button>
+                  <button className="btn btn-sm btn-outline" title="Full preview"
+                    onClick={() => setPreviewTpl(t)}>
+                    <ICN.Eye size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Grid */}
-      {loading ? (
-        <div className="tpl-grid">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="tpl-card" style={{ opacity: 0.5 }}>
-              <div className="tpl-thumb" style={{ background: "var(--bg-deep)" }} />
-              <div className="tpl-body">
-                <div style={{ height: 16, background: "var(--bg-deep)", borderRadius: 4, width: "60%", marginBottom: 8 }} />
-                <div style={{ height: 12, background: "var(--bg-deep)", borderRadius: 4, width: "90%" }} />
-              </div>
+      {/* ── General website templates ────────────────────────────────────────── */}
+      <div style={{ marginTop: 48 }}>
+        <div className="row between" style={{ marginBottom: 14 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20 }}>General templates</h2>
+            <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+              Portfolio, restaurant, blog, agency and more — with Home, About, and Contact built in.
+              {TEMPLATES_REPO && (
+                <> Source in{' '}
+                  <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer"
+                     style={{ color: "var(--accent)" }}>templates repo <ICN.ExternalLink size={11} /></a>.
+                </>
+              )}
+            </p>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            {cats.map(c => (
+              <button key={c} onClick={() => setCat(c)} className="btn btn-sm"
+                style={{
+                  border: `1px solid ${cat === c ? "var(--accent)" : "var(--border)"}`,
+                  background: cat === c ? "var(--accent-soft)" : "var(--bg-elev)",
+                  color: cat === c ? "var(--accent-ink)" : "var(--text)",
+                  fontWeight: 500,
+                }}>
+                {c}
+              </button>
+            ))}
+            <div className="muted" style={{ fontSize: 13, paddingLeft: 4, alignSelf: "center" }}>
+              {loading ? "Loading…" : `${filtered.length} of ${templates.length}`}
             </div>
-          ))}
+          </div>
         </div>
-      ) : templates.length === 0 ? (
-        <div className="card" style={{ padding: "48px 24px" }}>
-          <Empty icon="Layers" title="No templates yet"
-            body="Templates will appear here once they are added to the backend."
-            action={TEMPLATES_REPO
-              ? <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ICN.Git size={14} /> View template repo</a>
-              : null} />
-        </div>
-      ) : (
-        <div className="tpl-grid">
-          {filtered.map(t => (
-            <div className="tpl-card" key={t.id}>
-              <div className="tpl-thumb"><TplThumb tpl={t} /></div>
-              <div className="tpl-body">
-                <div className="row between">
-                  <h4>{t.name}</h4>
-                  <span className="faint" style={{ fontSize: 11 }}>{t.category}</span>
-                </div>
-                <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t.tagline}</p>
-                <div className="tag-row">
-                  <span className="ttag">Home</span>
-                  <span className="ttag">About</span>
-                  <span className="ttag">Contact</span>
-                </div>
-                <div className="row" style={{ gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-sm btn-primary" style={{ flex: 1 }}
-                          onClick={() => navigate({ view: "builder-editor", params: { id: t.id } })}>
-                    Use {t.name} <ICN.ArrowRight size={12} />
-                  </button>
-                  <button className="btn btn-sm btn-outline" title="Preview"><ICN.Eye size={14} /></button>
-                  {TEMPLATES_REPO && (
-                    <a href={`${TEMPLATES_REPO}/tree/main/${t.id}`} target="_blank" rel="noopener noreferrer"
-                       className="btn btn-sm btn-ghost" title="View source on GitHub">
-                      <ICN.Git size={14} />
-                    </a>
-                  )}
+
+        {/* Source / error badge */}
+        {source === "api" && (
+          <div className="card" style={{ padding: "10px 14px", fontSize: 13, marginBottom: 14 }}>
+            <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Templates loaded from backend</span>
+          </div>
+        )}
+        {error && (
+          <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
+            Backend unavailable — showing local template catalogue.
+          </div>
+        )}
+
+        {loading ? (
+          <div className="tpl-grid">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="tpl-card" style={{ opacity: 0.5 }}>
+                <div className="tpl-thumb" style={{ background: "var(--bg-deep)" }} />
+                <div className="tpl-body">
+                  <div style={{ height: 16, background: "var(--bg-deep)", borderRadius: 4, width: "60%", marginBottom: 8 }} />
+                  <div style={{ height: 12, background: "var(--bg-deep)", borderRadius: 4, width: "90%" }} />
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : templates.length === 0 ? (
+          <div className="card" style={{ padding: "48px 24px" }}>
+            <Empty icon="Layers" title="No templates yet"
+              body="Templates will appear here once they are added to the backend."
+              action={TEMPLATES_REPO
+                ? <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ICN.Git size={14} /> View template repo</a>
+                : null} />
+          </div>
+        ) : (
+          <div className="tpl-grid">
+            {filtered.map(t => (
+              <div className="tpl-card" key={t.id}>
+                <div className="tpl-thumb"><TplThumb tpl={t} /></div>
+                <div className="tpl-body">
+                  <div className="row between">
+                    <h4>{t.name}</h4>
+                    <span className="faint" style={{ fontSize: 11 }}>{t.category}</span>
+                  </div>
+                  <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t.tagline}</p>
+                  <div className="tag-row">
+                    <span className="ttag">Home</span>
+                    <span className="ttag">About</span>
+                    <span className="ttag">Contact</span>
+                  </div>
+                  <div className="row" style={{ gap: 8, marginTop: 12 }}>
+                    <button className="btn btn-sm btn-primary" style={{ flex: 1 }}
+                            onClick={() => navigate({ view: "builder-editor", params: { id: t.id } })}>
+                      Use {t.name} <ICN.ArrowRight size={12} />
+                    </button>
+                    <button className="btn btn-sm btn-outline" title="Preview"><ICN.Eye size={14} /></button>
+                    {TEMPLATES_REPO && (
+                      <a href={`${TEMPLATES_REPO}/tree/main/${t.id}`} target="_blank" rel="noopener noreferrer"
+                         className="btn btn-sm btn-ghost" title="View source on GitHub">
+                        <ICN.Git size={14} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Full-screen preview modal */}
+      {previewTpl && (
+        <StorefrontModal
+          template={previewTpl}
+          onClose={() => setPreviewTpl(null)}
+          onUse={handleUseStorefront}
+        />
       )}
     </>
   );
