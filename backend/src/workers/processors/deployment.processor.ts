@@ -71,7 +71,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
   // ─── Main pipeline ────────────────────────────────────────────────────────────
 
   private async processDeploymentBuild(job: Job<ProcessDeploymentBuildPayload>) {
-    const { deploymentId, organizationId } = job.data;
+    const { deploymentId, organizationId, requestedByUserId } = job.data;
 
     const deployment = await this.prisma.deployment.findFirst({
       where: { id: deploymentId, organizationId },
@@ -129,6 +129,7 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
         owner: repositoryOwner,
         repo: repositoryName,
         branch: deployment.branch ?? deployment.project.productionBranch ?? 'main',
+        requestedByUserId,
       });
 
       sourceDirectory = clonedDirectory;
@@ -184,6 +185,21 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
 
   // ─── Git clone ────────────────────────────────────────────────────────────────
 
+  private async resolveGitToken(provider: string, requestedByUserId: string | null): Promise<string> {
+    // 1. Try the user's stored OAuth token (set when they connected GitHub in the UI)
+    if (requestedByUserId && provider.toLowerCase() === 'github') {
+      const oauthAccount = await this.prisma.oauthAccount.findFirst({
+        where: { userId: requestedByUserId, provider: 'github' },
+        select: { accessTokenEncrypted: true },
+      });
+      if (oauthAccount?.accessTokenEncrypted) {
+        return oauthAccount.accessTokenEncrypted; // stored as plaintext in this impl
+      }
+    }
+    // 2. Fall back to global PAT
+    return this.config.get<string>('GITHUB_TOKEN', '');
+  }
+
   private async cloneRepository(input: {
     deploymentId: string;
     organizationId: string;
@@ -191,8 +207,9 @@ export class DeploymentProcessor implements OnModuleInit, OnModuleDestroy {
     owner: string;
     repo: string;
     branch: string;
+    requestedByUserId?: string | null;
   }): Promise<string> {
-    const token = this.config.get<string>('GITHUB_TOKEN', '');
+    const token = await this.resolveGitToken(input.provider, input.requestedByUserId ?? null);
     const cloneUrl = this.buildCloneUrl(input.provider, input.owner, input.repo, token);
     const targetDir = path.join(os.tmpdir(), `glondia-src-${input.deploymentId}`);
 
