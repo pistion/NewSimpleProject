@@ -5,7 +5,7 @@ import { GD } from './data';
 import { StatusBadge, Tabs, Stat, Badge, Empty } from './components';
 import { useProjects } from './use-projects';
 import { useDeploymentLogs, useProjectArtifacts, useProjectDeployments, useProjectEnvVars } from './use-project-detail-data';
-import { archiveProject, cancelDeployment, connectGitHubUrl, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, disconnectGitHub, exportEnvVars, getGitHubStatus, linkProjectRepo, linkRenderService, listGitHubBranches, listGitHubRepos, listRenderServices, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
+import { archiveProject, cancelDeployment, connectGitHubUrl, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, disconnectGitHub, exportEnvVars, getGitHubStatus, linkProjectRepo, linkRenderService, listGitHubBranches, listGitHubRepos, listRenderServices, parseGitHubRepository, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
 import { useDomains } from './use-domains';
 
 export function HostingList({ navigate }) {
@@ -1172,6 +1172,7 @@ function ImportFromGitModal({ onClose, onCreated }) {
   const [branches, setBranches] = useStateH([]);
   const [loadingBranches, setLoadingBranches] = useStateH(false);
   const [selectedRepo, setSelectedRepo] = useStateH('');
+  const [repoUrl, setRepoUrl] = useStateH('');
   const [selectedBranch, setSelectedBranch] = useStateH('main');
   const [projectName, setProjectName] = useStateH('');
   const [framework, setFramework] = useStateH('Next.js');
@@ -1197,20 +1198,22 @@ function ImportFromGitModal({ onClose, onCreated }) {
   }, []);
 
   React.useEffect(() => {
-    if (!selectedRepo) { setBranches([]); return; }
-    const [owner, repo] = selectedRepo.split('/');
+    const repoRef = selectedRepo || parseGitHubRepository(repoUrl)?.fullName || '';
+    if (!repoRef) { setBranches([]); return; }
+    const [owner, repo] = repoRef.split('/');
     setLoadingBranches(true);
     listGitHubBranches(owner, repo)
       .then(b => { setBranches(b || []); setSelectedBranch(b?.[0]?.name || 'main'); })
       .catch(() => setBranches([]))
       .finally(() => setLoadingBranches(false));
-  }, [selectedRepo]);
+  }, [selectedRepo, repoUrl]);
 
   React.useEffect(() => {
-    if (selectedRepo && !projectName) {
-      setProjectName(selectedRepo.split('/')[1] || '');
+    const repoRef = selectedRepo || parseGitHubRepository(repoUrl)?.fullName || '';
+    if (repoRef && !projectName) {
+      setProjectName(repoRef.split('/')[1] || '');
     }
-  }, [selectedRepo]);
+  }, [selectedRepo, repoUrl]);
 
   // Auto-set output directory based on framework choice.
   React.useEffect(() => {
@@ -1222,9 +1225,11 @@ function ImportFromGitModal({ onClose, onCreated }) {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!selectedRepo) return;
-    const [owner, repo] = selectedRepo.split('/');
-    const repoData = repos.find(r => r.full_name === selectedRepo);
+    const parsedRepo = parseGitHubRepository(repoUrl);
+    const repoRef = selectedRepo || parsedRepo?.fullName || '';
+    if (!repoRef) return;
+    const [owner, repo] = repoRef.split('/');
+    const repoData = repos.find(r => r.full_name === repoRef);
     setCreating(true); setErr(null);
     try {
       const project = await createProject({
@@ -1233,6 +1238,7 @@ function ImportFromGitModal({ onClose, onCreated }) {
         repositoryProvider: 'github',
         repositoryOwner: owner,
         repositoryName: repo,
+        repositoryUrl: parsedRepo?.url || repoData?.html_url || `https://github.com/${owner}/${repo}`,
         repositoryId: String(repoData?.id || ''),
         productionBranch: selectedBranch,
         buildCommand,
@@ -1257,21 +1263,32 @@ function ImportFromGitModal({ onClose, onCreated }) {
 
         {loadingStatus ? (
           <div className="muted" style={{ fontSize: 13, padding: "12px 0" }}>Checking GitHub connection…</div>
-        ) : !ghStatus?.connected ? (
-          <div style={{ textAlign: "center", padding: "28px 0" }}>
-            <div className="muted" style={{ marginBottom: 18, fontSize: 14 }}>
-              Connect your GitHub account to browse and import repositories.
-            </div>
-            <button className="btn btn-primary" onClick={() => { window.location.href = connectGitHubUrl(); }}>
-              <ICN.Git size={14} /> Connect GitHub
-            </button>
-          </div>
         ) : (
           <form onSubmit={handleCreate}>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
+                <label className="label">GitHub repository URL</label>
+                <input
+                  className="input mono"
+                  value={repoUrl}
+                  onChange={(e) => {
+                    setRepoUrl(e.target.value);
+                    if (e.target.value.trim()) setSelectedRepo('');
+                  }}
+                  placeholder="https://github.com/owner/repo"
+                />
+                <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+                  Paste a public repository URL, or select one from a connected GitHub account.
+                </div>
+              </div>
+              {!ghStatus?.connected && (
+                <button type="button" className="btn btn-outline" onClick={() => { window.location.href = connectGitHubUrl(); }}>
+                  <ICN.Git size={14} /> Connect GitHub for private repos
+                </button>
+              )}
+              <div>
                 <label className="label">Repository</label>
-                <select className="select" value={selectedRepo} onChange={e => setSelectedRepo(e.target.value)} disabled={loadingRepos} required>
+                <select className="select" value={selectedRepo} onChange={e => { setSelectedRepo(e.target.value); if (e.target.value) setRepoUrl(''); }} disabled={loadingRepos}>
                   <option value="">— Select a repository —</option>
                   {repos.map(r => <option key={r.id} value={r.full_name}>{r.full_name}{r.private ? ' 🔒' : ''}</option>)}
                 </select>
@@ -1279,7 +1296,7 @@ function ImportFromGitModal({ onClose, onCreated }) {
               </div>
               <div>
                 <label className="label">Branch to deploy</label>
-                <select className="select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} disabled={!selectedRepo || loadingBranches}>
+                <select className="select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} disabled={!(selectedRepo || parseGitHubRepository(repoUrl)) || loadingBranches}>
                   {branches.length > 0
                     ? branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)
                     : <option value="main">main</option>}
@@ -1319,7 +1336,7 @@ function ImportFromGitModal({ onClose, onCreated }) {
             {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 12 }}>{err}</div>}
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 18, gap: 8 }}>
               <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={!selectedRepo || creating || loadingRepos}>
+              <button type="submit" className="btn btn-primary" disabled={!(selectedRepo || parseGitHubRepository(repoUrl)) || creating || loadingRepos}>
                 {creating ? 'Creating project…' : 'Import project'}
               </button>
             </div>
@@ -1339,6 +1356,7 @@ function GitHubCard({ p }) {
   const [branches, setBranches] = useStateH([]);
   const [loadingBranches, setLoadingBranches] = useStateH(false);
   const [selectedRepo, setSelectedRepo] = useStateH('');
+  const [repoUrl, setRepoUrl] = useStateH('');
   const [selectedBranch, setSelectedBranch] = useStateH(p.branch || 'main');
   const [linking, setLinking] = useStateH(false);
   const [linkMsg, setLinkMsg] = useStateH(null);
@@ -1360,23 +1378,26 @@ function GitHubCard({ p }) {
   }, []);
 
   React.useEffect(() => {
-    if (!selectedRepo) { setBranches([]); return; }
-    const [owner, repoName] = selectedRepo.split('/');
+    const repoRef = selectedRepo || parseGitHubRepository(repoUrl)?.fullName || '';
+    if (!repoRef) { setBranches([]); return; }
+    const [owner, repoName] = repoRef.split('/');
     setLoadingBranches(true);
     listGitHubBranches(owner, repoName)
       .then(b => { setBranches(b || []); })
       .catch(() => setBranches([]))
       .finally(() => setLoadingBranches(false));
-  }, [selectedRepo]);
+  }, [selectedRepo, repoUrl]);
 
   const handleLink = async () => {
-    if (!selectedRepo) return;
-    const [owner, repoName] = selectedRepo.split('/');
-    const repoData = repos.find(r => r.full_name === selectedRepo);
+    const parsedRepo = parseGitHubRepository(repoUrl);
+    const repoRef = selectedRepo || parsedRepo?.fullName || '';
+    if (!repoRef) return;
+    const [owner, repoName] = repoRef.split('/');
+    const repoData = repos.find(r => r.full_name === repoRef);
     setLinking(true); setLinkMsg(null); setLinkErr(null);
     try {
-      await linkProjectRepo(p.id, { owner, repo: repoName, branch: selectedBranch, repoId: repoData?.id });
-      setLinkMsg(`Linked to ${selectedRepo} on branch ${selectedBranch}. Push to that branch to trigger an auto-deploy.`);
+      await linkProjectRepo(p.id, { owner, repo: repoName, branch: selectedBranch, repoId: repoData?.id, url: parsedRepo?.url || repoData?.html_url });
+      setLinkMsg(`Linked to ${repoRef} on branch ${selectedBranch}. Push to that branch to trigger an auto-deploy.`);
     } catch (e) { setLinkErr(e.message); }
     finally { setLinking(false); }
   };
@@ -1438,18 +1459,28 @@ function GitHubCard({ p }) {
         </button>
       ) : (
         <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-          <select className="select" value={selectedRepo} onChange={e => setSelectedRepo(e.target.value)}
+          <input
+            className="input mono"
+            value={repoUrl}
+            onChange={(e) => {
+              setRepoUrl(e.target.value);
+              if (e.target.value.trim()) setSelectedRepo('');
+            }}
+            placeholder="https://github.com/owner/repo"
+            style={{ flex: 2, minWidth: 240 }}
+          />
+          <select className="select" value={selectedRepo} onChange={e => { setSelectedRepo(e.target.value); if (e.target.value) setRepoUrl(''); }}
             disabled={loadingRepos || linking} style={{ flex: 2, minWidth: 200 }}>
             <option value="">— Select repository —</option>
             {repos.map(r => <option key={r.id} value={r.full_name}>{r.full_name}{r.private ? ' 🔒' : ''}</option>)}
           </select>
           <select className="select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-            disabled={!selectedRepo || loadingBranches || linking} style={{ minWidth: 120 }}>
+            disabled={!(selectedRepo || parseGitHubRepository(repoUrl)) || loadingBranches || linking} style={{ minWidth: 120 }}>
             {branches.length > 0
               ? branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)
               : <option value={p.branch || 'main'}>{p.branch || 'main'}</option>}
           </select>
-          <button className="btn btn-primary" onClick={handleLink} disabled={!selectedRepo || linking || loadingRepos}>
+          <button className="btn btn-primary" onClick={handleLink} disabled={!(selectedRepo || parseGitHubRepository(repoUrl)) || linking || loadingRepos}>
             {linking ? 'Linking…' : 'Link repo'}
           </button>
         </div>

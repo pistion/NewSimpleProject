@@ -27,7 +27,7 @@ import { useBilling } from './use-billing';
 import { notifyDataChanged } from './api';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "light",
+  "theme": "dark",
   "accent": "#198754",
   "density": "regular",
   "fontPair": "serif-sans"
@@ -40,6 +40,41 @@ const ACCENT_PRESETS = {
   "#2a4d9a": { hover: "#21407f", soft: "#e4ebf7",   ink: "#142555", glow: "rgba(42,77,154,.24)"  }, // royal
   "#1a1f1d": { hover: "#0a0e0c", soft: "#e6e8e6",   ink: "#070a09", glow: "rgba(26,31,29,.24)"   }, // mono
 };
+
+class RouteErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.routeKey !== this.props.routeKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="card" style={{ padding: "32px 24px", maxWidth: 720, margin: "40px auto" }}>
+        <Empty
+          icon="AlertCircle"
+          title="This screen could not load"
+          body={this.state.error?.message || "Something went wrong while rendering this workspace screen."}
+          action={
+            <button className="btn btn-primary" onClick={() => this.props.navigate({ view: "builder-gallery" })}>
+              Back to site builder
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+}
 
 function applyAccent(color) {
   const p = ACCENT_PRESETS[color] || ACCENT_PRESETS["#198754"];
@@ -170,7 +205,11 @@ export default function App() {
             <DashSidebar active={activeKey} navigate={navigate} />
             <main className="dash-main">
               <DashTopbar crumbs={crumbs} navigate={navigate} theme={t.theme} toggleTheme={toggleTheme} />
-              <div className="dash-body">{renderView()}</div>
+              <div className="dash-body">
+                <RouteErrorBoundary routeKey={`${route.view}:${route.params?.id || ""}:${route.params?.siteId || ""}`} navigate={navigate}>
+                  {renderView()}
+                </RouteErrorBoundary>
+              </div>
             </main>
           </div>
         )}

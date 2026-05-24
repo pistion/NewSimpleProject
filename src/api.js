@@ -129,16 +129,34 @@ export async function listGitHubBranches(owner, repo) {
   return [{ name: 'main' }];
 }
 
-export async function linkProjectRepo(projectId, { owner, repo, branch, repoId }) {
+export async function linkProjectRepo(projectId, input) {
+  if (!input) {
+    const project = await updateProject(projectId, {
+      repositoryProvider: null,
+      repositoryOwner: null,
+      repositoryName: null,
+      repositoryId: null,
+      repositoryUrl: null,
+    });
+    notifyDataChanged();
+    return project;
+  }
+
+  const { owner, repo, branch, repoId, url } = input;
   const project = await updateProject(projectId, {
     repositoryProvider: 'github',
     repositoryOwner: owner,
     repositoryName: repo,
     repositoryId: String(repoId ?? ''),
+    repositoryUrl: url || `https://github.com/${owner}/${repo}`,
     productionBranch: branch || 'main',
   });
   notifyDataChanged();
   return project;
+}
+
+export function parseGitHubRepository(value) {
+  return parseGithubRepo(value);
 }
 
 export async function listRenderServices() {
@@ -460,8 +478,28 @@ export async function listPageVersions(siteId, pageId) {
 
 export async function publishBuilderSite(siteId) {
   const site = await apiRequest(`/builder/sites/${siteId}/publish`, { method: 'POST' });
+  const renderDeploy = await triggerRenderDeploy({ siteId, renderServiceId: site.renderServiceId });
   notifyDataChanged();
-  return site;
+  return { ...site, renderDeploy };
+}
+
+export async function triggerRenderDeploy(input = {}) {
+  try {
+    const response = await fetch('/api/render/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.error?.message || result?.message || `Render deploy failed with ${response.status}.`);
+    return result;
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      provider: 'render',
+      message: error.message || 'Render deploy endpoint is unavailable.',
+    };
+  }
 }
 
 export async function uploadBuilderSitePackage(file) {
@@ -475,6 +513,186 @@ export async function uploadBuilderSitePackage(file) {
   writeLocalDb(db);
   notifyDataChanged();
   return site;
+}
+
+export async function importBuilderSiteFromGithub(input) {
+  const repo = parseGithubRepo(input.repoUrl);
+  if (!repo) {
+    throw new Error('Enter a valid GitHub repository URL, for example https://github.com/owner/repo.');
+  }
+
+  const siteName = input.name || repo.repo;
+  const branch = input.branch || 'main';
+  const sandboxId = createId('sandbox');
+  const snapshot = await fetchGithubSnapshot(repo, branch);
+  const sandbox = await buildGithubSandbox(input, repo, branch, sandboxId);
+  const site = await createBuilderSite({
+    name: siteName,
+    templateId: null,
+    source: 'github',
+    repositoryProvider: 'github',
+    repositoryOwner: repo.owner,
+    repositoryName: repo.repo,
+    repositoryUrl: repo.url,
+    branch,
+    rootDirectory: input.rootDirectory || '',
+    framework: input.framework || 'Vite + React',
+    installCommand: input.installCommand || 'npm ci',
+    buildCommand: input.buildCommand || 'npm run build',
+    outputDirectory: input.outputDirectory || 'dist',
+    content: {
+      _source: 'github',
+      _repository: repo.fullName,
+      _branch: branch,
+      _importedAt: new Date().toISOString(),
+      _githubImportStatus: snapshot.status,
+      _githubSummary: snapshot.summary,
+      _githubFiles: snapshot.files,
+      _githubFileContents: snapshot.contents,
+      _githubEntryHtml: snapshot.entryHtml,
+      _sandboxId: sandboxId,
+      _sandboxStatus: sandbox.status,
+      _sandboxPreviewUrl: sandbox.previewUrl,
+      _sandboxOutputDirectory: sandbox.outputDirectory,
+      _sandboxFiles: sandbox.files || [],
+      _sandboxLogs: sandbox.logs,
+      _sandboxError: sandbox.error,
+    },
+  });
+
+  const db = readLocalDb();
+  const project = makeProject({
+    name: siteName,
+    slug: slugify(siteName),
+    framework: input.framework || 'Vite + React',
+    repositoryProvider: 'github',
+    repositoryOwner: repo.owner,
+    repositoryName: repo.repo,
+    repositoryUrl: repo.url,
+    productionBranch: branch,
+  });
+  db.projects.unshift(project);
+  const storedSite = db.sites.find((item) => item.id === site.id);
+  if (storedSite) {
+    storedSite.projectId = project.id;
+    storedSite.repositoryProvider = 'github';
+    storedSite.repositoryOwner = repo.owner;
+    storedSite.repositoryName = repo.repo;
+    storedSite.repositoryUrl = repo.url;
+    storedSite.branch = branch;
+    storedSite.rootDirectory = input.rootDirectory || '';
+    storedSite.framework = input.framework || 'Vite + React';
+    storedSite.installCommand = input.installCommand || 'npm ci';
+    storedSite.buildCommand = input.buildCommand || 'npm run build';
+    storedSite.outputDirectory = input.outputDirectory || 'dist';
+    storedSite.sandboxId = sandboxId;
+    storedSite.previewUrl = sandbox.previewUrl || null;
+  }
+  db.activity.unshift(makeActivity('builder.github_imported', `Imported ${repo.fullName} from GitHub.`, 'builder_site', site.id));
+  writeLocalDb(db);
+  notifyDataChanged();
+
+  return storedSite || { ...site, projectId: project.id };
+}
+
+async function buildGithubSandbox(input, repo, branch, sandboxId) {
+  try {
+    const response = await fetch('/api/builder/import-github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        siteId: sandboxId,
+        repoUrl: input.repoUrl || repo.url,
+        branch,
+        outputDirectory: input.outputDirectory || 'dist',
+      }),
+    });
+    if (!response.ok) throw new Error(`Sandbox build endpoint returned ${response.status}.`);
+    return await response.json();
+  } catch (error) {
+    return {
+      siteId: sandboxId,
+      status: 'unavailable',
+      previewUrl: null,
+      outputDirectory: input.outputDirectory || 'dist',
+      logs: [{ ok: false, command: 'sandbox', output: error.message || 'Sandbox build is unavailable.' }],
+      error: error.message || 'Sandbox build is unavailable.',
+    };
+  }
+}
+
+async function fetchGithubSnapshot(repo, branch) {
+  if (typeof fetch !== 'function') {
+    return emptyGithubSnapshot('GitHub file reading is not available in this runtime.');
+  }
+
+  const treeUrl = `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+  const treeResponse = await fetch(treeUrl, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!treeResponse.ok) {
+    throw new Error(treeResponse.status === 404
+      ? `Could not read ${repo.fullName} on branch ${branch}. Check that the repo is public and the branch exists.`
+      : `GitHub returned ${treeResponse.status} while reading ${repo.fullName}. Try again or upload a ZIP.`);
+  }
+
+  const treeData = await treeResponse.json();
+  const files = (treeData.tree || [])
+    .filter((item) => item.type === 'blob')
+    .map((item) => ({ path: item.path, size: item.size || 0 }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  const preferred = pickGithubFiles(files);
+  const contents = {};
+  await Promise.all(preferred.map(async (file) => {
+    const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${encodeURIComponent(branch)}/${file.path.split('/').map(encodeURIComponent).join('/')}`;
+    const response = await fetch(rawUrl);
+    if (response.ok) contents[file.path] = await response.text();
+  }));
+
+  const entryHtml = contents['index.html'] || contents['public/index.html'] || '';
+  return {
+    status: 'loaded',
+    files,
+    contents,
+    entryHtml,
+    summary: {
+      fileCount: files.length,
+      loadedFileCount: Object.keys(contents).length,
+      hasPackageJson: files.some((file) => file.path === 'package.json'),
+      hasIndexHtml: !!entryHtml,
+    },
+  };
+}
+
+function emptyGithubSnapshot(message) {
+  return {
+    status: 'metadata-only',
+    files: [],
+    contents: {},
+    entryHtml: '',
+    summary: { fileCount: 0, loadedFileCount: 0, hasPackageJson: false, hasIndexHtml: false, message },
+  };
+}
+
+function pickGithubFiles(files) {
+  const important = ['package.json', 'index.html', 'public/index.html', 'src/main.jsx', 'src/main.tsx', 'src/App.jsx', 'src/App.tsx', 'vite.config.js', 'vite.config.ts'];
+  const textExtensions = /\.(html|css|js|jsx|ts|tsx|json|md|txt|yml|yaml)$/i;
+  const selected = [];
+
+  important.forEach((path) => {
+    const file = files.find((item) => item.path === path);
+    if (file && file.size <= 200000) selected.push(file);
+  });
+
+  files.forEach((file) => {
+    if (selected.length >= 24) return;
+    if (selected.some((item) => item.path === file.path)) return;
+    if (!textExtensions.test(file.path)) return;
+    if (file.size > 120000) return;
+    if (/(^|\/)(node_modules|dist|build|\.git|coverage)\//.test(file.path)) return;
+    selected.push(file);
+  });
+
+  return selected;
 }
 
 export function mapApiActivity(item) {
@@ -794,6 +1012,11 @@ function makeProject(input = {}) {
     repositoryOwner: input.repositoryOwner || null,
     repositoryName: input.repositoryName || null,
     repositoryId: input.repositoryId || null,
+    repositoryUrl: input.repositoryUrl || null,
+    rootDirectory: input.rootDirectory || './',
+    installCommand: input.installCommand || 'npm ci',
+    buildCommand: input.buildCommand || 'npm run build',
+    outputDirectory: input.outputDirectory || 'dist',
     productionBranch: input.productionBranch || 'main',
     renderServiceId: input.renderServiceId || null,
     domain: `${slug}.glondia.app`,
@@ -898,6 +1121,16 @@ function makeBuilderSite(input = {}) {
     status: input.status || 'draft',
     source: input.source || 'local',
     filename: input.filename || null,
+    repositoryProvider: input.repositoryProvider || null,
+    repositoryOwner: input.repositoryOwner || null,
+    repositoryName: input.repositoryName || null,
+    repositoryUrl: input.repositoryUrl || null,
+    branch: input.branch || null,
+    rootDirectory: input.rootDirectory || '',
+    framework: input.framework || null,
+    installCommand: input.installCommand || null,
+    buildCommand: input.buildCommand || null,
+    outputDirectory: input.outputDirectory || null,
     createdAt: now,
     updatedAt: now,
     pages: [makeBuilderPage({ siteId, title: 'Home', path: '/', content: input.content || {} })],
@@ -937,6 +1170,39 @@ function parseBody(body) {
   if (!body) return {};
   if (typeof body !== 'string') return body;
   return safeParseJson(body) || {};
+}
+
+function parseGithubRepo(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const ssh = raw.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
+  if (ssh) return normalizeGithubRepo(ssh[1], ssh[2]);
+
+  const shorthand = raw.match(/^([^/\s]+)\/([^/\s]+)$/);
+  if (shorthand && !raw.includes('://')) return normalizeGithubRepo(shorthand[1], shorthand[2]);
+
+  try {
+    const url = new URL(raw);
+    if (!/github\.com$/i.test(url.hostname)) return null;
+    const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+    if (parts.length < 2) return null;
+    return normalizeGithubRepo(parts[0], parts[1]);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGithubRepo(owner, repo) {
+  const cleanOwner = String(owner || '').trim();
+  const cleanRepo = String(repo || '').trim().replace(/\.git$/i, '');
+  if (!cleanOwner || !cleanRepo) return null;
+  return {
+    owner: cleanOwner,
+    repo: cleanRepo,
+    fullName: `${cleanOwner}/${cleanRepo}`,
+    url: `https://github.com/${cleanOwner}/${cleanRepo}`,
+  };
 }
 
 function createId(prefix) {

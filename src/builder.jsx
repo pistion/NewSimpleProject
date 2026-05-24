@@ -10,8 +10,7 @@ import {
   createBuilderSite, updateBuilderSite, archiveBuilderSite,
   saveBuilderPage, publishBuilderSite,
   createBuilderPage, deleteBuilderPage, listPageVersions,
-  uploadBuilderSitePackage,
-  getStoredAuth,
+  uploadBuilderSitePackage, importBuilderSiteFromGithub,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -357,6 +356,7 @@ export function BuilderRoxanne({ navigate }) {
   const handleGenerate = async () => {
     if (!bizName.trim()) { setGenError('Enter a business name to continue.'); return; }
     setGenerating(true); setGenError(null);
+
     try {
       const { accessToken } = getStoredAuth();
       if (!accessToken) { setGenError('Sign in to generate a draft.'); setGenerating(false); return; }
@@ -452,6 +452,7 @@ export function BuilderRoxanne({ navigate }) {
 export function BuilderImport({ navigate, mode = "github" }) {
   const [active, setActive] = useStateB(mode);
   const [repoUrl, setRepoUrl] = useStateB('');
+  const [repoBranch, setRepoBranch] = useStateB('main');
   const [gitBusy, setGitBusy] = useStateB(false);
   const [gitError, setGitError] = useStateB(null);
   const [uploadBusy, setUploadBusy] = useStateB(false);
@@ -463,8 +464,7 @@ export function BuilderImport({ navigate, mode = "github" }) {
     if (!repoUrl.trim()) return;
     setGitBusy(true); setGitError(null);
     try {
-      const name = repoUrl.split('/').pop()?.replace(/\.git$/, '') || 'Imported site';
-      const site = await createBuilderSite({ name });
+      const site = await importBuilderSiteFromGithub({ repoUrl, branch: repoBranch || 'main' });
       navigate({ view: "builder-editor", params: { id: site.templateId || null, siteId: site.id } });
     } catch (err) {
       setGitError(err.message || 'Failed to connect repository.');
@@ -480,11 +480,8 @@ export function BuilderImport({ navigate, mode = "github" }) {
     }
     setUploadBusy(true); setUploadError(null);
     try {
-      const { accessToken } = getStoredAuth();
-      if (!accessToken) { setUploadError('Sign in to upload a site package.'); return; }
       const site = await uploadBuilderSitePackage(file);
-      navigate({ view: "builder-gallery" });
-      // brief pause so gallery reload catches new site
+      navigate({ view: "builder-editor", params: { id: site.templateId || null, siteId: site.id } });
     } catch (err) {
       setUploadError(err.message || 'Upload failed.');
     } finally {
@@ -524,8 +521,12 @@ export function BuilderImport({ navigate, mode = "github" }) {
                 value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleGitConnect()} />
               <button className="btn btn-primary" onClick={handleGitConnect} disabled={gitBusy || !repoUrl.trim()}>
-                <ICN.Git size={14} /> {gitBusy ? "Connecting…" : "Connect"}
+                <ICN.Git size={14} /> {gitBusy ? "Importing..." : "Import"}
               </button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div className="label">Branch</div>
+              <input className="input mono" placeholder="main" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} />
             </div>
             {gitError && <div style={{ marginTop: 10, color: "var(--danger)", fontSize: 13 }}>{gitError}</div>}
             <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>Static sites, React, Vite, and Node projects can be connected here.</div>
@@ -839,7 +840,9 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
   const [draftMsg, setDraftMsg] = useStateB(null);
   const [draftError, setDraftError] = useStateB(null);
   const [selectedDomain, setSelectedDomain] = useStateB('');
+  const [loadedSite, setLoadedSite] = useStateB(null);
   const autoSaveTimer = React.useRef(null);
+  const isGithubImport = content._source === 'github';
   const siteSlug = tpl
     ? (content.siteName || tpl.id).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || tpl.id
     : '';
@@ -879,17 +882,24 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
     }
   };
 
-  // Load existing site content when siteId is provided
+  // Load existing site content when siteId is provided. Imported GitHub/upload sites
+  // live in the local workspace too, so this must not depend on an auth token.
   React.useEffect(() => {
-    if (!initialSiteId || !getStoredAuth().accessToken) return;
+    if (!initialSiteId) return;
     import('./api').then(({ getBuilderSite }) => {
       getBuilderSite(initialSiteId).then(site => {
+        if (!site) return;
         const homePage = site?.pages?.[0];
         if (homePage?.id) setPageId(homePage.id);
         if (homePage?.content && typeof homePage.content === 'object') {
-          setContent(prev => ({ ...prev, ...homePage.content }));
+          setContent(prev => ({
+            ...prev,
+            siteName: site.name || prev.siteName,
+            ...homePage.content,
+          }));
         }
         setSiteId(site.id);
+        setLoadedSite(site);
       }).catch(() => {});
     });
   }, [initialSiteId]);
@@ -905,7 +915,7 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
       </div>
     );
   }
-  if (!tpl) {
+  if (!tpl && !isGithubImport) {
     return (
       <div style={{ padding: "80px 24px" }}>
         <Empty icon="Layers" title="Template not found"
@@ -924,14 +934,18 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
           </a>
           <div className="row" style={{ gap: 14, marginTop: 8 }}>
             <div style={{ width: 56, height: 36, borderRadius: 6, overflow: "hidden", border: "1px solid var(--border)" }}>
-              <TplThumb tpl={tpl} />
+              {isGithubImport ? (
+                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-deep)", color: "var(--accent)" }}>
+                  <ICN.Github size={18} />
+                </div>
+              ) : <TplThumb tpl={tpl} />}
             </div>
             <div>
-              <h1 style={{ margin: 0 }}>{content.siteName || tpl.name}</h1>
+              <h1 style={{ margin: 0 }}>{content.siteName || tpl?.name || content._repository || 'Imported site'}</h1>
               <div className="row" style={{ gap: 10, marginTop: 4, color: "var(--text-muted)", fontSize: 13 }}>
-                <span>{tpl.name} template</span>
+                <span>{isGithubImport ? `${content._repository || 'GitHub repository'} source` : `${tpl.name} template`}</span>
                 <span>·</span>
-                <span className="mono">{siteSlug}.glondia.app</span>
+                <span className="mono">{isGithubImport ? content._branch || loadedSite?.branch || 'main' : `${siteSlug}.glondia.app`}</span>
                 <span>·</span>
                 <Badge tone="warn">Unpublished changes</Badge>
               </div>
@@ -956,22 +970,157 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
 
       <div className="card card-flush" style={{ overflow: "hidden", margin: "0 -28px -28px", borderLeft: 0, borderRight: 0, borderBottom: 0, borderRadius: 0 }}>
         <div className="bld-split">
-          <BuilderForm tab={tab} setTab={setTab} content={content} update={update} tpl={tpl} siteSlug={siteSlug} domains={domains} selectedDomain={selectedDomain} setSelectedDomain={setSelectedDomain} />
+          {isGithubImport
+            ? <ImportedGithubWorkspace content={content} site={loadedSite} />
+            : <BuilderForm tab={tab} setTab={setTab} content={content} update={update} tpl={tpl} siteSlug={siteSlug} domains={domains} selectedDomain={selectedDomain} setSelectedDomain={setSelectedDomain} />}
           <div className="bld-preview">
-            <BuilderPreview tab={tab} content={content} tpl={tpl} />
-            <div className="row" style={{ justifyContent: "center", gap: 8, marginTop: 18 }}>
-              <Tabs value={tab} onChange={setTab} options={[
-                { value: "home", label: "Home" },
-                { value: "about", label: "About" },
-                { value: "contact", label: "Contact" },
-              ]} />
-            </div>
+            {isGithubImport ? (
+              <ImportedGithubPreview content={content} />
+            ) : (
+              <>
+                <BuilderPreview tab={tab} content={content} tpl={tpl} />
+                <div className="row" style={{ justifyContent: "center", gap: 8, marginTop: 18 }}>
+                  <Tabs value={tab} onChange={setTab} options={[
+                    { value: "home", label: "Home" },
+                    { value: "about", label: "About" },
+                    { value: "contact", label: "Contact" },
+                  ]} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {publishing && <PublishModal onClose={() => setPublishing(false)} content={content} tpl={tpl} siteSlug={siteSlug} navigate={navigate} existingSiteId={siteId} existingPageId={pageId} onPublished={(sid, pid) => { setSiteId(sid); setPageId(pid); }} />}
     </>
+  );
+}
+
+function ImportedGithubWorkspace({ content, site }) {
+  const githubFiles = Array.isArray(content._githubFiles) ? content._githubFiles : [];
+  const sandboxFiles = Array.isArray(content._sandboxFiles) ? content._sandboxFiles : [];
+  const files = sandboxFiles.length ? sandboxFiles : githubFiles;
+  const contents = content._githubFileContents && typeof content._githubFileContents === 'object' ? content._githubFileContents : {};
+  const firstPath = Object.keys(contents)[0] || files[0]?.path || '';
+  const [selectedPath, setSelectedPath] = useStateB(firstPath);
+  const selectedContent = contents[selectedPath] || '';
+  const summary = content._githubSummary || {};
+  const loadedPaths = Object.keys(contents);
+
+  React.useEffect(() => {
+    if (!selectedPath && firstPath) setSelectedPath(firstPath);
+  }, [firstPath, selectedPath]);
+
+  return (
+    <div className="bld-form">
+      <div>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Imported source</div>
+        <h2 style={{ margin: "0 0 8px" }}>{content._repository || site?.repositoryUrl || 'GitHub repository'}</h2>
+        <div className="muted" style={{ fontSize: 13 }}>
+          Branch <span className="mono">{content._branch || site?.branch || 'main'}</span> - {files.length || summary.fileCount || 0} files found - {summary.loadedFileCount || loadedPaths.length} text files loaded
+        </div>
+      </div>
+
+      <div className="grid-2" style={{ gap: 10 }}>
+        <ImportMetric label="Package" value={summary.hasPackageJson ? "Found" : "Missing"} detail="package.json" />
+        <ImportMetric label="Sandbox" value={content._sandboxStatus === 'ready' ? "Ready" : content._sandboxStatus === 'failed' ? "Failed" : "Building"} detail={content._sandboxOutputDirectory || 'dist'} />
+      </div>
+
+      <div>
+        <div className="label">Repository files</div>
+        {files.length > 0 ? (
+          <select className="select mono" value={selectedPath} onChange={(e) => setSelectedPath(e.target.value)}>
+            {files.map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}
+          </select>
+        ) : (
+          <div className="card" style={{ padding: 14, color: "var(--text-muted)", fontSize: 13 }}>
+            No file tree is stored for this import yet. Re-import the GitHub repository to load its files into this workspace.
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="label">File preview</div>
+        <pre className="mono" style={{
+          margin: 0,
+          minHeight: 280,
+          maxHeight: 460,
+          overflow: "auto",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          background: "var(--bg-deep)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-sm)",
+          padding: 14,
+          fontSize: 12,
+          lineHeight: 1.55,
+        }}>{selectedContent || "This file was listed in GitHub, but was not loaded because it is binary, too large, or outside the source preview limit."}</pre>
+      </div>
+
+      <div>
+        <div className="label">Build logs</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(content._sandboxLogs || []).map((log, index) => (
+            <div key={index} style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: 10 }}>
+              <div className="row between" style={{ gap: 10 }}>
+                <span className="mono" style={{ fontSize: 12 }}>{log.command || 'sandbox'}</span>
+                <Badge tone={log.ok ? "success" : "danger"} dot={false}>{log.ok ? "OK" : "Check"}</Badge>
+              </div>
+              {log.output && <pre className="mono" style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", color: "var(--text-muted)", fontSize: 11, maxHeight: 120, overflow: "auto" }}>{log.output}</pre>}
+            </div>
+          ))}
+          {!(content._sandboxLogs || []).length && (
+            <div className="card" style={{ padding: 14, color: "var(--text-muted)", fontSize: 13 }}>No sandbox logs yet. Re-import the repository to run clone, install, and build.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportMetric({ label, value, detail }) {
+  return (
+    <div style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: 14 }}>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontWeight: 700, fontSize: 16 }}>{value}</div>
+      <div className="mono" style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 4 }}>{detail}</div>
+    </div>
+  );
+}
+
+function ImportedGithubPreview({ content }) {
+  const sandboxPreviewUrl = content._sandboxPreviewUrl || '';
+  const entryHtml = content._githubEntryHtml || '';
+  const hasPreview = sandboxPreviewUrl || entryHtml.trim().length > 0;
+  return (
+    <div className="bld-preview-frame">
+      {hasPreview ? (
+        <iframe
+          title="Imported GitHub preview"
+          sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+          src={sandboxPreviewUrl || undefined}
+          srcDoc={sandboxPreviewUrl ? undefined : entryHtml}
+          style={{ width: "100%", minHeight: 640, border: 0, background: "#fff" }}
+        />
+      ) : (
+        <div style={{ padding: 42 }}>
+          <div className="eyebrow">GitHub source imported</div>
+          <h1 style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 42, margin: "10px 0 14px" }}>{content._repository}</h1>
+          <p style={{ color: "var(--text-muted)", maxWidth: 620, lineHeight: 1.6 }}>
+            The repository files are loaded on the left. The sandbox build has not produced a preview yet, so check the build logs and output directory.
+          </p>
+          <div className="card" style={{ marginTop: 22, padding: 16 }}>
+            <div className="kv" style={{ gridTemplateColumns: "130px 1fr" }}>
+              <dt>Branch</dt><dd className="mono">{content._branch || 'main'}</dd>
+              <dt>Status</dt><dd className="mono">{content._sandboxStatus || 'not started'}</dd>
+              <dt>Output</dt><dd className="mono">{content._sandboxOutputDirectory || 'dist'}</dd>
+              <dt>Error</dt><dd>{content._sandboxError || 'None'}</dd>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1183,16 +1332,18 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
   const [phase, setPhase] = useStateB("review"); // review | building | done
   const [publishError, setPublishError] = useStateB(null);
   const [liveUrl, setLiveUrl] = useStateB(`https://${siteSlug}.glondia.app`);
+  const [deployResult, setDeployResult] = useStateB(null);
 
   const runPublish = async () => {
     setPhase("building");
     setPublishError(null);
 
-    const { accessToken } = getStoredAuth();
-    if (!accessToken) {
+    if (false) {
+    if (false) {
       // Offline demo — animate and show done
       setTimeout(() => setPhase("done"), 2400);
       return;
+    }
     }
 
     try {
@@ -1202,8 +1353,8 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
       // 1. Create site if no draft exists yet
       if (!sid) {
         const site = await createBuilderSite({
-          name: content.siteName || tpl.name,
-          templateId: tpl.id,
+          name: content.siteName || tpl?.name || content._repository || 'Imported site',
+          templateId: tpl?.id || null,
         });
         sid = site.id;
         pid = site.pages?.[0]?.id || null;
@@ -1214,10 +1365,13 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
         await saveBuilderPage(sid, pid, content);
       }
 
-      // 3. Publish
+      // 3. Publish locally and trigger Render
       const published = await publishBuilderSite(sid);
+      setDeployResult(published?.renderDeploy || null);
       if (published?.slug) {
         setLiveUrl(`https://${published.slug}.glondia.app`);
+      } else if (window.location?.origin) {
+        setLiveUrl(window.location.origin);
       }
 
       onPublished?.(sid, pid);
@@ -1256,12 +1410,12 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
               </div>
             </div>
             <div style={{ padding: 24 }}>
-              <p className="muted" style={{ marginTop: 0 }}>This will build and deploy <b style={{ color: "var(--text)" }}>{content.siteName}</b> using the <b style={{ color: "var(--text)" }}>{tpl.name}</b> template.</p>
+              <p className="muted" style={{ marginTop: 0 }}>This will publish <b style={{ color: "var(--text)" }}>{content.siteName || content._repository || 'this site'}</b> and trigger a Render deploy for the hosted app.</p>
               <div className="kv" style={{ marginTop: 16 }}>
-                <dt>Pages</dt><dd>Home, About, Contact</dd>
-                <dt>URL</dt><dd className="mono">{siteSlug}.glondia.app</dd>
-                <dt>Custom domain</dt><dd className="faint">None connected</dd>
-                <dt>SSL</dt><dd><Badge tone="success">Auto-issued on publish</Badge></dd>
+                <dt>Source</dt><dd>{content._repository ? <span className="mono">{content._repository}</span> : `${tpl?.name || 'Builder'} template`}</dd>
+                <dt>URL</dt><dd className="mono">{window.location?.host || `${siteSlug}.glondia.app`}</dd>
+                <dt>Provider</dt><dd><Badge tone="success">Render</Badge></dd>
+                <dt>Preview</dt><dd className="mono">{content._sandboxPreviewUrl || 'Current build output'}</dd>
               </div>
             </div>
             {publishError && (
