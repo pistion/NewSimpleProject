@@ -1,6 +1,7 @@
-# Render Blueprint - clean Glondia Sites Vite deployment.
-# One Node web service serves the built React app from dist.
-# No Nest backend, no Prisma migrations, no Postgres, no Redis, no JWT secrets.
+# Render Blueprint - Glondia Sites active deployment.
+# One Node web service runs the lightweight Express server at server/src/server.js.
+# Express serves the built Vite app from dist and exposes the active API endpoints.
+# The Nest backend under backend/ is not part of this active deployment.
 
 services:
   - type: web
@@ -20,3 +21,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATA_DIR
+        value: /var/glondia/data

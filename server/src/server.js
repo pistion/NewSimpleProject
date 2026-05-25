@@ -40,7 +40,7 @@ const execFileAsync = promisify(execFile);
 // ── Static file serving ─────────────────────────────────────────────────────
 const rootDir = resolve(process.cwd());
 const distDir = join(rootDir, 'dist');
-const dataDir = resolve(process.env.DATA_DIR || join(rootDir, '.glondia-data'));
+const dataDir = resolveDataDir();
 const sandboxRoot = join(dataDir, 'sandboxes');
 mkdirSync(sandboxRoot, { recursive: true });
 const sandboxProcesses = new Map();
@@ -77,13 +77,22 @@ function serveStatic(req, res) {
   createReadStream(filePath).pipe(res);
 }
 
+function resolveDataDir() {
+  const configured = process.env.DATA_DIR;
+  if (!configured) return join(rootDir, '.glondia-data');
+  if (process.platform === 'win32' && configured.startsWith('/var/')) {
+    return join(rootDir, '.glondia-data');
+  }
+  return resolve(configured);
+}
+
 // ── Global middleware ────────────────────────────────────────────────────────
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
-  : true; // allow all in dev
+  : (isProd ? false : true); // allow all in dev, same-origin only in production
 
 app.use(cors({ origin: corsOrigins, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(isProd ? 'combined' : 'dev'));
 app.use(requestId);
 app.use(responseHelper);
@@ -93,7 +102,7 @@ app.get('/healthz', (req, res) => {
   res.type('text/plain').send('ok');
 });
 
-app.post('/api/builder/import-github', async (req, res, next) => {
+app.post('/api/builder/import-github', providerApiGuard, async (req, res, next) => {
   try {
     const result = await importGithubSandbox(req.body || {});
     res.json(result);
@@ -102,7 +111,7 @@ app.post('/api/builder/import-github', async (req, res, next) => {
   }
 });
 
-app.post('/api/render/deploy', async (req, res, next) => {
+app.post('/api/render/deploy', providerApiGuard, async (req, res, next) => {
   try {
     const result = await triggerRenderDeploy(req.body || {});
     res.json(result);
@@ -111,9 +120,18 @@ app.post('/api/render/deploy', async (req, res, next) => {
   }
 });
 
-app.post('/api/render/test-deploy', async (req, res, next) => {
+app.post('/api/render/test-deploy', providerApiGuard, async (req, res, next) => {
   try {
     const result = await testRenderDeploy(req.body || {});
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/render/activate-repo', providerApiGuard, async (req, res, next) => {
+  try {
+    const result = await activateRenderRepoService(req.body || {});
     res.json(result);
   } catch (error) {
     next(error);
@@ -200,6 +218,41 @@ function sanitizeId(value) {
   return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
+const providerRateWindowMs = Number(process.env.PROVIDER_RATE_WINDOW_MS || 60_000);
+const providerRateLimit = Number(process.env.PROVIDER_RATE_LIMIT || 20);
+const providerRateBuckets = new Map();
+
+function providerApiGuard(req, res, next) {
+  if (String(process.env.PROVIDER_API_ENABLED || 'true').toLowerCase() === 'false') {
+    return res.status(503).json({ status: 'disabled', message: 'Provider API endpoints are disabled.' });
+  }
+
+  const token = process.env.PROVIDER_API_TOKEN;
+  if (token) {
+    const expected = `Bearer ${token}`;
+    if (req.headers.authorization !== expected) {
+      return res.status(401).json({ status: 'unauthorized', message: 'Provider API token is required.' });
+    }
+  }
+
+  const key = `${req.ip || req.socket.remoteAddress || 'unknown'}:${req.path}`;
+  const now = Date.now();
+  const bucket = providerRateBuckets.get(key) || { count: 0, resetAt: now + providerRateWindowMs };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + providerRateWindowMs;
+  }
+  bucket.count += 1;
+  providerRateBuckets.set(key, bucket);
+  res.setHeader('X-RateLimit-Limit', String(providerRateLimit));
+  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, providerRateLimit - bucket.count)));
+  if (bucket.count > providerRateLimit) {
+    return res.status(429).json({ status: 'rate_limited', message: 'Too many provider API requests. Try again shortly.' });
+  }
+
+  return next();
+}
+
 function parseGithubRepo(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -230,6 +283,69 @@ function normalizeGithubRepo(owner, repo) {
   };
 }
 
+function assertRepoAllowed(repo) {
+  const allowlist = String(process.env.GITHUB_REPO_ALLOWLIST || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowlist.length) return;
+  const fullName = repo.fullName.toLowerCase();
+  const allowed = allowlist.some((item) => item === fullName || item === repo.owner.toLowerCase() || item === '*');
+  if (!allowed) {
+    const error = new Error(`Repository ${repo.fullName} is not allowed in this environment.`);
+    error.status = 403;
+    throw error;
+  }
+}
+
+function safeBranchName(value) {
+  const branch = String(value || 'main').trim() || 'main';
+  if (!/^[A-Za-z0-9._/-]{1,120}$/.test(branch) || branch.includes('..') || branch.startsWith('/') || branch.endsWith('/')) {
+    const error = new Error('Branch contains unsupported characters.');
+    error.status = 400;
+    throw error;
+  }
+  return branch;
+}
+
+function safeRelativePath(value, fallback = 'dist') {
+  const cleaned = String(value || fallback).replace(/^[/\\]+/, '').trim() || fallback;
+  if (cleaned.includes('..') || resolve('/', cleaned) === '/') {
+    const error = new Error('Path must be a non-root relative path.');
+    error.status = 400;
+    throw error;
+  }
+  return cleaned;
+}
+
+function childProcessEnv(extra = {}) {
+  const allowed = [
+    'PATH',
+    'Path',
+    'HOME',
+    'USERPROFILE',
+    'SYSTEMROOT',
+    'SystemRoot',
+    'TEMP',
+    'TMP',
+    'COMSPEC',
+    'ComSpec',
+    'PATHEXT',
+    'NPM_CONFIG_CACHE',
+  ];
+  const env = {};
+  for (const key of allowed) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  return {
+    ...env,
+    CI: 'true',
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+    ...extra,
+  };
+}
+
 async function runStep(command, args, options = {}) {
   const started = Date.now();
   const executable = process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command;
@@ -238,12 +354,7 @@ async function runStep(command, args, options = {}) {
       timeout: options.timeout || 120000,
       maxBuffer: 1024 * 1024 * 4,
       cwd: options.cwd,
-      env: {
-        ...process.env,
-        CI: 'true',
-        npm_config_audit: 'false',
-        npm_config_fund: 'false',
-      },
+      env: childProcessEnv(),
     });
     return {
       command: `${command} ${args.join(' ')}`,
@@ -264,12 +375,13 @@ async function runStep(command, args, options = {}) {
 
 async function importGithubSandbox(input) {
   const repo = parseGithubRepo(input.repoUrl);
-  const branch = String(input.branch || 'main').trim() || 'main';
+  if (repo) assertRepoAllowed(repo);
+  const branch = safeBranchName(input.branch);
   const fallbackName = repo ? `${repo.owner}-${repo.repo}`.toLowerCase() : 'invalid-repository';
   const siteId = sanitizeId(input.siteId || fallbackName);
   const sandboxDir = resolve(sandboxRoot, siteId);
   const repoDir = join(sandboxDir, 'repo');
-  const outputDirectory = String(input.outputDirectory || 'dist').replace(/^[/\\]+/, '') || 'dist';
+  const outputDirectory = safeRelativePath(input.outputDirectory, 'dist');
   const distOut = resolve(sandboxDir, 'dist');
   const logs = [];
 
@@ -367,11 +479,10 @@ function startSandboxRuntime(siteId, cwd, port) {
   const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const child = spawn(command, ['start'], {
     cwd,
-    env: {
-      ...process.env,
+    env: childProcessEnv({
       PORT: String(port),
       NODE_ENV: 'development',
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -475,6 +586,90 @@ async function triggerRenderDeploy(input = {}) {
     serviceId,
     deploy: body,
   };
+}
+
+async function activateRenderRepoService(input = {}) {
+  const apiKey = process.env.RENDER_API_KEY;
+  if (!apiKey) return { status: 'configuration_required', message: 'RENDER_API_KEY is required.' };
+  const repo = parseGithubRepo(input.repoUrl || input.repo || input.repository);
+  if (!repo) return { status: 'failed', message: 'A valid GitHub repository URL is required.' };
+  assertRepoAllowed(repo);
+
+  const services = await listRenderServices();
+  const existing = services.find((service) => sameRepo(service.repo, repo.fullName, repo.url));
+  if (existing?.id) {
+    const deploy = await triggerRenderDeploy({ ...input, serviceId: existing.id });
+    return { status: 'activated', action: 'reused', service: existing, deploy };
+  }
+
+  const ownerId = process.env.RENDER_OWNER_ID || input.ownerId || await getDefaultRenderOwnerId();
+  if (!ownerId) return { status: 'configuration_required', message: 'RENDER_OWNER_ID is required to create a new Render service.' };
+
+  const serviceType = input.serviceType || inferRenderServiceType(input);
+  const body = {
+    type: serviceType,
+    name: renderSafeName(input.name || repo.repo),
+    ownerId,
+    repo: `https://github.com/${repo.fullName}`,
+    branch: safeBranchName(input.branch),
+    autoDeploy: 'no',
+    rootDir: input.rootDirectory ? safeRelativePath(input.rootDirectory, '') : '',
+    serviceDetails: serviceType === 'static_site'
+      ? {
+          buildCommand: input.buildCommand || 'npm install && npm run build',
+          publishPath: input.outputDirectory || 'dist',
+        }
+      : {
+          runtime: 'node',
+          buildCommand: input.buildCommand || 'npm install',
+          startCommand: input.startCommand || 'npm start',
+          plan: input.plan || 'free',
+        },
+  };
+
+  const response = await fetch('https://api.render.com/v1/services', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const created = await readRenderJson(response);
+  if (!response.ok) {
+    return { status: 'failed', action: 'create', error: created?.message || `Render create service failed with ${response.status}.`, response: created };
+  }
+
+  const service = created.service || created;
+  const deploy = await triggerRenderDeploy({ ...input, serviceId: service.id });
+  return { status: 'activated', action: 'created', service, deploy };
+}
+
+async function getDefaultRenderOwnerId() {
+  const apiKey = process.env.RENDER_API_KEY;
+  if (!apiKey) return null;
+  const response = await fetch('https://api.render.com/v1/owners?limit=20', {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+  });
+  const body = await readRenderJson(response);
+  if (!response.ok) return null;
+  const owners = Array.isArray(body) ? body : [body];
+  return owners[0]?.owner?.id || owners[0]?.id || null;
+}
+
+function sameRepo(serviceRepo, fullName, cloneUrl) {
+  const normalized = String(serviceRepo || '').toLowerCase().replace(/\.git$/, '');
+  return normalized.includes(fullName.toLowerCase()) || normalized === String(cloneUrl || '').toLowerCase().replace(/\.git$/, '');
+}
+
+function renderSafeName(value) {
+  return String(value || 'glondia-site').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'glondia-site';
+}
+
+function inferRenderServiceType(input = {}) {
+  const hasStart = !!input.startCommand || input.framework === 'Node' || input.framework === 'Express';
+  return hasStart ? 'web_service' : 'static_site';
 }
 
 async function testRenderDeploy(input = {}) {

@@ -1,6 +1,14 @@
 # Glondia Sites Backend
 
+> Status: archived/inactive. This NestJS backend is not part of the active Render deployment path. The current product uses the Vite frontend plus the lightweight Express server in `server/src/server.js`.
+
 Phase 0 backend scaffold for the Glondia Sites platform.
+
+## Architecture Boundary
+
+Do not treat this folder as an active backend while `server/src/server.js` is the deployed runtime. New product behavior for the current app should go into the lightweight Express server first.
+
+This Nest backend may be revived later as a separate service if the product needs a heavier API, database, queue, and RBAC layer after the build-and-publish workflow is stable.
 
 ## Stack
 

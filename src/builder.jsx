@@ -10,8 +10,9 @@ import {
   createBuilderSite, updateBuilderSite, archiveBuilderSite,
   saveBuilderPage, publishBuilderSite,
   createBuilderPage, deleteBuilderPage, listPageVersions,
+  getBuilderSite,
   uploadBuilderSitePackage, importBuilderSiteFromGithub,
-  getRenderSettings, listRenderDeploys, listLiveRenderServices, triggerRenderDeploy, testRenderDeploy,
+  getRenderSettings, listRenderDeploys, listLiveRenderServices, triggerRenderDeploy, testRenderDeploy, activateRenderRepo,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -887,22 +888,20 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
   // live in the local workspace too, so this must not depend on an auth token.
   React.useEffect(() => {
     if (!initialSiteId) return;
-    import('./api').then(({ getBuilderSite }) => {
-      getBuilderSite(initialSiteId).then(site => {
-        if (!site) return;
-        const homePage = site?.pages?.[0];
-        if (homePage?.id) setPageId(homePage.id);
-        if (homePage?.content && typeof homePage.content === 'object') {
-          setContent(prev => ({
-            ...prev,
-            siteName: site.name || prev.siteName,
-            ...homePage.content,
-          }));
-        }
-        setSiteId(site.id);
-        setLoadedSite(site);
-      }).catch(() => {});
-    });
+    getBuilderSite(initialSiteId).then(site => {
+      if (!site) return;
+      const homePage = site?.pages?.[0];
+      if (homePage?.id) setPageId(homePage.id);
+      if (homePage?.content && typeof homePage.content === 'object') {
+        setContent(prev => ({
+          ...prev,
+          siteName: site.name || prev.siteName,
+          ...homePage.content,
+        }));
+      }
+      setSiteId(site.id);
+      setLoadedSite(site);
+    }).catch(() => {});
   }, [initialSiteId]);
 
   // Cleanup auto-save timer on unmount
@@ -1012,6 +1011,7 @@ function ImportedGithubWorkspace({ content, site }) {
   const [selectedRenderServiceId, setSelectedRenderServiceId] = useStateB('');
   const [deploying, setDeploying] = useStateB(false);
   const [testingDeploy, setTestingDeploy] = useStateB(false);
+  const [activatingRender, setActivatingRender] = useStateB(false);
   const [deployMsg, setDeployMsg] = useStateB(null);
 
   React.useEffect(() => {
@@ -1075,6 +1075,32 @@ function ImportedGithubWorkspace({ content, site }) {
     }
   };
 
+  const handleActivateRender = async () => {
+    setActivatingRender(true);
+    setDeployMsg(null);
+    try {
+      const packageJson = contents['package.json'] ? JSON.parse(contents['package.json']) : {};
+      const result = await activateRenderRepo({
+        repoUrl: `https://github.com/${content._repository}`,
+        branch: content._branch || 'main',
+        name: content.siteName || content._repository?.split('/').pop(),
+        framework: packageJson.scripts?.start ? 'Node' : 'Static',
+        buildCommand: packageJson.scripts?.build ? 'npm install && npm run build' : 'npm install',
+        startCommand: packageJson.scripts?.start ? 'npm start' : undefined,
+        outputDirectory: content._sandboxOutputDirectory === 'runtime' ? 'dist' : content._sandboxOutputDirectory || 'dist',
+      });
+      setDeployMsg(result.status === 'activated'
+        ? `Render ${result.action === 'created' ? 'service created' : 'service reused'} and deploy triggered.`
+        : result.message || result.error || 'Render activation needs attention.');
+      if (result.service?.id) setSelectedRenderServiceId(result.service.id);
+      refreshRenderStatus();
+    } catch (error) {
+      setDeployMsg(error.message || 'Render activation failed.');
+    } finally {
+      setActivatingRender(false);
+    }
+  };
+
   return (
     <div className="bld-form">
       <div>
@@ -1135,6 +1161,9 @@ function ImportedGithubWorkspace({ content, site }) {
             <button className="btn btn-sm btn-outline" onClick={refreshRenderStatus} disabled={renderStatus.loading}>Refresh</button>
             <button className="btn btn-sm btn-outline" onClick={handleRenderTestDeploy} disabled={testingDeploy || deploying}>
               {testingDeploy ? "Testing..." : "Test deploy"}
+            </button>
+            <button className="btn btn-sm btn-outline" onClick={handleActivateRender} disabled={activatingRender}>
+              {activatingRender ? "Activating..." : "Activate repo"}
             </button>
             <button className="btn btn-sm btn-primary" onClick={handleRenderDeploy} disabled={deploying}>
               <ICN.Rocket size={13} /> {deploying ? "Triggering..." : "Deploy to Render"}

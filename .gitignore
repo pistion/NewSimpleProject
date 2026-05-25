@@ -1,14 +1,20 @@
 node_modules/
 .npm-cache/
 dist/
+.glondia-data/
 .env
 .env.local
+.env.*
+!.env.example
 .DS_Store
 coverage/
 backend/dist/
 backend/node_modules/
 backend/.env
+backend/.env.*
+!backend/.env.example
 backend/coverage/
 
 # Claude Code — machine-local settings (paths, local permissions)
 .claude/settings.local.json
+.claude/launch.json
