@@ -10,6 +10,7 @@ import { makeSession } from './api/auth.js';
 import { createBuilderActions } from './api/builder.js';
 import { createDomainActions, ttlToSeconds } from './api/domains.js';
 export { ttlToSeconds } from './api/domains.js';
+import { isLiveMode } from './app/config.js';
 import {
   buildGithubSandbox,
   disconnectGitHub as disconnectGitHubBase,
@@ -72,6 +73,7 @@ const domainApi = createDomainActions({
   mapApiDomain,
   notifyDataChanged,
   readLocalDb,
+  registrarRequest: isLiveMode() ? registrarRequest : null,
 });
 
 const builderApi = createBuilderActions({
@@ -101,6 +103,22 @@ const projectApi = createProjectActions({
 
 export async function apiRequest(path, options = {}) {
   return handleLocalApi(path, options);
+}
+
+async function registrarRequest(path, options = {}) {
+  const response = await fetch(`/api/spaceship${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result?.message || result?.error || `Spaceship request failed with ${response.status}.`);
+  }
+  return result;
 }
 
 export const DATA_CHANGED_EVENT = "glondia:data-changed";

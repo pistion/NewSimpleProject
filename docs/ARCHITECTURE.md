@@ -46,6 +46,8 @@ disabled provider workflows are hidden or blocked
 
 Render client calls are gated behind `VITE_APP_MODE=live` so test/demo UI cannot accidentally look like a real deploy.
 
+Spaceship registrar and DNS calls are server-proxied through `/api/spaceship/*` and also require `VITE_APP_MODE=live` on the client. Secrets stay server-side in `SPACESHIP_API_KEY` and `SPACESHIP_API_SECRET`.
+
 ## Inactive Backend
 
 The NestJS backend in `backend/` is archived/inactive for now. It may be useful later, but it is not part of the current Render deploy path.

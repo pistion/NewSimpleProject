@@ -42,7 +42,6 @@ const rootDir = resolve(process.cwd());
 const distDir = join(rootDir, 'dist');
 const dataDir = resolveDataDir();
 const sandboxRoot = join(dataDir, 'sandboxes');
-mkdirSync(sandboxRoot, { recursive: true });
 const sandboxProcesses = new Map();
 
 const mimeTypes = {
@@ -79,11 +78,24 @@ function serveStatic(req, res) {
 
 function resolveDataDir() {
   const configured = process.env.DATA_DIR;
-  if (!configured) return join(rootDir, '.glondia-data');
+  const fallback = join(rootDir, '.glondia-data');
+  if (!configured) return ensureDataDir(fallback);
   if (process.platform === 'win32' && configured.startsWith('/var/')) {
-    return join(rootDir, '.glondia-data');
+    return ensureDataDir(fallback);
   }
-  return resolve(configured);
+
+  const configuredDir = resolve(configured);
+  try {
+    return ensureDataDir(configuredDir);
+  } catch (error) {
+    console.warn(`[startup] DATA_DIR "${configuredDir}" is not writable (${error.code || error.message}); using "${fallback}" instead.`);
+    return ensureDataDir(fallback);
+  }
+}
+
+function ensureDataDir(dir) {
+  mkdirSync(join(dir, 'sandboxes'), { recursive: true });
+  return dir;
 }
 
 // ── Global middleware ────────────────────────────────────────────────────────
@@ -159,6 +171,110 @@ app.get('/api/render/services', async (req, res, next) => {
   try {
     const result = await listRenderServices();
     res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/settings', async (req, res, next) => {
+  try {
+    res.json(getSpaceshipSettings());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/spaceship/availability', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await checkSpaceshipAvailability(req.body?.domains || []));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/domains', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await listSpaceshipDomains(req.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/domains/:domain', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await getSpaceshipDomain(req.params.domain));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/spaceship/domains/:domain/register', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await registerSpaceshipDomain(req.params.domain, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/spaceship/domains/:domain/renew', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await renewSpaceshipDomain(req.params.domain, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/spaceship/domains/:domain/nameservers', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await updateSpaceshipNameservers(req.params.domain, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/spaceship/domains/:domain/auto-renew', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await updateSpaceshipAutoRenew(req.params.domain, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/spaceship/contacts', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await saveSpaceshipContact(req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/contacts', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json({ items: [], total: 0, message: 'Spaceship contact listing is not exposed by this integration yet.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/async-operations/:operationId', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await getSpaceshipOperation(req.params.operationId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/spaceship/dns/:domain/records', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await listSpaceshipDnsRecords(req.params.domain, req.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/spaceship/dns/:domain/records', providerApiGuard, async (req, res, next) => {
+  try {
+    res.json(await saveSpaceshipDnsRecords(req.params.domain, req.body || {}));
   } catch (error) {
     next(error);
   }
@@ -832,6 +948,254 @@ async function listRenderServices() {
 
 // ── Error handler ────────────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
+function getSpaceshipSettings() {
+  return {
+    provider: 'spaceship',
+    configured: !!(process.env.SPACESHIP_API_KEY && process.env.SPACESHIP_API_SECRET),
+    apiKeyPresent: !!process.env.SPACESHIP_API_KEY,
+    apiSecretPresent: !!process.env.SPACESHIP_API_SECRET,
+    baseUrl: spaceshipBaseUrl(),
+    required: ['SPACESHIP_API_KEY', 'SPACESHIP_API_SECRET'].filter((key) => !process.env[key]),
+  };
+}
+
+function spaceshipBaseUrl() {
+  return (process.env.SPACESHIP_API_BASE_URL || 'https://spaceship.dev/api/v1').replace(/\/+$/, '');
+}
+
+function spaceshipHeaders(extra = {}) {
+  if (!process.env.SPACESHIP_API_KEY || !process.env.SPACESHIP_API_SECRET) {
+    const error = new Error('SPACESHIP_API_KEY and SPACESHIP_API_SECRET are required.');
+    error.status = 503;
+    throw error;
+  }
+  return {
+    'X-API-Key': process.env.SPACESHIP_API_KEY,
+    'X-API-Secret': process.env.SPACESHIP_API_SECRET,
+    Accept: 'application/json',
+    ...extra,
+  };
+}
+
+async function spaceshipRequest(path, options = {}) {
+  const response = await fetch(`${spaceshipBaseUrl()}${path}`, {
+    method: options.method || 'GET',
+    headers: spaceshipHeaders(options.body ? { 'Content-Type': 'application/json' } : {}),
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const operationId = response.headers.get('spaceship-async-operationid');
+  const text = await response.text();
+  let body = {};
+  try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
+  if (!response.ok) {
+    const error = new Error(body?.detail || body?.message || body?.title || text || `Spaceship returned ${response.status}.`);
+    error.status = response.status >= 500 ? 502 : response.status;
+    error.details = body;
+    throw error;
+  }
+  return { body, operationId, statusCode: response.status };
+}
+
+function cleanDomainName(value) {
+  const domain = String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) || domain.includes('..')) {
+    const error = new Error('A valid fully qualified domain name is required.');
+    error.status = 400;
+    throw error;
+  }
+  return domain;
+}
+
+async function checkSpaceshipAvailability(domains = []) {
+  const uniqueDomains = [...new Set(domains.map(cleanDomainName))].slice(0, 20);
+  if (!uniqueDomains.length) return { domains: [] };
+  const { body } = await spaceshipRequest('/domains/available', {
+    method: 'POST',
+    body: { domains: uniqueDomains },
+  });
+  const rows = Array.isArray(body?.domains) ? body.domains : [];
+  return {
+    domains: rows.map((item) => {
+      const price = item.premiumPricing?.find((entry) => entry.operation === 'register') || item.premiumPricing?.[0] || null;
+      const status = item.result || item.status || 'unknown';
+      return {
+        domain: item.domain,
+        available: status === 'available',
+        status,
+        pricing: price ? { amount: price.price, currency: price.currency || 'USD', operation: price.operation || 'register' } : null,
+        raw: item,
+      };
+    }),
+  };
+}
+
+async function listSpaceshipDomains(query = {}) {
+  const take = Math.min(Math.max(Number(query.take || 100), 1), 100);
+  const skip = Math.max(Number(query.skip || 0), 0);
+  const { body } = await spaceshipRequest(`/domains?take=${take}&skip=${skip}`);
+  return body;
+}
+
+async function getSpaceshipDomain(domain) {
+  const { body } = await spaceshipRequest(`/domains/${encodeURIComponent(cleanDomainName(domain))}`);
+  return body;
+}
+
+async function registerSpaceshipDomain(domain, input = {}) {
+  const name = cleanDomainName(domain);
+  const contactId = input.contactId || input.registrant || input.contacts?.registrant;
+  if (!contactId) {
+    const error = new Error('A Spaceship contactId is required before registering a domain.');
+    error.status = 400;
+    throw error;
+  }
+  const payload = {
+    autoRenew: input.autoRenew !== false,
+    years: Math.min(Math.max(Number(input.years || 1), 1), 10),
+    privacyProtection: typeof input.privacyProtection === 'object'
+      ? input.privacyProtection
+      : { level: input.privacyProtection === false ? 'none' : 'high', userConsent: input.privacyProtection !== false },
+    contacts: {
+      registrant: contactId,
+      admin: input.adminContactId || contactId,
+      tech: input.techContactId || contactId,
+      billing: input.billingContactId || contactId,
+    },
+  };
+  const result = await spaceshipRequest(`/domains/${encodeURIComponent(name)}/register`, {
+    method: 'POST',
+    body: payload,
+  });
+  return {
+    domain: name,
+    operationId: result.operationId || result.body?.operationId || null,
+    status: result.operationId ? 'pending' : 'success',
+    response: result.body,
+  };
+}
+
+async function renewSpaceshipDomain(domain, input = {}) {
+  const name = cleanDomainName(domain);
+  const result = await spaceshipRequest(`/domains/${encodeURIComponent(name)}/renew`, {
+    method: 'POST',
+    body: { years: Math.min(Math.max(Number(input.years || 1), 1), 10) },
+  });
+  return {
+    domain: name,
+    operationId: result.operationId || result.body?.operationId || null,
+    status: result.operationId ? 'pending' : 'success',
+    response: result.body,
+  };
+}
+
+async function updateSpaceshipNameservers(domain, input = {}) {
+  const name = cleanDomainName(domain);
+  const hosts = Array.isArray(input.hosts) ? input.hosts.map((host) => String(host).trim()).filter(Boolean) : [];
+  if (!hosts.length) {
+    const error = new Error('At least one nameserver host is required.');
+    error.status = 400;
+    throw error;
+  }
+  await spaceshipRequest(`/domains/${encodeURIComponent(name)}/nameservers`, {
+    method: 'PUT',
+    body: { provider: input.provider || 'custom', hosts },
+  });
+  return { domain: name, provider: input.provider || 'custom', hosts };
+}
+
+async function updateSpaceshipAutoRenew(domain, input = {}) {
+  const name = cleanDomainName(domain);
+  await spaceshipRequest(`/domains/${encodeURIComponent(name)}/auto-renew`, {
+    method: 'PUT',
+    body: { autoRenew: !!input.autoRenew },
+  });
+  return { domain: name, autoRenew: !!input.autoRenew };
+}
+
+async function saveSpaceshipContact(input = {}) {
+  const payload = {
+    firstName: input.firstName,
+    lastName: input.lastName,
+    organization: input.company || undefined,
+    email: input.email,
+    phone: input.phone,
+    address1: input.address1,
+    address2: input.address2 || undefined,
+    city: input.city,
+    postalCode: input.postalCode,
+    country: input.country,
+  };
+  const { body } = await spaceshipRequest('/contacts', { method: 'PUT', body: payload });
+  return { id: body.contactId || body.id, contactId: body.contactId || body.id, ...body };
+}
+
+async function getSpaceshipOperation(operationId) {
+  const id = String(operationId || '').trim();
+  if (!/^[a-zA-Z0-9]{1,36}$/.test(id)) {
+    const error = new Error('A valid Spaceship operation id is required.');
+    error.status = 400;
+    throw error;
+  }
+  const { body } = await spaceshipRequest(`/async-operations/${encodeURIComponent(id)}`);
+  return { operationId: id, ...body };
+}
+
+async function listSpaceshipDnsRecords(domain, query = {}) {
+  const name = cleanDomainName(domain);
+  const take = Math.min(Math.max(Number(query.take || 500), 1), 500);
+  const skip = Math.max(Number(query.skip || 0), 0);
+  const { body } = await spaceshipRequest(`/dns/records/${encodeURIComponent(name)}?take=${take}&skip=${skip}`);
+  const items = Array.isArray(body?.items) ? body.items : [];
+  return {
+    domain: name,
+    pulled: items.length,
+    items,
+    records: items.map(fromSpaceshipDnsRecord),
+    total: body?.total ?? items.length,
+  };
+}
+
+async function saveSpaceshipDnsRecords(domain, input = {}) {
+  const name = cleanDomainName(domain);
+  const records = Array.isArray(input.records) ? input.records : Array.isArray(input.items) ? input.items : [];
+  const items = records.map(toSpaceshipDnsRecord).filter(Boolean);
+  if (!items.length) return { domain: name, pushed: 0 };
+  await spaceshipRequest(`/dns/records/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: { force: input.force !== false, items },
+  });
+  return { domain: name, pushed: items.length };
+}
+
+function toSpaceshipDnsRecord(record = {}) {
+  const type = String(record.type || '').toUpperCase();
+  const name = record.name || record.host || '@';
+  const ttl = Number(record.ttlSeconds || record.ttl || 3600);
+  const value = record.value || record.address || record.exchange || record.text || record.target || '';
+  const base = { type, name, ttl: Number.isFinite(ttl) ? ttl : 3600 };
+  if (['A', 'AAAA'].includes(type)) return { ...base, address: value };
+  if (type === 'CNAME') return { ...base, cname: value };
+  if (type === 'MX') return { ...base, exchange: value, preference: Number(record.priority || record.preference || 10) };
+  if (type === 'TXT') return { ...base, text: value };
+  if (type === 'CAA') return { ...base, flag: Number(record.flag || 0), tag: record.tag || 'issue', value };
+  if (['SRV', 'TLSA', 'HTTPS', 'SVCB', 'NS', 'PTR', 'ALIAS'].includes(type)) return { ...base, value };
+  return null;
+}
+
+function fromSpaceshipDnsRecord(record = {}) {
+  const value = record.address || record.cname || record.exchange || record.text || record.value || record.target || '';
+  return {
+    id: `${record.type || 'record'}_${record.name || '@'}_${value}`.replace(/[^a-zA-Z0-9_-]/g, '_'),
+    type: record.type,
+    name: record.name || '@',
+    value,
+    ttl: record.ttl || 3600,
+    priority: record.preference || record.priority || null,
+    proxied: false,
+    status: 'active',
+  };
+}
+
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
   console.error(`[error] ${req.method} ${req.url} →`, err.message || err);

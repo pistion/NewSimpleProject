@@ -113,8 +113,12 @@ Render integration variables:
 | `PROVIDER_RATE_LIMIT` | per-route provider API rate limit per minute |
 | `GITHUB_REPO_ALLOWLIST` | optional comma-separated repo or owner allowlist for sandbox/import |
 | `CORS_ORIGINS` | comma-separated allowed origins; production defaults to same-origin only |
+| `SPACESHIP_API_KEY` | server-side Spaceship API key |
+| `SPACESHIP_API_SECRET` | server-side Spaceship API secret |
+| `SPACESHIP_API_BASE_URL` | optional Spaceship API base URL, defaults to `https://spaceship.dev/api/v1` |
 
 Never expose Render API keys in the Vite client bundle.
+Never expose Spaceship API keys or secrets in the Vite client bundle.
 
 ## Current Product Scope
 
