@@ -15,6 +15,7 @@ import {
   parseGithubRepo,
   createRenderDeployment,
   getRenderSettings,
+  getStoredAuth,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -359,11 +360,12 @@ export function BuilderRoxanne({ navigate }) {
 
   const handleGenerate = async () => {
     if (!bizName.trim()) { setGenError('Enter a business name to continue.'); return; }
+    const { accessToken } = getStoredAuth();
+    if (!accessToken) { setGenError('Sign in to generate a draft.'); return; }
+    const startedAt = Date.now();
     setGenerating(true); setGenError(null);
 
     try {
-      const { accessToken } = getStoredAuth();
-      if (!accessToken) { setGenError('Sign in to generate a draft.'); setGenerating(false); return; }
 
       // Pick a template — use first in list or fallback
       const tpl = templates[0];
@@ -387,6 +389,7 @@ export function BuilderRoxanne({ navigate }) {
           contactEmail: '', contactPhone: '', contactAddress: '',
         });
       }
+      await waitForMinimumLoaderTime(startedAt);
       navigate({ view: 'builder-editor', params: { id: tpl?.id, siteId: site.id } });
     } catch (err) {
       setGenError(err.message || 'Generation failed.');
@@ -408,13 +411,14 @@ export function BuilderRoxanne({ navigate }) {
       </div>
 
       <div className="builder-start-split">
-        <div className="card builder-prompt-panel">
+        <div className={`card builder-prompt-panel ${generating ? 'builder-prompt-panel--generating' : ''}`}>
           <div className="label">What should RoxanneAI build?</div>
           <textarea className="input builder-prompt-input" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)}
+            disabled={generating}
             placeholder="A consulting website for a financial advisory team with Home, Services, About, and Contact pages..." />
           <div className="grid-2" style={{ gap: 12 }}>
-            <input className="input" placeholder="Business name *" value={bizName} onChange={(e) => setBizName(e.target.value)} required />
-            <select className="select" value={tone} onChange={(e) => setTone(e.target.value)}>
+            <input className="input" placeholder="Business name *" value={bizName} onChange={(e) => setBizName(e.target.value)} disabled={generating} required />
+            <select className="select" value={tone} onChange={(e) => setTone(e.target.value)} disabled={generating}>
               {['Professional', 'Luxury', 'Friendly', 'Minimal', 'Bold', 'Creative'].map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
@@ -425,6 +429,7 @@ export function BuilderRoxanne({ navigate }) {
                 <button key={p} type="button"
                   className="btn btn-sm"
                   onClick={() => togglePage(p)}
+                  disabled={generating}
                   style={{
                     border: `1px solid ${pages.includes(p) ? "var(--accent)" : "var(--border)"}`,
                     background: pages.includes(p) ? "var(--accent-soft)" : "var(--bg-elev)",
@@ -438,19 +443,53 @@ export function BuilderRoxanne({ navigate }) {
           </div>
           {genError && <div style={{ color: "var(--danger)", fontSize: 13 }}>{genError}</div>}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 4 }}>
-            <button className="btn btn-outline" onClick={() => navigate({ view: "builder-gallery" })}>Cancel</button>
+            <button className="btn btn-outline" onClick={() => navigate({ view: "builder-gallery" })} disabled={generating}>Cancel</button>
             <button className="btn btn-primary" onClick={handleGenerate} disabled={generating}>
-              <ICN.Sparkles size={14} /> {generating ? "Generating…" : "Generate draft"}
+              <ICN.Sparkles size={14} /> {generating ? "Building pages..." : "Generate draft"}
             </button>
           </div>
         </div>
 
-        <div className="roxanne-showcase">
-          <img src={ROXANNE_IMAGE} alt="RoxanneAI" />
-        </div>
+        {generating ? (
+          <AiSiteGeneratingLoader businessName={bizName} pages={pages} />
+        ) : (
+          <div className="roxanne-showcase">
+            <img src={ROXANNE_IMAGE} alt="RoxanneAI" />
+          </div>
+        )}
       </div>
     </>
   );
+}
+
+function AiSiteGeneratingLoader({ businessName, pages }) {
+  const letters = 'Generating'.split('');
+  const pageList = pages?.length ? pages.join(', ') : 'site pages';
+  return (
+    <div className="ai-site-loader-card" aria-live="polite" aria-busy="true">
+      <div className="ai-site-loader-copy">
+        <div className="eyebrow">RoxanneAI is building</div>
+        <h2>{businessName?.trim() || 'Your site draft'}</h2>
+        <p>{pageList}</p>
+      </div>
+      <div className="loader-wrapper ai-site-loader-wrapper" aria-label="Generating site draft">
+        {letters.map((letter, index) => (
+          <span className="loader-letter" key={`${letter}-${index}`}>{letter}</span>
+        ))}
+        <div className="loader" />
+      </div>
+      <div className="ai-site-loader-steps">
+        <span>Structuring pages</span>
+        <span>Writing first-pass content</span>
+        <span>Preparing the editor</span>
+      </div>
+    </div>
+  );
+}
+
+function waitForMinimumLoaderTime(startedAt, minimumMs = 1200) {
+  const remaining = minimumMs - (Date.now() - startedAt);
+  return remaining > 0 ? new Promise((resolve) => setTimeout(resolve, remaining)) : Promise.resolve();
 }
 
 export function BuilderImport({ navigate }) {
