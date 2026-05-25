@@ -967,6 +967,7 @@ function spaceshipHeaders(extra = {}) {
   if (!process.env.SPACESHIP_API_KEY || !process.env.SPACESHIP_API_SECRET) {
     const error = new Error('SPACESHIP_API_KEY and SPACESHIP_API_SECRET are required.');
     error.status = 503;
+    error.expose = true;
     throw error;
   }
   return {
@@ -988,9 +989,14 @@ async function spaceshipRequest(path, options = {}) {
   let body = {};
   try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
   if (!response.ok) {
-    const error = new Error(body?.detail || body?.message || body?.title || text || `Spaceship returned ${response.status}.`);
+    const upstreamMessage = body?.detail || body?.message || body?.title || text || `Spaceship returned ${response.status}.`;
+    const safeMessage = response.status === 401
+      ? 'Spaceship authentication failed. Check SPACESHIP_API_KEY, SPACESHIP_API_SECRET, API scopes, and any Spaceship IP restrictions.'
+      : upstreamMessage;
+    const error = new Error(safeMessage);
     error.status = response.status >= 500 ? 502 : response.status;
     error.details = body;
+    error.expose = true;
     throw error;
   }
   return { body, operationId, statusCode: response.status };
@@ -1200,7 +1206,7 @@ app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
   console.error(`[error] ${req.method} ${req.url} →`, err.message || err);
   res.status(status).json({
-    error: { code: 'INTERNAL_ERROR', message: isProd ? 'An unexpected error occurred.' : (err.message || String(err)) },
+    error: { code: 'INTERNAL_ERROR', message: isProd && !err.expose ? 'An unexpected error occurred.' : (err.message || String(err)) },
     requestId: req.id,
   });
 });
