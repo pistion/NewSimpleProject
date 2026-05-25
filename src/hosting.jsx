@@ -5,7 +5,7 @@ import { GD } from './data';
 import { StatusBadge, Tabs, Stat, Badge, Empty } from './components';
 import { useProjects } from './use-projects';
 import { useDeploymentLogs, useProjectArtifacts, useProjectDeployments, useProjectEnvVars } from './use-project-detail-data';
-import { archiveProject, cancelDeployment, connectGitHubUrl, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, disconnectGitHub, exportEnvVars, getGitHubStatus, linkProjectRepo, linkRenderService, listGitHubBranches, listGitHubRepos, listRenderServices, parseGitHubRepository, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
+import { archiveProject, cancelDeployment, connectGitHubUrl, createDeployment, createEnvVar, createProject, deleteDomain, deleteEnvVar, disconnectGitHub, exportEnvVars, getGitHubStatus, linkProjectRepo, listGitHubBranches, listGitHubRepos, parseGitHubRepository, rollbackDeployment, updateDomain, updateEnvVar, updateProject } from './api';
 import { useDomains } from './use-domains';
 
 export function HostingList({ navigate }) {
@@ -976,75 +976,47 @@ function ProjectAnalyticsTab({ p }) {
 }
 
 function RenderLinkCard({ p }) {
-  const [services, setServices] = useStateH([]);
-  const [loadingServices, setLoadingServices] = useStateH(false);
-  const [selectedId, setSelectedId] = useStateH(p.renderServiceId || '');
-  const [busy, setBusy] = useStateH(false);
-  const [msg, setMsg] = useStateH(null);
-  const [err, setErr] = useStateH(null);
-
-  React.useEffect(() => {
-    setLoadingServices(true);
-    listRenderServices()
-      .then(svcs => { setServices(svcs); })
-      .catch(() => { setServices([]); })
-      .finally(() => setLoadingServices(false));
-  }, []);
-
-  const linked = services.find(s => s.id === p.renderServiceId);
-
-  const handleLink = async () => {
-    setBusy(true); setMsg(null); setErr(null);
-    try {
-      await linkRenderService(p.id, selectedId || null);
-      setMsg(selectedId ? 'Render service linked — deploys will use Render.' : 'Render service unlinked — deploys will use the internal build queue.');
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
+  const hasDedicatedHosting = !!p.renderServiceId;
 
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 12 }}>
         <div>
-          <h2 style={{ margin: 0 }}>Deployment provider</h2>
+          <h2 style={{ margin: 0 }}>Publishing</h2>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Link a Render service to route deploys through Render's infrastructure. Leave unset to use Glondia's internal build queue.
+            Customer apps publish to isolated hosting environments managed by Glondia.
           </div>
         </div>
-        {linked && <Badge tone="success" dot={false}>{linked.name}</Badge>}
+        <Badge tone={hasDedicatedHosting ? "success" : "muted"} dot={false}>
+          {hasDedicatedHosting ? "Live host ready" : "Not published"}
+        </Badge>
       </div>
 
-      {p.renderServiceId && (
-        <div className="kv" style={{ gridTemplateColumns: "140px 1fr", marginBottom: 14 }}>
-          <dt>Current service</dt>
-          <dd className="mono">{linked ? `${linked.name} (${linked.id})` : p.renderServiceId}</dd>
-          {linked?.url && <><dt>Service URL</dt><dd><a href={linked.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{linked.url}</a></dd></>}
-          {linked?.region && <><dt>Region</dt><dd>{linked.region}</dd></>}
-        </div>
-      )}
-
-      <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-        <select
-          className="select"
-          value={selectedId}
-          onChange={e => setSelectedId(e.target.value)}
-          disabled={loadingServices || busy}
-          style={{ flex: 1, minWidth: 220 }}
-        >
-          <option value="">— None (use internal queue) —</option>
-          {services.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.name} · {s.type} · {s.region || 'unknown region'}{s.suspended ? ' · SUSPENDED' : ''}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-primary" onClick={handleLink} disabled={busy || loadingServices}>
-          {busy ? 'Saving…' : selectedId ? 'Link service' : 'Unlink'}
-        </button>
+      <div style={{ display: "grid", gap: 10 }}>
+        <CustomerPublishStep done={true} label="Project workspace" detail={p.name || "Website"} />
+        <CustomerPublishStep done={!!p.repo && p.repo !== "Local workspace"} label="Source repository" detail={p.repo || "Connect a repository"} />
+        <CustomerPublishStep done={hasDedicatedHosting} label="Dedicated hosting" detail={hasDedicatedHosting ? "Ready for production deploys" : "Created when you publish"} />
+        <CustomerPublishStep done={!!p.domain} label="Public URL" detail={p.domain || "Assigned after publish"} />
       </div>
 
-      {msg && <div style={{ marginTop: 10, fontSize: 13, color: "var(--accent)" }}>{msg}</div>}
-      {err && <div style={{ marginTop: 10, fontSize: 13, color: "var(--danger)" }}>{err}</div>}
-      {loadingServices && <div style={{ marginTop: 10, fontSize: 13, color: "var(--text-muted)" }}>Loading Render services…</div>}
+      <div className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+        Internal provider settings are handled by the platform and are not exposed to customers.
+      </div>
+    </div>
+  );
+}
+
+function CustomerPublishStep({ done, label, detail }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "28px 1fr auto", alignItems: "center", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+      <div style={{ width: 22, height: 22, borderRadius: 999, display: "grid", placeItems: "center", background: done ? "var(--accent-soft)" : "var(--bg-deep)", color: done ? "var(--accent)" : "var(--text-muted)" }}>
+        {done ? <ICN.CheckCircle size={14} /> : <ICN.Clock size={13} />}
+      </div>
+      <div>
+        <div style={{ fontWeight: 650, fontSize: 13 }}>{label}</div>
+        <div className="muted mono" style={{ fontSize: 12, marginTop: 2 }}>{detail}</div>
+      </div>
+      <Badge tone={done ? "success" : "muted"} dot={false}>{done ? "Ready" : "Pending"}</Badge>
     </div>
   );
 }

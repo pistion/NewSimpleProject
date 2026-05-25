@@ -61,9 +61,7 @@ export async function getRenderSettings() {
     return {
       provider: 'render',
       configured: false,
-      apiKeyPresent: false,
-      deployHookPresent: false,
-      serviceId: null,
+      customerServiceReady: false,
       required: ['VITE_APP_MODE=live', 'RENDER_API_KEY', 'RENDER_OWNER_ID'],
       error: modeBlockedResult('render').message,
     };
@@ -76,19 +74,18 @@ export async function getRenderSettings() {
     return {
       provider: 'render',
       configured: false,
-      apiKeyPresent: false,
-      deployHookPresent: false,
-      serviceId: null,
+      customerServiceReady: false,
       required: ['RENDER_API_KEY', 'RENDER_OWNER_ID'],
       error: error.message,
     };
   }
 }
 
-export async function listRenderDeploys() {
+export async function listRenderDeploys(input = {}) {
   if (!isLiveMode()) return { status: 'demo', deploys: [], error: modeBlockedResult('render').message };
   try {
-    const response = await fetch('/api/render/deploys');
+    const qs = input.serviceId ? `?serviceId=${encodeURIComponent(input.serviceId)}` : '';
+    const response = await fetch(`/api/render/deploys${qs}`);
     if (!response.ok) throw new Error(`Render deploy list returned ${response.status}.`);
     return response.json();
   } catch (error) {

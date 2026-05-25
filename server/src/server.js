@@ -160,7 +160,7 @@ app.get('/api/render/settings', async (req, res, next) => {
 
 app.get('/api/render/deploys', async (req, res, next) => {
   try {
-    const result = await listRenderDeploys();
+    const result = await listRenderDeploys(req.query || {});
     res.json(result);
   } catch (error) {
     next(error);
@@ -169,6 +169,10 @@ app.get('/api/render/deploys', async (req, res, next) => {
 
 app.get('/api/render/services', async (req, res, next) => {
   try {
+    if (process.env.RENDER_EXPOSE_SERVICE_LIST !== 'true') {
+      res.json([]);
+      return;
+    }
     const result = await listRenderServices();
     res.json(result);
   } catch (error) {
@@ -644,6 +648,8 @@ async function triggerRenderDeploy(input = {}) {
   const deployHookUrl = input.deployHookUrl || (allowPlatformService ? process.env.RENDER_DEPLOY_HOOK_URL : null);
   const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
+  const liveUrl = await resolveRenderLiveUrl(serviceId, input);
+  const siteUrl = buildPublishedSiteUrl(liveUrl, input);
   if (isPlatformRenderService(serviceId) && !allowPlatformService) {
     return {
       status: 'blocked',
@@ -666,6 +672,8 @@ async function triggerRenderDeploy(input = {}) {
       provider: 'render',
       method: 'deploy_hook',
       serviceId: serviceId || null,
+      liveUrl,
+      siteUrl,
       message: text || 'Render deploy hook triggered.',
     };
   }
@@ -709,7 +717,10 @@ async function triggerRenderDeploy(input = {}) {
     provider: 'render',
     method: 'api',
     serviceId,
+    liveUrl,
+    siteUrl,
     deploy: body,
+    message: isPlatformRenderService(serviceId) ? 'Glondiasites deployment started.' : 'Customer deployment started.',
   };
 }
 
@@ -881,20 +892,18 @@ function delay(ms) {
 
 function getRenderSettings(input = {}) {
   const serviceId = input.serviceId || input.renderServiceId || null;
-  const platformServiceId = process.env.RENDER_SERVICE_ID || null;
   return {
     provider: 'render',
-    configured: !!process.env.RENDER_API_KEY,
-    apiKeyPresent: !!process.env.RENDER_API_KEY,
-    deployHookPresent: !!process.env.RENDER_DEPLOY_HOOK_URL,
-    platformServiceId,
-    serviceId,
-    serviceUrl: serviceId ? `https://dashboard.render.com/web/${serviceId}` : null,
-    required: ['RENDER_API_KEY'].filter((key) => !process.env[key]),
+    configured: !!process.env.RENDER_API_KEY && !!process.env.RENDER_OWNER_ID,
+    customerServiceReady: !!serviceId,
+    required: ['RENDER_API_KEY', 'RENDER_OWNER_ID'].filter((key) => !process.env[key]),
   };
 }
 
 async function listRenderDeploys(input = {}) {
+  if (!input.serviceId && !input.renderServiceId && !input.repo && !input.repository && !input.name) {
+    return { status: 'customer_service_required', deploys: [], settings: getRenderSettings(input) };
+  }
   const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
   if (!apiKey || !serviceId) {
@@ -939,6 +948,23 @@ async function resolveRenderServiceId(input = {}) {
 
 function isPlatformRenderService(serviceId) {
   return !!serviceId && !!process.env.RENDER_SERVICE_ID && serviceId === process.env.RENDER_SERVICE_ID;
+}
+
+async function resolveRenderLiveUrl(serviceId, input = {}) {
+  if (input.liveUrl) return String(input.liveUrl).replace(/\/+$/, '');
+  const configured = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_APP_URL;
+  if (configured) return configured.replace(/\/+$/, '');
+  if (!serviceId) return null;
+  const services = await listRenderServices().catch(() => []);
+  const service = services.find((item) => item.id === serviceId);
+  return service?.url ? String(service.url).replace(/\/+$/, '') : null;
+}
+
+function buildPublishedSiteUrl(liveUrl, input = {}) {
+  if (!liveUrl) return null;
+  const sitePath = input.sitePath || input.publishedPath;
+  if (sitePath) return `${liveUrl}/${String(sitePath).replace(/^\/+/, '')}`;
+  return liveUrl;
 }
 
 async function listRenderServices() {
