@@ -92,6 +92,7 @@ export function createLocalDbRuntime({ makeSession, ttlToSeconds }) {
       deployment.status = deployment.status === 'queued' ? 'building' : deployment.status === 'building' ? 'deployed' : deployment.status;
       deployment.buildStatus = deployment.status === 'deployed' ? 'succeeded' : deployment.status;
       deployment.updatedAt = new Date().toISOString();
+      syncHostingServiceFromDeployment(db, deployment);
       writeLocalDb(db);
       return pickDeploymentStatus(deployment);
     }

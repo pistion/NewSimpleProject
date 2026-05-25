@@ -1095,7 +1095,7 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
             <ICN.Eye size={14} /> Preview live
           </button>
           <button className="btn btn-primary" onClick={() => isGithubImport ? window.dispatchEvent(new CustomEvent('glondia:imported-publish')) : setPublishing(true)}>
-            <ICN.Rocket size={14} /> {isGithubImport ? "Publish to Render" : "Publish"}
+            <ICN.Rocket size={14} /> {isGithubImport ? "Deploy to Render" : "Publish"}
           </button>
         </div>
       </div>
@@ -1103,7 +1103,7 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
       <div className="card card-flush" style={{ overflow: "hidden", margin: "0 -28px -28px", borderLeft: 0, borderRight: 0, borderBottom: 0, borderRadius: 0 }}>
         <div className="bld-split">
           {isGithubImport
-            ? <ImportedGithubWorkspace content={content} site={loadedSite} />
+            ? <ImportedGithubWorkspace content={content} site={loadedSite} navigate={navigate} />
             : <BuilderForm tab={tab} setTab={setTab} content={content} update={update} tpl={tpl} siteSlug={siteSlug} domains={domains} selectedDomain={selectedDomain} setSelectedDomain={setSelectedDomain} />}
           <div className="bld-preview">
             {isGithubImport ? (
@@ -1129,7 +1129,7 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
   );
 }
 
-function ImportedGithubWorkspace({ content, site }) {
+function ImportedGithubWorkspace({ content, site, navigate }) {
   const githubFiles = Array.isArray(content._githubFiles) ? content._githubFiles : [];
   const sandboxFiles = Array.isArray(content._sandboxFiles) ? content._sandboxFiles : [];
   const files = sandboxFiles.length ? sandboxFiles : githubFiles;
@@ -1255,7 +1255,7 @@ function ImportedGithubWorkspace({ content, site }) {
           <div className="row" style={{ gap: 8, justifyContent: "space-between" }}>
             <button className="btn btn-sm btn-outline" onClick={refreshRenderStatus} disabled={renderStatus.loading}>Refresh status</button>
             <button className="btn btn-sm btn-primary" onClick={handleRenderDeploy} disabled={deploying}>
-              <ICN.Rocket size={13} /> {deploying ? "Publishing..." : "Publish now"}
+              <ICN.Rocket size={13} /> {deploying ? "Deploying..." : "Deploy now"}
             </button>
           </div>
         </div>
