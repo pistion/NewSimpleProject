@@ -14,7 +14,7 @@ import {
   importBuilderSiteFromGithub,
   parseGithubRepo,
   createRenderDeployment,
-  getRenderSettings, triggerRenderDeploy, activateRenderRepo,
+  getRenderSettings,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -1181,32 +1181,30 @@ function ImportedGithubWorkspace({ content, site }) {
     setDeploying(true);
     setDeployMsg(null);
     try {
-      if (!selectedRenderServiceId) {
-        const result = await activateRenderRepo(renderActivationPayload());
-        if (result.service?.id) setSelectedRenderServiceId(result.service.id);
-        setDeployMsg(result.status === 'activated'
-          ? 'Dedicated customer hosting was created and deployment started.'
-          : result.message || result.error || 'Publishing needs attention.');
-        refreshRenderStatus();
-        return;
-      }
-      const result = await triggerRenderDeploy({
+      const payload = renderActivationPayload();
+      const deployment = await createRenderDeployment({
         siteId: site?.id,
-        serviceId: selectedRenderServiceId,
-        repo: content._repository,
-        name: content.siteName || content._repository,
+        projectId: site?.projectId || site?.id,
+        renderServiceId: selectedRenderServiceId || undefined,
+        name: payload.name,
+        serviceType: payload.startCommand ? 'web_service' : 'static_site',
+        repoUrl: payload.repoUrl,
+        githubRepo: content._repository,
+        branch: payload.branch,
+        sourceReference: content._sandboxPreviewUrl || payload.repoUrl,
+        buildCommand: payload.buildCommand,
+        startCommand: payload.startCommand,
+        outputDirectory: payload.outputDirectory,
+        environment: 'production',
       });
-      if (result.serviceId) setSelectedRenderServiceId(result.serviceId);
-      setDeployMsg(result.siteUrl || result.liveUrl || result.serviceUrl
-        ? `Customer deployment started. Live link: ${result.siteUrl || result.liveUrl || result.serviceUrl}`
-        : result.message || (result.status === 'triggered' ? 'Deployment started.' : 'Publishing needs attention.'));
-      refreshRenderStatus();
+      if (deployment.renderServiceId) setSelectedRenderServiceId(deployment.renderServiceId);
+      navigate({ view: "hosting-detail", params: { id: deployment.deploymentId } });
     } catch (error) {
       setDeployMsg(error.message || 'Publishing needs attention.');
     } finally {
       setDeploying(false);
     }
-  }, [content._repository, content.siteName, refreshRenderStatus, renderActivationPayload, selectedRenderServiceId, site?.id]);
+  }, [content._repository, content._sandboxPreviewUrl, navigate, renderActivationPayload, selectedRenderServiceId, site?.id, site?.projectId]);
 
   React.useEffect(() => {
     const publish = () => handleRenderDeploy();
@@ -1256,7 +1254,7 @@ function ImportedGithubWorkspace({ content, site }) {
           {deployMsg && <div style={{ color: "var(--accent)", fontSize: 13 }}>{deployMsg}</div>}
           <div className="row" style={{ gap: 8, justifyContent: "space-between" }}>
             <button className="btn btn-sm btn-outline" onClick={refreshRenderStatus} disabled={renderStatus.loading}>Refresh status</button>
-            <button className="btn btn-sm btn-primary" onClick={handleRenderDeploy} disabled={deploying || !renderStatus.settings?.configured}>
+            <button className="btn btn-sm btn-primary" onClick={handleRenderDeploy} disabled={deploying}>
               <ICN.Rocket size={13} /> {deploying ? "Publishing..." : "Publish now"}
             </button>
           </div>

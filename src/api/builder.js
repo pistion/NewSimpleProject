@@ -72,16 +72,8 @@ export function createBuilderActions({
 
     async publishBuilderSite(siteId) {
       const site = await apiRequest(`/builder/sites/${siteId}/publish`, { method: 'POST' });
-      const renderDeploy = await triggerRenderDeploy({
-        siteId,
-        renderServiceId: site.renderServiceId,
-        name: site.name,
-        slug: site.slug,
-        allowPlatformService: true,
-        useDefaultService: true,
-      });
       notifyDataChanged();
-      return { ...site, liveUrl: renderDeploy?.siteUrl || renderDeploy?.liveUrl || site.liveUrl || null, renderDeploy };
+      return site;
     },
 
     async uploadBuilderSitePackage(file) {
