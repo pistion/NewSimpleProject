@@ -64,7 +64,7 @@ export async function getRenderSettings() {
       apiKeyPresent: false,
       deployHookPresent: false,
       serviceId: null,
-      required: ['VITE_APP_MODE=live', 'RENDER_API_KEY', 'RENDER_SERVICE_ID'],
+      required: ['VITE_APP_MODE=live', 'RENDER_API_KEY', 'RENDER_OWNER_ID'],
       error: modeBlockedResult('render').message,
     };
   }
@@ -79,7 +79,7 @@ export async function getRenderSettings() {
       apiKeyPresent: false,
       deployHookPresent: false,
       serviceId: null,
-      required: ['RENDER_API_KEY', 'RENDER_SERVICE_ID'],
+      required: ['RENDER_API_KEY', 'RENDER_OWNER_ID'],
       error: error.message,
     };
   }

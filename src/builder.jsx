@@ -1022,27 +1022,54 @@ function ImportedGithubWorkspace({ content, site }) {
     setRenderStatus((current) => ({ ...current, loading: true, error: null }));
     Promise.all([getRenderSettings(), listLiveRenderServices(), listRenderDeploys()])
       .then(([settings, services, deploys]) => {
-        const activeServiceId = selectedRenderServiceId || settings?.serviceId || services?.[0]?.id || '';
-        if (!selectedRenderServiceId && activeServiceId) setSelectedRenderServiceId(activeServiceId);
+        const customerServices = (services || []).filter((service) => !service.isPlatform);
+        const repoNeedle = String(content._repository || '').toLowerCase();
+        const repoService = customerServices.find((service) => {
+          const haystack = [service.repo, service.name, service.slug, service.url].filter(Boolean).join(' ').toLowerCase();
+          return repoNeedle && haystack.includes(repoNeedle);
+        });
+        if (!selectedRenderServiceId && repoService?.id) setSelectedRenderServiceId(repoService.id);
         setRenderStatus({
           loading: false,
           settings,
-          services: services || [],
+          services: customerServices,
           deploys: deploys?.deploys || [],
           error: deploys?.error || settings?.error || null,
         });
       })
       .catch((error) => setRenderStatus({ loading: false, settings: null, services: [], deploys: [], error: error.message }));
-  }, [selectedRenderServiceId]);
+  }, [content._repository, selectedRenderServiceId]);
 
   React.useEffect(() => {
     refreshRenderStatus();
   }, [refreshRenderStatus]);
 
+  const renderActivationPayload = () => {
+    const packageJson = contents['package.json'] ? JSON.parse(contents['package.json']) : {};
+    return {
+      repoUrl: `https://github.com/${content._repository}`,
+      branch: content._branch || 'main',
+      name: content.siteName || content._repository?.split('/').pop(),
+      framework: packageJson.scripts?.start ? 'Node' : 'Static',
+      buildCommand: packageJson.scripts?.build ? 'npm install && npm run build' : 'npm install',
+      startCommand: packageJson.scripts?.start ? 'npm start' : undefined,
+      outputDirectory: content._sandboxOutputDirectory === 'runtime' ? 'dist' : content._sandboxOutputDirectory || 'dist',
+    };
+  };
+
   const handleRenderDeploy = async () => {
     setDeploying(true);
     setDeployMsg(null);
     try {
+      if (!selectedRenderServiceId) {
+        const result = await activateRenderRepo(renderActivationPayload());
+        if (result.service?.id) setSelectedRenderServiceId(result.service.id);
+        setDeployMsg(result.status === 'activated'
+          ? `Customer Render service ${result.action === 'created' ? 'created' : 'reused'} and deploy triggered.`
+          : result.message || result.error || 'Render activation needs attention.');
+        refreshRenderStatus();
+        return;
+      }
       const result = await triggerRenderDeploy({
         siteId: site?.id,
         serviceId: selectedRenderServiceId,
@@ -1060,6 +1087,10 @@ function ImportedGithubWorkspace({ content, site }) {
     setTestingDeploy(true);
     setDeployMsg(null);
     try {
+      if (!selectedRenderServiceId) {
+        setDeployMsg('Activate or select a customer Render service before running a test deploy.');
+        return;
+      }
       const result = await testRenderDeploy({
         siteId: site?.id,
         serviceId: selectedRenderServiceId,
@@ -1079,16 +1110,7 @@ function ImportedGithubWorkspace({ content, site }) {
     setActivatingRender(true);
     setDeployMsg(null);
     try {
-      const packageJson = contents['package.json'] ? JSON.parse(contents['package.json']) : {};
-      const result = await activateRenderRepo({
-        repoUrl: `https://github.com/${content._repository}`,
-        branch: content._branch || 'main',
-        name: content.siteName || content._repository?.split('/').pop(),
-        framework: packageJson.scripts?.start ? 'Node' : 'Static',
-        buildCommand: packageJson.scripts?.build ? 'npm install && npm run build' : 'npm install',
-        startCommand: packageJson.scripts?.start ? 'npm start' : undefined,
-        outputDirectory: content._sandboxOutputDirectory === 'runtime' ? 'dist' : content._sandboxOutputDirectory || 'dist',
-      });
+      const result = await activateRenderRepo(renderActivationPayload());
       setDeployMsg(result.status === 'activated'
         ? `Render ${result.action === 'created' ? 'service created' : 'service reused'} and deploy triggered.`
         : result.message || result.error || 'Render activation needs attention.');
@@ -1126,8 +1148,8 @@ function ImportedGithubWorkspace({ content, site }) {
                 {renderStatus.loading
                   ? 'Checking Render configuration...'
                   : renderStatus.settings?.configured
-                    ? `Connected${renderStatus.settings.serviceId ? ` to ${renderStatus.settings.serviceId}` : ' with deploy hook'}`
-                    : 'Needs RENDER_DEPLOY_HOOK_URL or RENDER_API_KEY + RENDER_SERVICE_ID'}
+                    ? 'Connected to Render API. Customer apps deploy to their own Render services.'
+                    : 'Needs RENDER_API_KEY and RENDER_OWNER_ID for customer service creation'}
               </div>
             </div>
             <Badge tone={renderStatus.settings?.configured ? "success" : "warn"} dot={false}>
@@ -1136,7 +1158,7 @@ function ImportedGithubWorkspace({ content, site }) {
           </div>
           <div className="kv" style={{ gridTemplateColumns: "120px 1fr" }}>
             <dt>API key</dt><dd>{renderStatus.settings?.apiKeyPresent ? 'Configured' : 'Missing'}</dd>
-            <dt>Service ID</dt><dd className="mono">{renderStatus.settings?.serviceId || 'Missing'}</dd>
+            <dt>Platform ID</dt><dd className="mono">{renderStatus.settings?.platformServiceId || 'Not used for customer deploys'}</dd>
             <dt>Deploy hook</dt><dd>{renderStatus.settings?.deployHookPresent ? 'Configured' : 'Optional'}</dd>
           </div>
           <div>
@@ -1151,7 +1173,7 @@ function ImportedGithubWorkspace({ content, site }) {
             </select>
             {!renderStatus.services?.length && (
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                No Render services returned. Check that the API key has access to this workspace, or set RENDER_SERVICE_ID directly.
+                No customer Render services returned. Activate this repo to create a separate customer service.
               </div>
             )}
           </div>

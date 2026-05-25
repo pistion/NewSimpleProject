@@ -106,9 +106,9 @@ Render integration variables:
 | Variable | Purpose |
 |---|---|
 | `RENDER_API_KEY` | server-side Render API access |
-| `RENDER_SERVICE_ID` | optional default Render service target |
-| `RENDER_DEPLOY_HOOK_URL` | optional simpler deploy trigger |
-| `RENDER_OWNER_ID` | optional owner/team id for creating customer repo services |
+| `RENDER_SERVICE_ID` | Glondiasites platform service id; not used as a customer deploy fallback |
+| `RENDER_DEPLOY_HOOK_URL` | optional platform deploy hook; not used for customer app deploys |
+| `RENDER_OWNER_ID` | owner/team id required for creating customer repo services |
 | `PROVIDER_API_ENABLED` | set `false` to disable GitHub import and Render mutation endpoints |
 | `PROVIDER_API_TOKEN` | optional bearer token required for provider mutation endpoints |
 | `PROVIDER_RATE_LIMIT` | per-route provider API rate limit per minute |

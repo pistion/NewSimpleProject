@@ -640,9 +640,18 @@ async function proxySandboxRuntime(req, res, next, port, siteId) {
 }
 
 async function triggerRenderDeploy(input = {}) {
-  const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL || input.deployHookUrl;
+  const allowPlatformService = input.allowPlatformService === true || input.useDefaultService === true;
+  const deployHookUrl = input.deployHookUrl || (allowPlatformService ? process.env.RENDER_DEPLOY_HOOK_URL : null);
   const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
+  if (isPlatformRenderService(serviceId) && !allowPlatformService) {
+    return {
+      status: 'blocked',
+      provider: 'render',
+      serviceId,
+      message: 'This is the Glondiasites platform service. Customer deploys must use a separate Render service.',
+    };
+  }
 
   if (deployHookUrl) {
     const response = await fetch(deployHookUrl, { method: 'POST' });
@@ -668,9 +677,9 @@ async function triggerRenderDeploy(input = {}) {
       serviceId: serviceId || null,
       missing: {
         RENDER_API_KEY: !apiKey,
-        RENDER_SERVICE_ID: !serviceId,
+        RENDER_CUSTOMER_SERVICE_ID: !serviceId,
       },
-      message: 'Set RENDER_DEPLOY_HOOK_URL, or set both RENDER_API_KEY and RENDER_SERVICE_ID.',
+      message: 'Select an existing customer Render service or activate the imported repo to create one.',
     };
   }
 
@@ -791,11 +800,18 @@ function inferRenderServiceType(input = {}) {
 async function testRenderDeploy(input = {}) {
   const serviceId = await resolveRenderServiceId(input);
   const apiKey = process.env.RENDER_API_KEY;
+  if (isPlatformRenderService(serviceId) && input.allowPlatformService !== true && input.useDefaultService !== true) {
+    return {
+      status: 'blocked',
+      serviceId,
+      message: 'This is the Glondiasites platform service. Customer test deploys must use a separate Render service.',
+    };
+  }
   if (!apiKey || !serviceId) {
     return {
       status: 'configuration_required',
       settings: getRenderSettings({ ...input, serviceId }),
-      message: 'Set RENDER_API_KEY and select or configure RENDER_SERVICE_ID before testing deploy.',
+      message: 'Set RENDER_API_KEY and select or activate a customer Render service before testing deploy.',
     };
   }
 
@@ -862,15 +878,17 @@ function delay(ms) {
 }
 
 function getRenderSettings(input = {}) {
-  const serviceId = process.env.RENDER_SERVICE_ID || input.serviceId || input.renderServiceId || null;
+  const serviceId = input.serviceId || input.renderServiceId || null;
+  const platformServiceId = process.env.RENDER_SERVICE_ID || null;
   return {
     provider: 'render',
-    configured: !!(process.env.RENDER_DEPLOY_HOOK_URL || (process.env.RENDER_API_KEY && serviceId)),
+    configured: !!process.env.RENDER_API_KEY,
     apiKeyPresent: !!process.env.RENDER_API_KEY,
     deployHookPresent: !!process.env.RENDER_DEPLOY_HOOK_URL,
+    platformServiceId,
     serviceId,
     serviceUrl: serviceId ? `https://dashboard.render.com/web/${serviceId}` : null,
-    required: process.env.RENDER_DEPLOY_HOOK_URL ? [] : ['RENDER_API_KEY', 'RENDER_SERVICE_ID'].filter((key) => key === 'RENDER_API_KEY' ? !process.env.RENDER_API_KEY : !serviceId),
+    required: ['RENDER_API_KEY'].filter((key) => !process.env[key]),
   };
 }
 
@@ -898,7 +916,6 @@ async function listRenderDeploys(input = {}) {
 
 async function resolveRenderServiceId(input = {}) {
   if (input.serviceId || input.renderServiceId) return input.serviceId || input.renderServiceId;
-  if (process.env.RENDER_SERVICE_ID) return process.env.RENDER_SERVICE_ID;
   const services = await listRenderServices().catch(() => []);
   const repoNeedle = String(input.repo || input.repository || '').toLowerCase();
   const nameNeedle = String(input.name || '').toLowerCase();
@@ -913,7 +930,13 @@ async function resolveRenderServiceId(input = {}) {
     return (repoNeedle && haystack.includes(repoNeedle.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '')))
       || (nameNeedle && haystack.includes(nameNeedle));
   });
-  return match?.id || services[0]?.id || null;
+  if (match?.id) return match.id;
+  if (input.allowPlatformService === true || input.useDefaultService === true) return process.env.RENDER_SERVICE_ID || services[0]?.id || null;
+  return null;
+}
+
+function isPlatformRenderService(serviceId) {
+  return !!serviceId && !!process.env.RENDER_SERVICE_ID && serviceId === process.env.RENDER_SERVICE_ID;
 }
 
 async function listRenderServices() {
@@ -942,6 +965,7 @@ async function listRenderServices() {
       region: svc.serviceDetails?.region || svc.region || null,
       env: svc.serviceDetails?.env || svc.env || null,
       repo: svc.repo || svc.repoUrl || svc.serviceDetails?.repo || null,
+      isPlatform: isPlatformRenderService(svc.id),
     };
   }).filter((service) => service.id);
 }

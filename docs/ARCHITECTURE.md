@@ -46,6 +46,8 @@ disabled provider workflows are hidden or blocked
 
 Render client calls are gated behind `VITE_APP_MODE=live` so test/demo UI cannot accidentally look like a real deploy.
 
+Glondiasites is the control plane. Customer GitHub imports must deploy to separate Render services created/reused through the Render API. `RENDER_SERVICE_ID` identifies the platform service and must not be used as a customer deploy fallback.
+
 Spaceship registrar and DNS calls are server-proxied through `/api/spaceship/*` and also require `VITE_APP_MODE=live` on the client. Secrets stay server-side in `SPACESHIP_API_KEY` and `SPACESHIP_API_SECRET`.
 
 ## Inactive Backend
