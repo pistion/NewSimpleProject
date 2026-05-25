@@ -2,6 +2,7 @@ const RENDER_BASE_URL = 'https://api.render.com/v1';
 
 class RenderApiService {
   configured() {
+    if (String(process.env.RENDER_API_DISABLED || '').toLowerCase() === 'true') return false;
     return Boolean(process.env.RENDER_API_KEY);
   }
 

@@ -28,9 +28,13 @@ class DeploymentService {
       serviceResponse = await renderApiService.createService({ ...input, serviceName, serviceType, sourceReference });
       renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || null;
     }
+    const renderConfigurationRequired = serviceResponse?.status === 'configuration_required';
+    if (!renderServiceId && renderConfigurationRequired) {
+      renderServiceId = makeId('render_pending');
+    }
 
     let deployResponse = null;
-    if (renderServiceId) {
+    if (renderServiceId && !renderConfigurationRequired) {
       deployResponse = await renderApiService.triggerDeploy(renderServiceId, input);
     } else if (process.env.RENDER_SERVICE_ID && input.useDefaultService) {
       renderServiceId = process.env.RENDER_SERVICE_ID;
@@ -149,4 +153,3 @@ function notFound(message) {
 }
 
 export default new DeploymentService();
-
