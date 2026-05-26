@@ -207,9 +207,9 @@ export default function App() {
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
-      case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "VPS (Vultr)" }];
-      case "vps-create":     return [{ label: "VPS (Vultr)", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
-      case "vps-detail":     return [{ label: "VPS (Vultr)", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];
+      case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Cloud Servers" }];
+      case "vps-create":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
+      case "vps-detail":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];
       default:                return [{ label: "Workspace" }];
     }
   })();

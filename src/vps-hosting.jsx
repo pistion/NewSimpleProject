@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ICN } from './icons';
-import { Badge, Empty, StatusBadge } from './components';
+import { Badge, Empty, StatusBadge, Tabs } from './components';
 import {
   captureVpsPayPalOrder,
   createVpsPayPalOrder,
@@ -149,10 +149,12 @@ export function VpsHostingList({ navigate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
+  const [tab, setTab] = useState('servers');
+
   useEffect(() => {
     let alive = true;
-    Promise.all([listVpsServices(), getVultrSettings()])
-      .then(([list]) => { if (alive) setServers(list ?? []); })
+    listVpsServices()
+      .then((list) => { if (alive) setServers(list ?? []); })
       .catch((err) => { if (alive) setError(err.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -167,70 +169,87 @@ export function VpsHostingList({ navigate }) {
           <p className="sub">Provision and manage virtual servers — choose your region, resources, and OS.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-primary" onClick={() => navigate({ view: 'vps-create' })}>
-            <ICN.Plus size={14} /> New server
-          </button>
+          {tab === 'servers' && (
+            <button className="btn btn-primary" onClick={() => navigate({ view: 'vps-create' })}>
+              <ICN.Plus size={14} /> New server
+            </button>
+          )}
         </div>
       </div>
 
-      {error && (
-        <div className="card" style={{ padding: '10px 16px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
-      )}
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'servers',  label: 'Servers' },
+          { value: 'settings', label: 'Settings & integrations' },
+        ]}
+      />
 
-      {loading ? (
-        <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Loading servers…
-        </div>
-      ) : servers.length === 0 ? (
-        <Empty
-          icon="Server"
-          title="No servers yet"
-          body="Provision your first cloud server in minutes — choose your region, plan, and OS."
-          action={
-            <button className="btn btn-primary" onClick={() => navigate({ view: 'vps-create' })}>
-              <ICN.Plus size={14} /> Deploy first server
-            </button>
-          }
-        />
+      {tab === 'servers' ? (
+        <>
+          {error && (
+            <div className="card" style={{ padding: '10px 16px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+          )}
+
+          {loading ? (
+            <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading servers…
+            </div>
+          ) : servers.length === 0 ? (
+            <Empty
+              icon="Server"
+              title="No servers yet"
+              body="Provision your first cloud server in minutes — choose your region, plan, and OS."
+              action={
+                <button className="btn btn-primary" onClick={() => navigate({ view: 'vps-create' })}>
+                  <ICN.Plus size={14} /> Deploy first server
+                </button>
+              }
+            />
+          ) : (
+            <div className="card card-flush">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Server</th>
+                    <th>Location</th>
+                    <th>Specs</th>
+                    <th>IP address</th>
+                    <th>Status</th>
+                    <th>Monthly</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {servers.map((s) => (
+                    <tr key={s.id} style={{ cursor: 'pointer' }}
+                        onClick={() => navigate({ view: 'vps-detail', params: { id: s.id } })}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{s.label}</div>
+                        <div className="mono faint" style={{ fontSize: 11 }}>{s.hostname}</div>
+                      </td>
+                      <td style={{ fontSize: 13 }}>{s.region}</td>
+                      <td className="mono" style={{ fontSize: 12 }}>
+                        {s.vcpuCount ? `${s.vcpuCount} vCPU · ${(s.ramMb / 1024).toFixed(0)} GB · ${s.diskGb} GB` : s.plan}
+                      </td>
+                      <td className="mono">{s.mainIp || '—'}</td>
+                      <td><StatusBadge value={s.status} /></td>
+                      <td className="mono" style={{ fontWeight: 600 }}>
+                        ${((s.totalPriceCents ?? 0) / 100).toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <ICN.ArrowRight size={13} style={{ color: 'var(--text-faint)' }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="card card-flush">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Server</th>
-                <th>Location</th>
-                <th>Specs</th>
-                <th>IP address</th>
-                <th>Status</th>
-                <th>Monthly</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {servers.map((s) => (
-                <tr key={s.id} style={{ cursor: 'pointer' }}
-                    onClick={() => navigate({ view: 'vps-detail', params: { id: s.id } })}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{s.label}</div>
-                    <div className="mono faint" style={{ fontSize: 11 }}>{s.hostname}</div>
-                  </td>
-                  <td style={{ fontSize: 13 }}>{s.region}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>
-                    {s.vcpuCount ? `${s.vcpuCount} vCPU · ${(s.ramMb / 1024).toFixed(0)} GB · ${s.diskGb} GB` : s.plan}
-                  </td>
-                  <td className="mono">{s.mainIp || '—'}</td>
-                  <td><StatusBadge value={s.status} /></td>
-                  <td className="mono" style={{ fontWeight: 600 }}>
-                    ${((s.totalPriceCents ?? 0) / 100).toFixed(2)}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <ICN.ArrowRight size={13} style={{ color: 'var(--text-faint)' }} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <VpsSettings />
       )}
     </>
   );
@@ -959,5 +978,253 @@ export function VpsDetail({ id, navigate }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── VPS Settings & integrations ──────────────────────────────────────────────
+
+function VpsSettings() {
+  const [settings, setSettings] = useState(null);
+  const [plans, setPlans]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [apiError, setApiError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([getVultrSettings(), listVultrPlans()])
+      .then(([s, p]) => {
+        if (!alive) return;
+        setSettings(s);
+        setPlans(p ?? []);
+      })
+      .catch((err) => { if (alive) setApiError(err.message); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  if (loading) return (
+    <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+      Loading settings…
+    </div>
+  );
+
+  // Graceful fallback so layout renders even when backend is unreachable
+  const cfg      = settings ?? { vultrConfigured: false, paypalConfigured: false, markupPercent: 30 };
+  const markup   = cfg.markupPercent ?? 30;
+  const vultrOk  = cfg.vultrConfigured  ?? false;
+  const paypalOk = cfg.paypalConfigured ?? false;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {apiError && (
+        <div className="card" style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+          Backend unreachable — showing default configuration. ({apiError})
+        </div>
+      )}
+
+      {/* ── Integration status cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <span style={{
+              width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+              background: vultrOk ? 'var(--accent-soft)' : 'rgba(239,68,68,.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: vultrOk ? 'var(--accent)' : 'var(--danger)',
+            }}>
+              <ICN.Cpu size={18} />
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>Provider API</span>
+                <StatusBadge value={vultrOk ? 'connected' : 'error'} />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                {vultrOk
+                  ? 'Connected. Regions, plans, and server provisioning are live.'
+                  : 'Not configured. Set VULTR_API_KEY on your backend to enable server provisioning.'}
+              </div>
+              <div className="mono" style={{
+                fontSize: 11, background: 'var(--bg-deep)', borderRadius: 6, padding: '6px 10px',
+                color: 'var(--text-faint)', letterSpacing: '0.03em',
+              }}>
+                VULTR_API_KEY
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <span style={{
+              width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+              background: paypalOk ? 'var(--accent-soft)' : 'rgba(239,68,68,.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: paypalOk ? 'var(--accent)' : 'var(--danger)',
+            }}>
+              <ICN.CreditCard size={18} />
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>Payment gateway</span>
+                <StatusBadge value={paypalOk ? 'connected' : 'error'} />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                {paypalOk
+                  ? 'Connected. PayPal checkout is ready for customer payments.'
+                  : 'Not configured. Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET to enable payments.'}
+              </div>
+              <div className="mono" style={{
+                fontSize: 11, background: 'var(--bg-deep)', borderRadius: 6, padding: '6px 10px',
+                color: 'var(--text-faint)', letterSpacing: '0.03em',
+              }}>
+                PAYPAL_CLIENT_ID · PAYPAL_CLIENT_SECRET
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <span style={{
+              width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+              background: 'var(--accent-soft)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--accent)',
+            }}>
+              <ICN.Settings size={18} />
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>Sandbox mode</span>
+                <StatusBadge value={cfg.sandbox !== false ? 'warn' : 'active'} />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
+                {cfg.sandbox !== false
+                  ? 'PayPal sandbox is active — no real charges. Set PAYPAL_SANDBOX=false in production.'
+                  : 'Live mode — real PayPal charges. Ensure VULTR_API_KEY is your production key.'}
+              </div>
+              <div className="mono" style={{
+                fontSize: 11, background: 'var(--bg-deep)', borderRadius: 6, padding: '6px 10px',
+                color: 'var(--text-faint)', letterSpacing: '0.03em',
+              }}>
+                PAYPAL_SANDBOX=false
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Reseller margin ── */}
+      <div className="card">
+        <div className="card-head">
+          <h2>Reseller margin</h2>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Set via <code className="mono" style={{ fontSize: 11 }}>PLATFORM_MARKUP_PERCENT</code> on your backend
+          </span>
+        </div>
+        <div style={{ padding: '16px 16px 20px', display: 'flex', gap: 32, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 100 }}>
+            <div style={{
+              fontSize: 72, fontWeight: 800, lineHeight: 1,
+              color: 'var(--accent)', fontFamily: 'var(--mono, monospace)',
+            }}>
+              {markup}%
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>on every order</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Every customer order is charged at the Vultr base cost plus your {markup}% markup.
+              The full margin goes directly to you — Glondia does not take a cut of the reseller margin.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+              {[5, 10, 20, 40, 80, 160].map((base) => {
+                const yours  = base * (1 + markup / 100);
+                const margin = yours - base;
+                return (
+                  <div key={base} style={{ background: 'var(--bg-deep)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+                      ${base} plan
+                    </div>
+                    <div className="mono" style={{ fontWeight: 700, fontSize: 15 }}>
+                      ${yours.toFixed(2)}
+                      <span style={{ color: 'var(--text-faint)', fontWeight: 400, fontSize: 10 }}>/mo</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 3 }}>+${margin.toFixed(2)} margin</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Plan catalog with markup ── */}
+      {plans.length > 0 ? (
+        <div className="card card-flush">
+          <div className="card-head">
+            <h2>Your plan catalog</h2>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Customer-facing prices — {markup}% markup applied to Vultr base cost
+            </span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Plan ID</th>
+                  <th>Type</th>
+                  <th style={{ textAlign: 'center' }}>vCPU</th>
+                  <th style={{ textAlign: 'center' }}>RAM</th>
+                  <th style={{ textAlign: 'center' }}>Storage</th>
+                  <th style={{ textAlign: 'center' }}>Bandwidth</th>
+                  <th style={{ textAlign: 'right' }}>Base cost</th>
+                  <th style={{ textAlign: 'right' }}>Customer price</th>
+                  <th style={{ textAlign: 'right' }}>Your margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((p) => {
+                  const base   = p.monthly_cost ?? 0;
+                  const yours  = base * (1 + markup / 100);
+                  const margin = yours - base;
+                  return (
+                    <tr key={p.id}>
+                      <td className="mono" style={{ fontSize: 12 }}>{p.id}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.type}</td>
+                      <td style={{ textAlign: 'center' }}>{p.vcpu_count}</td>
+                      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        {p.ram >= 1024 ? `${p.ram / 1024} GB` : `${p.ram} MB`}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>{p.disk} GB</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {p.bandwidth ? `${p.bandwidth} GB` : '—'}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 13 }}>
+                        ${base.toFixed(2)}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700, fontSize: 13 }}>
+                        ${yours.toFixed(2)}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)', fontSize: 13 }}>
+                        +${margin.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : !apiError ? (
+        <div className="card" style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+          Plan catalog will appear here once your Vultr API key is configured.
+        </div>
+      ) : null}
+
+    </div>
   );
 }

@@ -65,10 +65,12 @@ export class VpsHostingService {
   // ─── Catalog / configuration ──────────────────────────────────────────────────
 
   getSettings() {
+    const sandbox = this.config.get<string>('PAYPAL_SANDBOX', 'true') !== 'false';
     return {
       vultrConfigured:  this.vultr.isConfigured(),
       paypalConfigured: this.paypalEnabled,
       markupPercent:    this.markupPercent,
+      sandbox,
     };
   }
 
