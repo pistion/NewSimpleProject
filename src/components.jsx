@@ -66,16 +66,16 @@ export const DASH_NAV = [
     items: [
       { key: "overview",     label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
       { key: "hosting",      label: "Render hosting", icon: "Server",          route: { view: "hosting-list" } },
-      { key: "vps-hosting",  label: "VPS (Vultr)",    icon: "Cpu",             route: { view: "vps-hosting" } },
+      { key: "vps-hosting",  label: "Cloud Servers",  icon: "Cpu",             route: { view: "vps-hosting" } },
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
+      { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true },
+      { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
   {
     title: "Manage",
     items: [
-      { key: "buy",        label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" } },
-      { key: "dns",        label: "DNS records",    icon: "Network",         route: { view: "dns" } },
       { key: "analytics",  label: "Analytics",      icon: "ChartBar",        route: { view: "analytics" } },
       { key: "activity",   label: "Activity",       icon: "Activity",        route: { view: "activity" } },
     ],
@@ -106,9 +106,10 @@ export function DashSidebar({ active, navigate }) {
                 <a key={item.key}
                    className={`dash-side-link ${isActive ? "active" : ""}`}
                    href="#"
+                   style={item.indent ? { paddingLeft: 32 } : undefined}
                    onClick={(e) => { e.preventDefault(); navigate(item.route); }}>
-                  <Icon size={16} />
-                  <span>{item.label}</span>
+                  <Icon size={item.indent ? 13 : 16} />
+                  <span style={item.indent ? { fontSize: 13 } : undefined}>{item.label}</span>
                 </a>
               );
             })}

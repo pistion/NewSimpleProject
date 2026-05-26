@@ -233,6 +233,18 @@ export class VpsHostingService {
     const markupCents     = Math.round(baseCostCents * (markup / 100));
     const totalCents      = baseCostCents + markupCents;
 
+    // Register SSH key if a public key was pasted
+    let resolvedSshKeyId = provisionDetails.sshKeyId;
+    if (provisionDetails.sshPublicKey) {
+      try {
+        const keyName = provisionDetails.sshKeyName || `glondia-${provisionDetails.label}`;
+        const newKey = await this.vultr.createSshKey(keyName, provisionDetails.sshPublicKey);
+        resolvedSshKeyId = newKey.id;
+      } catch (err: unknown) {
+        this.logger.warn(`SSH key creation failed, continuing without: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
     // Create the Vultr instance
     let vultrInstance: Awaited<ReturnType<VultrService['createInstance']>>;
     try {
@@ -242,8 +254,11 @@ export class VpsHostingService {
         os_id:    provisionDetails.osId,
         label:    provisionDetails.label,
         hostname: provisionDetails.hostname ?? provisionDetails.label,
-        ...(provisionDetails.sshKeyId ? { sshkey_id: [provisionDetails.sshKeyId] } : {}),
-        ...(provisionDetails.userData ? { user_data: provisionDetails.userData } : {}),
+        ...(resolvedSshKeyId ? { sshkey_id: [resolvedSshKeyId] } : {}),
+        ...(provisionDetails.userData ? { user_data: Buffer.from(provisionDetails.userData).toString('base64') } : {}),
+        ...(provisionDetails.enableIpv6  ? { enable_ipv6: true } : {}),
+        ...(provisionDetails.backups     ? { backups: 'enabled' } : {}),
+        ...(provisionDetails.ddosProtection ? { ddos_protection: true } : {}),
         tags: [`org:${actor.organizationId}`],
       });
     } catch (err: unknown) {
