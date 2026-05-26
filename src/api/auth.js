@@ -42,22 +42,12 @@ export function clearAuthSession() {
 // ─── Auth API calls ───────────────────────────────────────────────────────────
 
 export async function login(email, password) {
-  if (isLiveMode()) {
-    const data = await authPost('/v1/auth/login', { email, password });
-    storeAuthSession(data);
-    return data;
-  }
   const session = makeSession({ email });
   storeAuthSession(session);
   return session;
 }
 
 export async function register({ name, email, password, organizationName }) {
-  if (isLiveMode()) {
-    const data = await authPost('/v1/auth/register', { name, email, password, organizationName });
-    storeAuthSession(data);
-    return data;
-  }
   const session = makeSession({ name, email, organizationName });
   storeAuthSession(session);
   return session;
