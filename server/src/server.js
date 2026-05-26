@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 import { requestId } from './middleware/request-id.middleware.js';
 import { responseHelper } from './middleware/response.middleware.js';
 
+import frontPageRoutes from './routes/frontPage.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import workspaceRoutes from './routes/workspace.routes.js';
@@ -121,6 +122,18 @@ app.use(responseHelper);
 app.get('/healthz', (req, res) => {
   res.type('text/plain').send('ok');
 });
+
+// ── Landing page — static assets + root HTML ─────────────────────────────────
+const landingDir = join(rootDir, 'landing');
+if (existsSync(landingDir)) {
+  app.use(express.static(landingDir, {
+    index: false,
+    setHeaders(res, filePath) {
+      res.setHeader('Cache-Control', filePath.endsWith('.html') ? 'no-cache' : 'public, max-age=3600');
+    },
+  }));
+}
+app.use('/', frontPageRoutes);
 
 app.post('/api/builder/import-github', providerApiGuard, async (req, res, next) => {
   try {

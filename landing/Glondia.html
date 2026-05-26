@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glondia Analysts &amp; Consultancy — Market intelligence at terminal speed</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<!-- ============ STATUS BAR ============ -->
+<div class="statusbar">
+  <div class="wrap">
+    <div class="seg"><span class="dot"></span><span class="val">DESK OPEN · ANALYSTS LIVE</span></div>
+    <div class="seg"><span class="lbl">COVERAGE</span><span class="val">38 sectors</span></div>
+    <div class="seg"><span class="lbl">REPORTS / QTR</span><span class="val">412</span></div>
+    <div class="seg"><span class="lbl">CLIENTS</span><span class="val">120+</span></div>
+    <div class="spacer"></div>
+    <div class="seg"><span class="lbl">LDN</span><span class="val" id="clock">--:--:--</span></div>
+    <div class="seg"><span class="lbl">EST. </span><span class="val">2017</span></div>
+  </div>
+</div>
+
+<!-- ============ NAV ============ -->
+<nav class="nav">
+  <div class="wrap">
+    <a href="#" class="logo">
+      <span class="logo-glyph"><img src="assets/glondia-logo.png" alt="Glondia" /></span>
+      <span class="logo-name">
+        <span class="a">GLONDIA</span>
+        <span class="b">ANALYSTS &amp; CONSULTANCY</span>
+      </span>
+    </a>
+    <div class="nav-links">
+      <a href="#services">Services</a>
+      <a href="#research">Research</a>
+      <a href="#coverage" class="has-new">Coverage</a>
+      <a href="#engagements">Engagements</a>
+      <a href="#">Insights</a>
+      <a href="#">About</a>
+    </div>
+    <div class="nav-spacer"></div>
+    <div class="nav-cta">
+      <span class="kbd">⌘ K</span>
+      <a href="#" class="btn btn-sm btn-ghost">Client login</a>
+      <a href="#" class="btn btn-sm btn-primary">Book a briefing →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<section class="hero" data-screen-label="01 Hero">
+  <div class="wrap">
+    <div class="hero-left">
+      <div class="hero-tag">
+        <span class="badge">Q2'26</span>
+        <span>Sector outlook · 38 markets · published Monday</span>
+        <span class="dim">→</span>
+      </div>
+
+      <h1>
+        Market intelligence at the<br/>
+        speed of a <span class="swap">terminal</span>
+      </h1>
+
+      <p class="hero-sub">
+        <b>Glondia</b> is a boutique analyst desk for operators, founders and investors. We turn messy markets into <b>decision-ready briefings</b> — built by humans, delivered like a feed.
+      </p>
+
+      <div class="hero-cta">
+        <a href="#" class="btn btn-primary">
+          <span>Book a 30-min briefing</span>
+          <span>→</span>
+        </a>
+        <a href="#" class="btn">
+          <span class="accent">↓</span>
+          <span>Download Q2 outlook (PDF)</span>
+        </a>
+      </div>
+
+      <div class="hero-meta">
+        <div class="cell">
+          <div class="num">48<span class="unit">h</span></div>
+          <div class="lbl">Avg turnaround</div>
+        </div>
+        <div class="cell">
+          <div class="num">38<span class="unit">/38</span></div>
+          <div class="lbl">Sectors covered</div>
+        </div>
+        <div class="cell">
+          <div class="num">120<span class="unit">+</span></div>
+          <div class="lbl">Client desks</div>
+        </div>
+        <div class="cell">
+          <div class="num">9<span class="unit">yr</span></div>
+          <div class="lbl">On the desk</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- live research terminal -->
+    <div class="hero-right">
+      <div class="term">
+        <div class="term-head">
+          <div class="term-dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+          <div class="term-title">~/desks/q2-outlook — glondia-research</div>
+          <div>● live</div>
+        </div>
+        <div class="term-body" id="hero-term">
+          <div class="line"><span class="ps">analyst@desk</span> <span class="gh">~/desks/q2-outlook</span> <span class="ps">$</span> <span class="cmd">glondia run --sector fintech</span></div>
+          <div class="line gh">───────────────────────────────────────────────</div>
+          <div class="line"><span class="ok">◆</span> Sources     <span class="gh">›</span> <span class="b">412 filings · 38 transcripts</span></div>
+          <div class="line"><span class="ok">◆</span> Models      <span class="gh">›</span> <span class="b">CAC / LTV · cohort decay</span>   <span class="ok">ok</span></div>
+          <div class="line"><span class="ok">◆</span> Interviews  <span class="gh">›</span> <span class="b">14 operators · 6 LPs</span>     <span class="ok">ok</span></div>
+          <div class="line"><span class="ok">◆</span> Synthesis   <span class="gh">›</span> <span class="b">██████████ 100%</span></div>
+          <div class="line"><span class="ok">◆</span> QA review   <span class="gh">›</span> <span class="b">2 senior analysts</span>        <span class="ok">signed</span></div>
+          <div class="line gh">───────────────────────────────────────────────</div>
+          <div class="line"><span class="ok">✓</span> Brief shipped in <span class="b">41h 22m</span></div>
+          <div class="line">  <span class="gh">→</span> <span class="info">Sector outlook · Q2'26 · Fintech</span></div>
+          <div class="line">  <span class="gh">→</span> <span class="info">3 calls scheduled · client desk</span></div>
+          <div class="line"></div>
+          <div class="line"><span class="ps">analyst@desk</span> <span class="gh">~/desks/q2-outlook</span> <span class="ps">$</span> <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TICKER ============ -->
+<div class="ticker" aria-hidden="true">
+  <div class="ticker-track">
+    <div class="item"><span class="dot"></span><span class="who">Q2'26 Fintech outlook</span><span class="what">shipped · 42 pp</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Retainer · Series B SaaS</span><span class="what">renewed · 12 mo</span></div>
+    <div class="item"><span class="dot"></span><span class="who">EU AI Act memo</span><span class="what">briefed · 9 clients</span></div>
+    <div class="item"><span class="dot"></span><span class="who">D2C cohort study</span><span class="what">delivered · 41h</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Climate-tech LP letter</span><span class="what">ghostwritten · sent</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Pricing teardown · Stripe</span><span class="what">published · members</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Embedded sprint · Q3</span><span class="what">kicked off</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Mid-market M&amp;A scan</span><span class="what">38 targets · screened</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Board deck · pre-read</span><span class="what">delivered · 22h</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Healthtech panel</span><span class="what">6 operators · transcribed</span></div>
+    <!-- duplicate for seamless loop -->
+    <div class="item"><span class="dot"></span><span class="who">Q2'26 Fintech outlook</span><span class="what">shipped · 42 pp</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Retainer · Series B SaaS</span><span class="what">renewed · 12 mo</span></div>
+    <div class="item"><span class="dot"></span><span class="who">EU AI Act memo</span><span class="what">briefed · 9 clients</span></div>
+    <div class="item"><span class="dot"></span><span class="who">D2C cohort study</span><span class="what">delivered · 41h</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Climate-tech LP letter</span><span class="what">ghostwritten · sent</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Pricing teardown · Stripe</span><span class="what">published · members</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Embedded sprint · Q3</span><span class="what">kicked off</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Mid-market M&amp;A scan</span><span class="what">38 targets · screened</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Board deck · pre-read</span><span class="what">delivered · 22h</span></div>
+    <div class="item"><span class="dot"></span><span class="who">Healthtech panel</span><span class="what">6 operators · transcribed</span></div>
+  </div>
+</div>
+
+<!-- ============ PRODUCTS ============ -->
+<section class="section" id="services" data-screen-label="02 Services">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="left">
+        <span class="eyebrow">// THREE PRACTICES · ONE DESK</span>
+        <h2>Everything you need to make a sharper call. Nothing you don't.</h2>
+        <p class="lede">Research, advisory and data — wired into a single desk so the brief you get on Friday is the model you act on Monday. No decks for the sake of decks.</p>
+      </div>
+      <div class="right">SERVICES<br/>001 — 003</div>
+    </div>
+
+    <div class="products">
+      <!-- 1. HOSTING -->
+      <article class="product">
+        <div class="num">001 / RESEARCH</div>
+        <h3>Decision-ready briefs,<br/>built like firmware.</h3>
+        <p class="desc">Sector outlooks, deep-dives and primary research — synthesised from filings, transcripts and 14+ operator interviews per brief. Citations, not vibes.</p>
+
+        <div class="preview">
+          <div class="regions-mini">
+            <div class="head"><span>LIVE SOURCES</span><span>COUNT</span></div>
+            <ul>
+              <li><span class="name">SEC filings</span><span class="lat">8,412</span></li>
+              <li><span class="name">Earnings transcripts</span><span class="lat">2,107</span></li>
+              <li><span class="name">Operator interviews</span><span class="lat">+14 / wk</span></li>
+              <li><span class="name">Proprietary datasets</span><span class="lat">62</span></li>
+              <li><span class="name">Expert network</span><span class="lat">320+</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <a href="#" class="more">Explore research <span>→</span></a>
+      </article>
+
+      <!-- 2. DOMAINS -->
+      <article class="product">
+        <div class="num">002 / ADVISORY</div>
+        <h3>Operators on call,<br/>not a slide team.</h3>
+        <p class="desc">Embedded sprints, board pre-reads and pricing teardowns from senior analysts who've actually run a P&amp;L. Hours billed in minutes, not arcs.</p>
+
+        <div class="preview">
+          <div class="dom-search">
+            <div class="dom-search-input">
+              <span class="name">match my desk:</span>
+              <span class="cur"></span>
+            </div>
+            <div class="dom-results">
+              <div class="dom-row avail">
+                <div class="left">
+                  <span class="status">●</span>
+                  <span>Board pre-read<span class="tld"> · 48h</span></span>
+                </div>
+                <div class="right">
+                  <span class="price">from $4.8k</span>
+                  <span class="status">OPEN</span>
+                </div>
+              </div>
+              <div class="dom-row avail">
+                <div class="left">
+                  <span class="status">●</span>
+                  <span>Strategy sprint<span class="tld"> · 2wk</span></span>
+                </div>
+                <div class="right">
+                  <span class="price">from $32k</span>
+                  <span class="status">OPEN</span>
+                </div>
+              </div>
+              <div class="dom-row taken">
+                <div class="left">
+                  <span class="status">○</span>
+                  <span>Embedded analyst<span class="tld"> · Q3</span></span>
+                </div>
+                <div class="right">
+                  <span class="price">—</span>
+                  <span class="status">WAITLIST</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <a href="#" class="more">Explore advisory <span>→</span></a>
+      </article>
+
+      <!-- 3. STARTERS -->
+      <article class="product">
+        <div class="num">003 / DATA</div>
+        <h3>Dashboards that<br/>survive the boardroom.</h3>
+        <p class="desc">Live coverage feeds, sector indices and cohort dashboards. Built by analysts, instrumented by engineers, defended in committee.</p>
+
+        <div class="preview">
+          <div class="starters-mini">
+            <div class="starter-mini">
+              <div class="label">// SECTOR INDEX</div>
+              <div class="pv"><div class="bar a" style="width:30%"></div><div class="bar" style="width:60%"></div><div class="bar" style="width:45%"></div></div>
+              <div class="stack">FINTECH · LIVE</div>
+            </div>
+            <div class="starter-mini">
+              <div class="label">// COHORT DECAY</div>
+              <div class="pv"><div class="bar" style="width:70%"></div><div class="bar a" style="width:55%"></div><div class="bar" style="width:40%"></div></div>
+              <div class="stack">SAAS · Q2</div>
+            </div>
+            <div class="starter-mini">
+              <div class="label">// CAC / LTV</div>
+              <div class="pv"><div class="bar a" style="width:50%"></div><div class="bar" style="width:75%"></div><div class="bar" style="width:60%"></div></div>
+              <div class="stack">D2C · 12mo</div>
+            </div>
+            <div class="starter-mini">
+              <div class="label">// FUNDING</div>
+              <div class="pv"><div class="bar" style="width:65%"></div><div class="bar a" style="width:40%"></div><div class="bar" style="width:80%"></div></div>
+              <div class="stack">EU · WKLY</div>
+            </div>
+          </div>
+        </div>
+
+        <a href="#" class="more">Browse dashboards <span>→</span></a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DEPLOY SPLIT ============ -->
+<section class="section" id="research" data-screen-label="03 Research">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="left">
+        <span class="eyebrow">// THE RESEARCH LOOP</span>
+        <h2>Write the question. We model it, source it, ship it in days.</h2>
+        <p class="lede">Every engagement starts as a single <code style="font-family:var(--mono);color:var(--accent)">brief.toml</code> — scope, sources, deadline. From there the desk runs in your terminal, your inbox, or your Slack. Your call.</p>
+      </div>
+      <div class="right">PIPELINE<br/>READ-ONLY</div>
+    </div>
+
+    <div class="split">
+      <!-- brief.toml -->
+      <div class="code-pane">
+        <div class="term-tabs">
+          <div class="tab active">brief.toml</div>
+          <div class="tab">sources.yaml</div>
+          <div class="tab">scope.md</div>
+        </div>
+        <div class="term-body">
+<div class="line"><span class="gutter"> 1</span><span class="c"># Glondia engagement brief — Q2'26</span></div>
+<div class="line"><span class="gutter"> 2</span><span class="k">client</span>   = <span class="s">"acme-capital"</span></div>
+<div class="line"><span class="gutter"> 3</span><span class="k">engagement</span> = <span class="s">"sector-outlook"</span></div>
+<div class="line"><span class="gutter"> 4</span><span class="k">deadline</span> = <span class="s">"2026-05-30"</span></div>
+<div class="line"><span class="gutter"> 5</span></div>
+<div class="line"><span class="gutter"> 6</span><span class="p">[scope]</span></div>
+<div class="line"><span class="gutter"> 7</span><span class="k">sector</span>   = <span class="s">"fintech / payments"</span></div>
+<div class="line"><span class="gutter"> 8</span><span class="k">geos</span>     = <span class="s">["EU", "UK", "US"]</span></div>
+<div class="line"><span class="gutter"> 9</span><span class="k">horizon</span>  = <span class="s">"12 months"</span></div>
+<div class="line"><span class="gutter">10</span></div>
+<div class="line"><span class="gutter">11</span><span class="p">[sources]</span></div>
+<div class="line"><span class="gutter">12</span><span class="k">filings</span>      = <span class="s">"10-K, 10-Q, 8-K"</span></div>
+<div class="line"><span class="gutter">13</span><span class="k">transcripts</span>  = <span class="s">"earnings + analyst day"</span></div>
+<div class="line"><span class="gutter">14</span><span class="k">interviews</span>   = <span class="s">{ min = 12, max = 20 }</span></div>
+<div class="line"><span class="gutter">15</span><span class="k">datasets</span>     = <span class="s">["proprietary-1", "fred", "ons"]</span></div>
+<div class="line"><span class="gutter">16</span></div>
+<div class="line"><span class="gutter">17</span><span class="p">[outputs]</span></div>
+<div class="line"><span class="gutter">18</span><span class="k">brief</span>      = <span class="s">"42pp PDF + read-along"</span></div>
+<div class="line"><span class="gutter">19</span><span class="k">model</span>      = <span class="s">"./models/cohort.xlsx"</span></div>
+<div class="line"><span class="gutter">20</span><span class="k">debrief</span>    = <span class="s">"60min · senior partner"</span></div>
+<div class="line"><span class="gutter">21</span></div>
+<div class="line"><span class="gutter">22</span><span class="cursor"></span></div>
+        </div>
+      </div>
+
+      <!-- run log -->
+      <div class="log-pane">
+        <div class="term-tabs">
+          <div class="tab active">run.log — live</div>
+          <div class="tab">stream</div>
+          <div class="tab">commit 8af2c1d</div>
+        </div>
+        <div class="term-body">
+<div class="line gh">[mon 09:02]  glondia/desk v4.2 · senior analyst on point</div>
+<div class="line gh">[mon 09:02]  ───────────────────────────────────────────</div>
+<div class="line"><span class="gh">[mon 09:14] </span><span class="ok">✓</span> kickoff call         <span class="b">42 min</span> <span class="gh">· scope locked</span></div>
+<div class="line"><span class="gh">[mon 11:02] </span><span class="ok">✓</span> source pull          <span class="b">412 filings</span> <span class="gh">· 38 transcripts</span></div>
+<div class="line"><span class="gh">[tue 08:30] </span><span class="info">›</span> primary research     <span class="gh">14 operators · 6 LPs</span></div>
+<div class="line"><span class="gh">[tue 16:20] </span><span class="info">›</span> model build          <span class="ok">CAC/LTV · cohort decay</span></div>
+<div class="line"><span class="gh">[wed 10:40] </span><span class="info">›</span> draft v1             <span class="gh">38 pp · sent to QA</span></div>
+<div class="line"><span class="gh">[wed 15:10] </span><span class="info">›</span> QA review            <span class="b">2 senior analysts</span></div>
+<div class="line">             <span class="ok">✓</span> citations    <span class="gh">· 217 cross-checked</span></div>
+<div class="line">             <span class="ok">✓</span> models       <span class="gh">· tied to source</span></div>
+<div class="line">             <span class="ok">✓</span> language     <span class="gh">· tightened</span></div>
+<div class="line">             <span class="ok">✓</span> assumptions  <span class="gh">· surfaced + caveated</span></div>
+<div class="line">             <span class="ok">✓</span> +12 minor edits</div>
+<div class="line"><span class="gh">[thu 09:00] </span><span class="ok">✓</span> partner sign-off     <span class="b">42pp</span> green</div>
+<div class="line gh">[thu 09:00]  ───────────────────────────────────────────</div>
+<div class="line"><span class="ok">●</span> <span class="b">SHIPPED</span> · <span class="gh">3.8 days</span> · <span class="info">debrief booked thu 14:00 BST</span></div>
+<div class="line"><span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STATS ============ -->
+<section data-screen-label="04 Stats">
+  <div class="stats">
+    <div class="stat">
+      <div class="big">412</div>
+      <div class="lbl">// reports shipped · 12mo</div>
+    </div>
+    <div class="stat">
+      <div class="big">3.8<span class="u">d</span></div>
+      <div class="lbl">// p50 turnaround</div>
+    </div>
+    <div class="stat">
+      <div class="big">120<span class="u">+</span></div>
+      <div class="lbl">// active client desks</div>
+    </div>
+    <div class="stat">
+      <div class="big">38<span class="u">x</span></div>
+      <div class="lbl">// sectors covered</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STARTER GALLERY ============ -->
+<section class="section" id="reports" data-screen-label="05 Reports">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="left">
+        <span class="eyebrow">// READ · SUBSCRIBE · COMMISSION</span>
+        <h2>Reports and playbooks worth the desk space.</h2>
+        <p class="lede">A working archive of what we publish — sector outlooks, teardowns and operator playbooks. Members read the lot. Commission a private one any time.</p>
+      </div>
+      <div class="right">12 RECENT<br/>4 FORMATS</div>
+    </div>
+
+    <div class="starter-grid">
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">OUTLOOK</span>
+          <div class="pv-art">
+            <div class="row"><div class="box a" style="width:24px;height:8px"></div><div class="box" style="width:60px;height:4px"></div></div>
+            <div class="row" style="margin-top:18px"><div style="font-family:'Space Grotesk',sans-serif;font-size:20px;color:var(--text);letter-spacing:-0.02em;font-weight:600;line-height:1.1">Fintech Q2'26<br/>Sector Outlook</div></div>
+            <div class="row" style="margin-top:18px;gap:4px;align-items:flex-end">
+              <div class="box" style="width:14px;height:20px;background:var(--text-ghost)"></div>
+              <div class="box a" style="width:14px;height:34px"></div>
+              <div class="box" style="width:14px;height:28px;background:var(--text-ghost)"></div>
+              <div class="box a" style="width:14px;height:46px"></div>
+              <div class="box" style="width:14px;height:32px;background:var(--text-ghost)"></div>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">Fintech Q2'26</div>
+            <div class="stack">42 PP · PDF</div>
+          </div>
+          <div class="price">MEMBERS</div>
+        </div>
+      </a>
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">TEARDOWN</span>
+          <div class="pv-art">
+            <div class="row"><div class="box" style="width:80px;height:4px"></div></div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;color:var(--text);margin-top:8px;font-weight:600;letter-spacing:-0.02em">Stripe pricing,<br/>line by line.</div>
+            <div class="row" style="margin-top:14px;gap:4px;align-items:center">
+              <div class="box a" style="width:6px;height:6px"></div><div class="box" style="height:3px;width:60%"></div>
+            </div>
+            <div class="row" style="margin-top:6px;gap:4px;align-items:center">
+              <div class="box a" style="width:6px;height:6px"></div><div class="box" style="height:3px;width:70%"></div>
+            </div>
+            <div class="row" style="margin-top:6px;gap:4px;align-items:center">
+              <div class="box a" style="width:6px;height:6px"></div><div class="box" style="height:3px;width:55%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">Pricing teardown</div>
+            <div class="stack">18 PP · MD</div>
+          </div>
+          <div class="price">FREE</div>
+        </div>
+      </a>
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">PLAYBOOK</span>
+          <div class="pv-art">
+            <div class="row" style="align-items:flex-start;gap:12px">
+              <div class="col" style="gap:4px">
+                <div class="box" style="width:36px;height:3px"></div>
+                <div class="box a" style="width:36px;height:3px"></div>
+                <div class="box" style="width:36px;height:3px"></div>
+                <div class="box" style="width:36px;height:3px"></div>
+                <div class="box" style="width:36px;height:3px"></div>
+              </div>
+              <div class="col" style="gap:6px;flex:1">
+                <div style="font-family:var(--mono);font-size:12px;color:var(--text)">Pre-IPO checklist</div>
+                <div class="box" style="height:3px;width:100%"></div>
+                <div class="box" style="height:3px;width:90%"></div>
+                <div class="box" style="height:3px;width:70%"></div>
+                <div class="box a" style="height:3px;width:55%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">Pre-IPO playbook</div>
+            <div class="stack">62 PP · PDF</div>
+          </div>
+          <div class="price">MEMBERS</div>
+        </div>
+      </a>
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">ESSAY</span>
+          <div class="pv-art">
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;color:var(--text);font-weight:600;letter-spacing:-0.02em">The death of the<br/>weekly memo.</div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text-faint);margin-top:6px">04 MAY · 12 MIN</div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:3px">
+              <div class="box" style="height:3px;width:100%"></div>
+              <div class="box" style="height:3px;width:95%"></div>
+              <div class="box" style="height:3px;width:80%"></div>
+              <div class="box" style="height:3px;width:90%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">Slow analysis</div>
+            <div class="stack">ESSAY · 12 MIN</div>
+          </div>
+          <div class="price">FREE</div>
+        </div>
+      </a>
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">MEMO</span>
+          <div class="pv-art">
+            <div class="row"><div class="box a" style="width:24px;height:6px"></div></div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;color:var(--text);margin-top:10px;font-weight:600;letter-spacing:-0.02em">EU AI Act:<br/>what to ship now.</div>
+            <div class="row" style="margin-top:14px;gap:6px">
+              <div class="box a" style="width:38px;height:18px"></div>
+              <div class="box" style="width:38px;height:18px;background:var(--border-bright)"></div>
+              <div class="box" style="width:38px;height:18px;background:var(--text-ghost)"></div>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">EU AI Act memo</div>
+            <div class="stack">14 PP · PDF</div>
+          </div>
+          <div class="price">MEMBERS</div>
+        </div>
+      </a>
+
+      <a href="#" class="starter-card">
+        <div class="pv">
+          <span class="corner">DASHBOARD</span>
+          <div class="pv-art">
+            <div class="row" style="justify-content:space-between">
+              <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);letter-spacing:0.1em">FINTECH · LIVE</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--accent)">●</div>
+            </div>
+            <div style="font-family:var(--mono);font-size:22px;color:var(--text);margin-top:8px;letter-spacing:-0.04em">+12.4%</div>
+            <div style="margin-top:10px;height:36px;position:relative">
+              <svg viewBox="0 0 200 40" preserveAspectRatio="none" style="width:100%;height:100%">
+                <polyline points="0,30 30,28 60,24 90,26 120,18 150,20 180,12 200,8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>
+            <div class="name">Sector index</div>
+            <div class="stack">LIVE · 30HZ</div>
+          </div>
+          <div class="price">CLIENTS</div>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="section" id="engagements" data-screen-label="06 Engagements">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="left">
+        <span class="eyebrow">// THREE WAYS TO HIRE THE DESK</span>
+        <h2>Engagement tiers that read like a menu, not a phone call.</h2>
+        <p class="lede">Brief us once, retain us monthly, or embed us in your team. Scope, deliverables and price quoted up front — no arc, no SOW theatre.</p>
+      </div>
+      <div class="right">3 TIERS<br/>TRANSPARENT</div>
+    </div>
+
+    <div class="pricing">
+      <!-- tier headers -->
+      <div class="pricing-tiers">
+        <div class="spacer" style="padding:28px 24px;">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-faint);letter-spacing:0.15em">$ glondia engagements --list</div>
+          <div style="margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--text-dim);line-height:1.55;max-width:260px">Every engagement is partner-led, fully cited, and shipped with a live debrief. No ghostwritten footnotes, no junior pyramid.</div>
+        </div>
+        <div class="pricing-tier">
+          <div class="name">BRIEF</div>
+          <div class="price">$4.8k<span class="per"> /one-off</span></div>
+          <a href="#" class="pcta">Commission →</a>
+        </div>
+        <div class="pricing-tier pop">
+          <div class="name">RETAINER</div>
+          <div class="price">$12k<span class="per"> /mo</span></div>
+          <a href="#" class="pcta">Book intro →</a>
+        </div>
+        <div class="pricing-tier">
+          <div class="name">EMBEDDED</div>
+          <div class="price">Custom<span class="per"> /quarter</span></div>
+          <a href="#" class="pcta">Talk to a partner →</a>
+        </div>
+      </div>
+
+      <!-- header row -->
+      <div class="pricing-head">
+        <div>FEATURE</div>
+        <div>SOLO</div>
+        <div>TEAM</div>
+        <div>EDGE</div>
+      </div>
+
+      <div class="pricing-tier-row">
+        <div class="feat">Deliverables<span class="hint">What lands on your desk</span></div>
+        <div class="val"><span class="num">1 brief · 40pp</span></div>
+        <div class="val"><span class="num">2 briefs · ongoing</span></div>
+        <div class="val"><span class="num">Whatever the quarter needs</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Turnaround<span class="hint">From brief to ship</span></div>
+        <div class="val"><span class="num">3–5 days</span></div>
+        <div class="val"><span class="num">Rolling · 48h asks</span></div>
+        <div class="val"><span class="num">Same-day on critical</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Primary research<span class="hint">Operator + LP interviews</span></div>
+        <div class="val"><span class="num">12+ interviews</span></div>
+        <div class="val"><span class="num">Unlimited</span></div>
+        <div class="val"><span class="num">Unlimited + network access</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Senior partner time</div>
+        <div class="val"><span class="num">60 min debrief</span></div>
+        <div class="val"><span class="num">Weekly call</span></div>
+        <div class="val"><span class="num">Embedded in your team</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Models &amp; data rooms</div>
+        <div class="val"><span class="num">1 model · shared</span></div>
+        <div class="val"><span class="num">Maintained · monthly</span></div>
+        <div class="val"><span class="num">Live · co-owned</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Board / LP support</div>
+        <div class="val no">—</div>
+        <div class="val yes">✓</div>
+        <div class="val yes">✓</div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Slack / WhatsApp channel<span class="hint">Ask anything, any time</span></div>
+        <div class="val no">—</div>
+        <div class="val yes">✓</div>
+        <div class="val yes">✓</div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Quarterly review</div>
+        <div class="val no">—</div>
+        <div class="val no">—</div>
+        <div class="val"><span class="num">On-site · partner-led</span></div>
+      </div>
+      <div class="pricing-tier-row">
+        <div class="feat">Response SLA</div>
+        <div class="val">Email · 24h</div>
+        <div class="val">Slack · 4h</div>
+        <div class="val accent">Anywhere · 1h</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ EDGE MAP ============ -->
+<section class="section" id="coverage" data-screen-label="07 Coverage">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="left">
+        <span class="eyebrow">// 38 SECTORS · 6 CONTINENTS</span>
+        <h2>Coverage that follows the money, not the timezone.</h2>
+        <p class="lede">Analysts on the ground in twelve cities, tracking 38 sectors across six continents. Local sourcing, global synthesis, every brief.</p>
+      </div>
+      <div class="right">DESK NETWORK<br/>LIVE</div>
+    </div>
+
+    <div class="edge">
+      <div class="edge-map">
+        <div class="crosshair"></div>
+        <!-- approx world coords as % of map -->
+        <div class="dot delay-1" style="left:20%; top:38%"></div>
+        <span class="label" style="left:20%; top:38%">SFO</span>
+
+        <div class="dot delay-2" style="left:28%; top:42%"></div>
+        <span class="label" style="left:28%; top:42%">IAD</span>
+
+        <div class="dot delay-3" style="left:32%; top:60%"></div>
+        <span class="label" style="left:32%; top:60%">SAO</span>
+
+        <div class="dot delay-4" style="left:48%; top:32%"></div>
+        <span class="label" style="left:48%; top:32%">AMS</span>
+
+        <div class="dot delay-1" style="left:51%; top:35%"></div>
+        <span class="label" style="left:51%; top:35%">LDN <span class="v">· HQ</span></span>
+
+        <div class="dot delay-2" style="left:56%; top:48%"></div>
+        <span class="label" style="left:56%; top:48%">JNB</span>
+
+        <div class="dot delay-3" style="left:64%; top:42%"></div>
+        <span class="label" style="left:64%; top:42%">DXB</span>
+
+        <div class="dot delay-1" style="left:72%; top:48%"></div>
+        <span class="label" style="left:72%; top:48%">SGP</span>
+
+        <div class="dot delay-4" style="left:80%; top:38%"></div>
+        <span class="label" style="left:80%; top:38%">TYO</span>
+
+        <div class="dot delay-2" style="left:82%; top:45%"></div>
+        <span class="label" style="left:82%; top:45%">SIN</span>
+
+        <div class="dot delay-3" style="left:85%; top:70%"></div>
+        <span class="label" style="left:85%; top:70%">SYD</span>
+
+        <div class="dot delay-1" style="left:53%; top:25%"></div>
+        <span class="label" style="left:53%; top:25%">BER</span>
+
+        <!-- corner readouts -->
+        <div style="position:absolute;top:14px;left:14px;font-family:var(--mono);font-size:10px;color:var(--text-faint);letter-spacing:0.15em">
+          GLONDIA_DESK · v4.2<br/>
+          <span class="accent">●</span> 12 / 12 CITIES ONLINE
+        </div>
+        <div style="position:absolute;bottom:14px;right:14px;font-family:var(--mono);font-size:10px;color:var(--text-faint);letter-spacing:0.15em;text-align:right">
+          MAP · MERCATOR / NULL<br/>
+          REFRESH · 2 HZ
+        </div>
+      </div>
+
+      <div class="edge-list">
+        <div class="row"><span><span class="reg">North America</span><span class="code">NYC · SFO · TOR</span></span><span class="lat">9 analysts</span></div>
+        <div class="row"><span><span class="reg">South America</span><span class="code">SAO</span></span><span class="lat">2 analysts</span></div>
+        <div class="row"><span><span class="reg">Europe</span><span class="code">LDN · BER · ZRH · AMS</span></span><span class="lat">14 analysts</span></div>
+        <div class="row"><span><span class="reg">Africa</span><span class="code">JNB</span></span><span class="lat">2 analysts</span></div>
+        <div class="row"><span><span class="reg">Middle East</span><span class="code">DXB</span></span><span class="lat">3 analysts</span></div>
+        <div class="row"><span><span class="reg">Asia Pacific</span><span class="code">SGP · TYO</span></span><span class="lat">6 analysts</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="cta-banner" data-screen-label="08 CTA">
+  <div class="wrap" style="position:relative;z-index:1">
+    <span class="eyebrow">// ONE BRIEFING · ZERO DECKS</span>
+    <h2>Get a sharper view by Friday.</h2>
+    <div class="install">
+      <span class="ps">→</span>
+      <span class="cmd">hello@glondia.co</span>
+      <button class="copy" onclick="navigator.clipboard?.writeText('hello@glondia.co'); this.textContent='COPIED'; setTimeout(()=>this.textContent='COPY',1200)">COPY</button>
+    </div>
+    <div class="sub mono small">30-min intro · no pitch deck · we listen first &nbsp;·&nbsp; <span class="kbd">⏎</span> book a slot</div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a href="#" class="logo">
+          <span class="logo-glyph"><img src="assets/glondia-logo.png" alt="Glondia" /></span>
+          <span class="logo-name">
+            <span class="a">GLONDIA</span>
+            <span class="b">ANALYSTS &amp; CONSULTANCY</span>
+          </span>
+        </a>
+        <div class="tag">A boutique analyst desk for operators, founders and investors who'd rather make the call than read the deck.</div>
+        <pre class="foot-ascii">  ╔═════════════════════╗
+  ║  > THE DESK IS OPEN ║
+  ╚═════════════════════╝</pre>
+      </div>
+      <div>
+        <h4>Practice</h4>
+        <ul>
+          <li><a href="#">Research</a></li>
+          <li><a href="#">Advisory</a></li>
+          <li><a href="#">Data &amp; dashboards</a></li>
+          <li><a href="#">Embedded analysts<span class="new">NEW</span></a></li>
+          <li><a href="#">Members archive</a></li>
+          <li><a href="#">Engagements</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Read</h4>
+        <ul>
+          <li><a href="#">Weekly memo</a></li>
+          <li><a href="#">Sector outlooks</a></li>
+          <li><a href="#">Teardowns</a></li>
+          <li><a href="#">Essays</a></li>
+          <li><a href="#">Methodology</a></li>
+          <li><a href="#">RSS</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Firm</h4>
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Partners</a></li>
+          <li><a href="#">Clients</a></li>
+          <li><a href="#">Brand kit</a></li>
+          <li><a href="#">Careers<span class="new">3</span></a></li>
+          <li><a href="#">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="#">Terms</a></li>
+          <li><a href="#">Privacy</a></li>
+          <li><a href="#">Conflicts policy</a></li>
+          <li><a href="#">Compliance</a></li>
+          <li><a href="#">Engagement letter</a></li>
+          <li><a href="#">Disclaimers</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot-base">
+      <div>© 2026 GLONDIA ANALYSTS &amp; CONSULTANCY LTD · LONDON · REG 11892034</div>
+      <div class="legal">
+        <span><span class="accent">●</span> DESK OPEN</span>
+        <span>EST. 2017</span>
+        <span>LDN <span id="clock2">--:--:--</span></span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- Tweak panel -->
+<div id="tweaks-root"></div>
+
+<script>
+  // live London time clock
+  function tick() {
+    try {
+      const t = new Date().toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Europe/London' });
+      const a = document.getElementById('clock');
+      const b = document.getElementById('clock2');
+      if (a) a.textContent = t;
+      if (b) b.textContent = t;
+    } catch (e) {}
+  }
+  tick(); setInterval(tick, 1000);
+</script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+
+</body>
+</html>
