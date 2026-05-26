@@ -103,7 +103,7 @@ function applyFontPair(pair) {
 }
 
 export default function App() {
-  const [route, setRoute] = useStateApp({ view: "marketing" });
+  const [route, setRoute] = useStateApp({ view: "login" });
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [githubBanner, setGithubBanner] = useStateApp(null);
   const [authed, setAuthed] = useStateApp(isAuthenticated());
