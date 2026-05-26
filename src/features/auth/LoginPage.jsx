@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { login, SOCIAL_PROVIDERS } from '../../api/auth.js'
 
 const S = {
   page: {
@@ -13,6 +13,7 @@ const S = {
     backgroundImage: 'radial-gradient(rgba(91,255,143,0.04) 1px, transparent 1px)',
     backgroundSize: '32px 32px',
     padding: '24px',
+    position: 'relative',
   },
   back: {
     position: 'absolute',
@@ -21,11 +22,13 @@ const S = {
     fontFamily: 'inherit',
     fontSize: '12px',
     color: '#4A5550',
-    textDecoration: 'none',
+    background: 'none',
+    border: 'none',
     letterSpacing: '0.06em',
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+    cursor: 'pointer',
     transition: 'color 0.15s',
   },
   box: {
@@ -46,7 +49,7 @@ const S = {
     color: '#4A5550',
   },
   dots: { display: 'flex', gap: '6px' },
-  dot: { width: '10px', height: '10px', borderRadius: '50%', background: '#1E2A20' },
+  dot: (c) => ({ width: '10px', height: '10px', borderRadius: '50%', background: c }),
   title: { flex: 1, textAlign: 'center', color: '#4A5550' },
   body: { padding: '32px 28px 28px' },
   eyebrow: {
@@ -80,80 +83,130 @@ const S = {
     textTransform: 'uppercase',
     marginBottom: '6px',
   },
-  input: {
+  input: (focused) => ({
     width: '100%',
     background: '#0A0D0A',
-    border: '1px solid #1E2A20',
+    border: `1px solid ${focused ? '#5BFF8F' : '#1E2A20'}`,
     color: '#E8E8DC',
-    fontFamily: 'inherit',
+    fontFamily: "'JetBrains Mono', 'SF Mono', ui-monospace, monospace",
     fontSize: '13px',
     padding: '10px 14px',
     outline: 'none',
     boxSizing: 'border-box',
     transition: 'border-color 0.15s',
-  },
+  }),
   fieldWrap: { marginBottom: '16px' },
-  btn: {
+  btn: (disabled) => ({
     width: '100%',
-    background: '#5BFF8F',
+    background: disabled ? '#2D5A3A' : '#5BFF8F',
     color: '#001A09',
     border: 'none',
-    fontFamily: 'inherit',
+    fontFamily: "'JetBrains Mono', 'SF Mono', ui-monospace, monospace",
     fontSize: '13px',
     fontWeight: 700,
     letterSpacing: '0.06em',
     padding: '13px 20px',
-    cursor: 'pointer',
+    cursor: disabled ? 'not-allowed' : 'pointer',
     marginTop: '8px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
     transition: 'background 0.15s',
+    opacity: disabled ? 0.6 : 1,
+  }),
+  socialBtn: {
+    width: '100%',
+    background: 'transparent',
+    border: '1px solid #1E2A20',
+    color: '#8A9388',
+    fontFamily: "'JetBrains Mono', 'SF Mono', ui-monospace, monospace",
+    fontSize: '12px',
+    padding: '10px 16px',
+    cursor: 'not-allowed',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    marginBottom: '8px',
+    opacity: 0.5,
+    position: 'relative',
   },
+  comingSoon: {
+    position: 'absolute',
+    right: '12px',
+    fontSize: '9px',
+    color: '#4A5550',
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+  },
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    margin: '20px 0',
+    color: '#2D4030',
+    fontSize: '10px',
+    letterSpacing: '0.1em',
+  },
+  dividerLine: { flex: 1, height: '1px', background: '#1E2A20' },
   footer: {
     fontSize: '12px',
     color: '#4A5550',
     marginTop: '20px',
     textAlign: 'center',
     lineHeight: 1.6,
-  },
-  link: { color: '#5BFF8F', textDecoration: 'none' },
-  divider: {
     borderTop: '1px solid #1E2A20',
-    margin: '20px 0 0',
     paddingTop: '16px',
+  },
+  link: { color: '#5BFF8F', textDecoration: 'none', background: 'none', border: 'none', fontFamily: 'inherit', fontSize: 'inherit', cursor: 'pointer', padding: 0 },
+  errorBox: {
+    background: 'rgba(255,60,60,0.08)',
+    border: '1px solid rgba(255,60,60,0.25)',
+    color: '#FF6B6B',
+    fontSize: '12px',
+    padding: '10px 14px',
+    marginBottom: '16px',
+    letterSpacing: '0.04em',
   },
 }
 
-export default function LoginPage() {
+export default function LoginPage({ navigate }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [inputFocus, setInputFocus] = useState('')
-  const navigate = useNavigate()
+  const [focus, setFocus] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const focusStyle = (name) => ({
-    ...S.input,
-    borderColor: inputFocus === name ? '#5BFF8F' : '#1E2A20',
-  })
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    navigate('/dashboard')
+    setError('')
+    setLoading(true)
+    try {
+      await login(email, password)
+      navigate({ view: 'overview' })
+    } catch (err) {
+      setError(err.message || 'Sign in failed. Please check your credentials.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div style={S.page}>
-      <a href="/" style={S.back} onMouseEnter={e => e.target.style.color='#5BFF8F'} onMouseLeave={e => e.target.style.color='#4A5550'}>
+      <button style={S.back}
+        onClick={() => navigate({ view: 'marketing' })}
+        onMouseEnter={e => e.currentTarget.style.color = '#5BFF8F'}
+        onMouseLeave={e => e.currentTarget.style.color = '#4A5550'}>
         ← glondia.co
-      </a>
+      </button>
 
       <div style={S.box}>
         <div style={S.head}>
           <div style={S.dots}>
-            <span style={{ ...S.dot, background: '#5A2222' }} />
-            <span style={{ ...S.dot, background: '#5A4622' }} />
-            <span style={{ ...S.dot, background: '#224A2A' }} />
+            <span style={S.dot('#5A2222')} />
+            <span style={S.dot('#5A4622')} />
+            <span style={S.dot('#224A2A')} />
           </div>
           <div style={S.title}>client-portal · secure</div>
           <span style={{ color: '#5BFF8F', fontSize: '10px' }}>● live</span>
@@ -167,43 +220,58 @@ export default function LoginPage() {
           <h1 style={S.h1}>Client Portal</h1>
           <p style={S.sub}>Access your research desk, briefings, and sector dashboards.</p>
 
+          {/* Social sign-in placeholders */}
+          {SOCIAL_PROVIDERS.map(p => (
+            <button key={p.id} style={S.socialBtn} disabled title="Coming soon">
+              {p.label}
+              <span style={S.comingSoon}>coming soon</span>
+            </button>
+          ))}
+
+          <div style={S.divider}>
+            <span style={S.dividerLine} />
+            <span>or sign in with email</span>
+            <span style={S.dividerLine} />
+          </div>
+
+          {error && <div style={S.errorBox}>{error}</div>}
+
           <form onSubmit={handleSubmit}>
             <div style={S.fieldWrap}>
               <label style={S.label}>Email</label>
               <input
-                style={focusStyle('email')}
+                style={S.input(focus === 'email')}
                 type="email"
                 placeholder="you@firm.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                onFocus={() => setInputFocus('email')}
-                onBlur={() => setInputFocus('')}
+                onFocus={() => setFocus('email')}
+                onBlur={() => setFocus('')}
                 required
+                autoComplete="email"
               />
             </div>
             <div style={S.fieldWrap}>
               <label style={S.label}>Password</label>
               <input
-                style={focusStyle('password')}
+                style={S.input(focus === 'password')}
                 type="password"
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                onFocus={() => setInputFocus('password')}
-                onBlur={() => setInputFocus('')}
+                onFocus={() => setFocus('password')}
+                onBlur={() => setFocus('')}
                 required
+                autoComplete="current-password"
               />
             </div>
-            <button type="submit" style={S.btn}>
-              Enter dashboard <span>→</span>
+            <button type="submit" style={S.btn(loading)} disabled={loading}>
+              {loading ? 'Authenticating…' : 'Enter dashboard →'}
             </button>
           </form>
 
-          <div style={{ ...S.footer, ...S.divider }}>
-            <div>New client? <a href="mailto:hello@glondia.co" style={S.link}>Contact us to get access</a>.</div>
-            <div style={{ marginTop: 6 }}>
-              <Link to="/dashboard" style={{ ...S.link, fontSize: 11, color: '#2D8050' }}>Continue as guest →</Link>
-            </div>
+          <div style={S.footer}>
+            <div>No account? <button style={S.link} onClick={() => navigate({ view: 'signup' })}>Create one</button></div>
           </div>
         </div>
       </div>

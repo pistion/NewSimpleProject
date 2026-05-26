@@ -11,6 +11,7 @@ import { createBuilderActions } from './api/builder.js';
 import { createDomainActions, ttlToSeconds } from './api/domains.js';
 export { ttlToSeconds } from './api/domains.js';
 import { isLiveMode } from './app/config.js';
+import { authHeaders } from './api/auth.js';
 import {
   buildGithubSandbox,
   disconnectGitHub as disconnectGitHubBase,
@@ -129,12 +130,31 @@ async function hostingRequest(path, options = {}) {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...authHeaders(),
     },
     body: options.body,
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(result?.error?.message || result?.message || `Hosting request failed with ${response.status}.`);
+  }
+  return result?.data ?? result;
+}
+
+export async function liveApiRequest(path, options = {}) {
+  const response = await fetch(liveApiUrl(path), {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...authHeaders(),
+      ...(options.headers || {}),
+    },
+    body: options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : undefined,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result?.error?.message || result?.message || `API request failed with ${response.status}.`);
   }
   return result?.data ?? result;
 }

@@ -64,10 +64,11 @@ export const DASH_NAV = [
   {
     title: "Workspace",
     items: [
-      { key: "overview",   label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
-      { key: "hosting",    label: "Hosting",        icon: "Server",          route: { view: "hosting-list" } },
-      { key: "domains",    label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
-      { key: "builder",    label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
+      { key: "overview",     label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
+      { key: "hosting",      label: "Render hosting", icon: "Server",          route: { view: "hosting-list" } },
+      { key: "vps-hosting",  label: "VPS (Vultr)",    icon: "Cpu",             route: { view: "vps-hosting" } },
+      { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
+      { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
   {
@@ -154,12 +155,12 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
         {theme === "dark" ? <ICN.Sun size={16} /> : <ICN.Moon size={16} />}
       </button>
       <button className="btn btn-icon btn-ghost" title="Notifications"><ICN.Bell size={16} /></button>
-      <AuthMenu />
+      <AuthMenu navigate={navigate} />
     </div>
   );
 }
 
-function AuthMenu() {
+function AuthMenu({ navigate }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState("login");
   const [auth, setAuth] = React.useState(() => getStoredAuth());
@@ -208,7 +209,9 @@ function AuthMenu() {
 
   return (
     <div style={{ position: "relative" }}>
-      <button className="btn btn-ghost" onClick={() => setOpen(!open)} style={{ height: 36, padding: "0 8px" }}>
+      <button className="btn btn-ghost"
+        onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })}
+        style={{ height: 36, padding: "0 8px" }}>
         <Avatar name={displayName} size={28} />
         <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {signedIn ? displayName : "Sign in"}
@@ -231,7 +234,12 @@ function AuthMenu() {
                 <div style={{ fontWeight: 600 }}>{displayName}</div>
                 <div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div>
               </div>
-              <button className="btn btn-outline" onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); }}>
+              <button className="btn btn-outline" onClick={() => {
+                clearAuthSession();
+                setAuth(getStoredAuth());
+                setOpen(false);
+                if (navigate) navigate({ view: 'marketing' });
+              }}>
                 Sign out
               </button>
             </div>
@@ -294,8 +302,8 @@ export function PubNavbar({ navigate }) {
       <a className="navlink" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: "marketing", anchor: "pricing" }); }}>Pricing</a>
       <a className="navlink" href="#">Docs</a>
       <div style={{ width: 10 }} />
-      <button className="btn btn-ghost" onClick={() => navigate({ view: "overview" })}>Sign in</button>
-      <button className="btn btn-primary" onClick={() => navigate({ view: "overview" })}>
+      <button className="btn btn-ghost" onClick={() => navigate({ view: "login" })}>Sign in</button>
+      <button className="btn btn-primary" onClick={() => navigate({ view: "signup" })}>
         Start free <ICN.ArrowRight size={14} />
       </button>
     </nav>

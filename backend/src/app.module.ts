@@ -24,6 +24,7 @@ import { SslModule } from './modules/ssl/ssl.module';
 import { RegistrarModule } from './modules/registrar/registrar.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { VpsHostingModule } from './modules/vps-hosting/vps-hosting.module';
 
 @Module({
   imports: [
@@ -72,7 +73,8 @@ import { WorkspaceModule } from './modules/workspace/workspace.module';
     OrganizationsModule,
     RegistrarModule,
     SslModule,
-    WebhooksModule
+    WebhooksModule,
+    VpsHostingModule,
   ]
 })
 export class AppModule implements NestModule {

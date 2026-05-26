@@ -92,4 +92,9 @@ export const ICN = {
   Lightbulb: I(<><path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.7-1.5 5-3.7 6.3l-.3.2v1.5H9v-1.5l-.3-.2C6.5 14 5 11.7 5 9a7 7 0 0 1 7-7z" /></>),
   Target: I(<><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>),
   Users: I(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>),
+  Cpu: I(<><rect x="2" y="8" width="20" height="8" rx="2" /><path d="M6 8V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2M6 16v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2M2 13h2M20 13h2M8 13h.01M12 13h.01M16 13h.01" /></>),
+  RefreshCw: I(<><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 7v5h5M16 17h5v-5" /></>),
+  Play: I(<><polygon points="5 3 19 12 5 21 5 3" /></>),
+  Square: I(<><rect x="3" y="3" width="18" height="18" rx="2" /></>),
+  Trash2: I(<><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></>),
 };

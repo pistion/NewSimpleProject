@@ -60,6 +60,10 @@ const envSchema = z.object({
   RENDER_OWNER_ID: z.string().default(''),
   RENDER_API_BASE_URL: z.string().url().default('https://api.render.com/v1'),
 
+  // Vultr VPS hosting
+  VULTR_API_KEY: z.string().default(''),
+  VULTR_API_BASE_URL: z.string().url().default('https://api.vultr.com/v2'),
+
   // Email
   EMAIL_PROVIDER: z.enum(['log', 'resend', 'smtp']).default('log'),
   RESEND_API_KEY: z.string().default(''),

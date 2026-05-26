@@ -94,8 +94,8 @@ function ConsultNavbar({ navigate }) {
       </a>
       <div style={{ width: 8 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <DarkBtn onClick={() => navigate({ view: 'overview' })} ghost>Sign in</DarkBtn>
-        <DarkBtn onClick={() => navigate({ view: 'overview' })} primary>
+        <DarkBtn onClick={() => navigate({ view: 'login' })} ghost>Sign in</DarkBtn>
+        <DarkBtn onClick={() => navigate({ view: 'signup' })} primary>
           Get started <ICN.ArrowRight size={13} />
         </DarkBtn>
       </div>
@@ -196,11 +196,11 @@ function HeroSection({ navigate }) {
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 64 }}>
-          <DarkBtn primary lg onClick={() => navigate({ view: 'overview' })}>
+          <DarkBtn primary lg onClick={() => navigate({ view: 'signup' })}>
             Start a conversation <ICN.ArrowRight size={16} />
           </DarkBtn>
-          <DarkBtn ghost lg onClick={() => navigate({ view: 'builder' })}>
-            Explore our platform
+          <DarkBtn ghost lg onClick={() => navigate({ view: 'login' })}>
+            Sign in to platform
           </DarkBtn>
         </div>
 
@@ -692,7 +692,7 @@ function PlanCard({ name, price, period, tagline, features, cta, tone, featured,
         }}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
-        onClick={() => navigate({ view: 'overview' })}>
+        onClick={() => navigate({ view: 'signup' })}>
         {cta}
       </button>
     </div>
@@ -726,11 +726,11 @@ function CtaSection({ navigate }) {
           Or speak to our team about a consulting engagement.
         </p>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <DarkBtn primary lg onClick={() => navigate({ view: 'overview' })}>
+          <DarkBtn primary lg onClick={() => navigate({ view: 'signup' })}>
             Open the workspace <ICN.ArrowRight size={16} />
           </DarkBtn>
-          <DarkBtn ghost lg onClick={() => navigate({ view: 'overview' })}>
-            Talk to us
+          <DarkBtn ghost lg onClick={() => navigate({ view: 'login' })}>
+            Sign in
           </DarkBtn>
         </div>
       </div>

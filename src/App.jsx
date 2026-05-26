@@ -24,7 +24,11 @@ import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
 import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor } from './builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
+import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
+import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
+import LoginPage from './features/auth/LoginPage.jsx';
+import SignupPage from './features/auth/SignupPage.jsx';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
@@ -102,6 +106,13 @@ export default function App() {
   const [route, setRoute] = useStateApp({ view: "marketing" });
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [githubBanner, setGithubBanner] = useStateApp(null);
+  const [authed, setAuthed] = useStateApp(isAuthenticated());
+
+  useEffectApp(() => {
+    const sync = () => setAuthed(isAuthenticated());
+    window.addEventListener(AUTH_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, sync);
+  }, []);
 
   // Apply theme/accent/density to root
   useEffectApp(() => { document.documentElement.dataset.theme = t.theme; }, [t.theme]);
@@ -133,10 +144,23 @@ export default function App() {
   const navigate = (r) => setRoute(r);
   const toggleTheme = () => setTweak("theme", t.theme === "dark" ? "light" : "dark");
 
+  const DASHBOARD_VIEWS = new Set([
+    "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
+    "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor",
+    "analytics","activity","billing","settings","vps-hosting","vps-create","vps-detail",
+  ]);
+
   // Render
   const renderView = () => {
+    // Auth guard — redirect unauthenticated users trying to reach dashboard views
+    if (DASHBOARD_VIEWS.has(route.view) && !authed) {
+      return <LoginPage navigate={navigate} />;
+    }
+
     switch (route.view) {
       case "marketing":         return <Marketing navigate={navigate} />;
+      case "login":             return <LoginPage navigate={navigate} />;
+      case "signup":            return <SignupPage navigate={navigate} />;
       case "overview":          return <Overview navigate={navigate} />;
       case "hosting-list":      return <HostingList navigate={navigate} />;
       case "hosting-detail":    return <HostingDetail id={route.params?.id} navigate={navigate} />;
@@ -152,6 +176,9 @@ export default function App() {
       case "activity":          return <ActivityPage />;
       case "billing":           return <BillingPageIntegrated />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
+      case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
+      case "vps-create":        return <VpsCreateWizard navigate={navigate} />;
+      case "vps-detail":        return <VpsDetail id={route.params?.id} navigate={navigate} />;
       default:                  return <Marketing navigate={navigate} />;
     }
   };
@@ -159,6 +186,7 @@ export default function App() {
   // Sidebar key
   const activeKey = (() => {
     if (route.view.startsWith("hosting")) return "hosting";
+    if (route.view.startsWith("vps")) return "vps-hosting";
     if (route.view === "domains-mine") return "domains";
     if (route.view === "domains-buy") return "buy";
     if (route.view === "dns") return "dns";
@@ -180,13 +208,18 @@ export default function App() {
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
+      case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "VPS (Vultr)" }];
+      case "vps-create":     return [{ label: "VPS (Vultr)", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
+      case "vps-detail":     return [{ label: "VPS (Vultr)", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];
       default:                return [{ label: "Workspace" }];
     }
   })();
 
+  const isFullPageView = route.view === "marketing" || route.view === "login" || route.view === "signup";
+
   return (
     <>
-      {route.view === "marketing"
+      {isFullPageView
         ? renderView()
         : (
           <div className="dash">
