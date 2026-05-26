@@ -1330,9 +1330,10 @@ const FALLBACK_TLD_PRICE_CENTS = new Map([
   ['.co', 2499], ['.io', 3999], ['.app', 1699], ['.dev', 1499],
   ['.org', 1249], ['.net', 1199], ['.store', 499], ['.shop', 199],
 ]);
+// Pre-sorted longest-first so multi-part TLDs (.com.pg) match before shorter ones (.com)
+const FALLBACK_TLD_SUFFIXES = [...FALLBACK_TLD_PRICE_CENTS.keys()].sort((a, b) => b.length - a.length);
 
 async function createDomainPaymentOrder(input = {}, user = {}) {
-  assertPayPalConfigured();
   const domains = Array.isArray(input.domains) ? input.domains : [];
   if (!domains.length) throw httpError('At least one domain is required.', 400);
   const normalized = domains.map((item) => ({
@@ -1364,30 +1365,51 @@ async function captureDomainPaymentOrder(input = {}, user = {}) {
   const order = await getCheckoutOrder(input.checkoutOrderId);
   if (order.type !== 'domain_purchase') throw httpError('Checkout order is not for a domain purchase.', 400);
   if (order.status === 'paid') return order.result;
-  await capturePayPalOrder(input.providerOrderId || input.orderId || order.providerOrderId);
+
+  const domains = order.metadata.domains || [];
+  const providerOrderId = input.providerOrderId || input.orderId || order.providerOrderId;
+
+  // Batch availability check BEFORE capturing payment to prevent money being taken for unavailable domains
+  if (domains.length) {
+    const availability = await checkSpaceshipAvailability(domains.map((d) => d.name));
+    const unavailable = domains.filter((item) => {
+      const row = availability.domains.find((r) => r.domain === item.name);
+      return row && !row.available;
+    });
+    if (unavailable.length) throw httpError(`${unavailable.map((d) => d.name).join(', ')} is no longer available.`, 409);
+  }
+
+  const capturePayload = await capturePayPalOrder(providerOrderId);
+  const captureId = capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+
   const contact = order.metadata.contact || {};
   const createdContact = await saveSpaceshipContact(contact);
   const contactId = createdContact.contactId || createdContact.id;
-  const operations = [];
-  for (const item of order.metadata.domains || []) {
-    const availability = await checkSpaceshipAvailability([item.name]);
-    const row = availability.domains[0];
-    if (row && !row.available) throw httpError(`${item.name} is no longer available.`, 409);
-    const registered = await registerSpaceshipDomain(item.name, {
-      years: item.years || 1,
-      autoRenew: order.metadata.autoRenew !== false,
-      privacyProtection: order.metadata.privacyProtection !== false,
-      contactId,
-    });
-    operations.push({ domain: item.name, operationId: registered.operationId, status: registered.status });
+
+  let operations;
+  try {
+    operations = await Promise.all(
+      domains.map(async (item) => {
+        const registered = await registerSpaceshipDomain(item.name, {
+          years: item.years || 1,
+          autoRenew: order.metadata.autoRenew !== false,
+          privacyProtection: order.metadata.privacyProtection !== false,
+          contactId,
+        });
+        return { domain: item.name, operationId: registered.operationId, status: registered.status };
+      })
+    );
+  } catch (registrationError) {
+    if (captureId) await refundPayPalCapture(captureId).catch(() => {});
+    throw httpError(`Domain registration failed after payment: ${registrationError.message}. A refund has been requested.`, 500);
   }
+
   const result = { status: 'paid', checkoutOrderId: order.id, operations, amounts: order.amounts };
-  await markCheckoutPaid(order.id, input.providerOrderId || input.orderId || order.providerOrderId, result, user);
+  await markCheckoutPaid(order.id, providerOrderId, result, user);
   return result;
 }
 
 async function createHostingPaymentOrder(input = {}, user = {}) {
-  assertPayPalConfigured();
   const deploymentPayload = input.deployment || input;
   if (!(deploymentPayload.repoUrl || deploymentPayload.repositoryUrl || deploymentPayload.sourceReference || deploymentPayload.renderServiceId || deploymentPayload.serviceId)) {
     throw httpError('A repository or existing Render service is required before hosting checkout.', 400);
@@ -1406,14 +1428,26 @@ async function captureHostingPaymentOrder(input = {}, user = {}) {
   const order = await getCheckoutOrder(input.checkoutOrderId);
   if (order.type !== 'hosting_deployment') throw httpError('Checkout order is not for hosting.', 400);
   if (order.status === 'paid') return order.result;
-  await capturePayPalOrder(input.providerOrderId || input.orderId || order.providerOrderId);
-  const deployment = await deploymentService.createRenderDeployment(order.metadata.deploymentPayload || {}, { userId: user.id || 'local-user' });
+
+  const providerOrderId = input.providerOrderId || input.orderId || order.providerOrderId;
+  const capturePayload = await capturePayPalOrder(providerOrderId);
+  const captureId = capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+
+  let deployment;
+  try {
+    deployment = await deploymentService.createRenderDeployment(order.metadata.deploymentPayload || {}, { userId: user.id || 'local-user' });
+  } catch (deployError) {
+    if (captureId) await refundPayPalCapture(captureId).catch(() => {});
+    throw httpError(`Render deployment failed after payment: ${deployError.message}. A refund has been requested.`, 500);
+  }
+
   const result = { status: 'paid', checkoutOrderId: order.id, deployment, amounts: order.amounts };
-  await markCheckoutPaid(order.id, input.providerOrderId || input.orderId || order.providerOrderId, result, user);
+  await markCheckoutPaid(order.id, providerOrderId, result, user);
   return result;
 }
 
 async function createCheckoutOrder({ type, user, source, lineItems, metadata }) {
+  assertPayPalConfigured();
   const actualAmountCents = lineItems.reduce((sum, item) => sum + item.actualAmountCents, 0);
   const markupPercent = getPlatformMarkupPercent();
   const markupAmountCents = Math.round(actualAmountCents * markupPercent / 100);
@@ -1510,8 +1544,19 @@ async function markCheckoutPaid(checkoutOrderId, providerCaptureId, result, user
   });
 }
 
+async function refundPayPalCapture(captureId) {
+  const response = await fetch(`${paypalBaseUrl()}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`, {
+    method: 'POST',
+    headers: await paypalHeaders(),
+    body: JSON.stringify({ note_to_payer: 'Your payment could not be fulfilled and has been refunded.' }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.message || 'PayPal refund request failed');
+  }
+}
+
 async function createPayPalOrder({ checkoutOrderId, type, totalAmountCents, lineItems, amounts, returnUrl, cancelUrl }) {
-  const token = await getPayPalAccessToken();
   const body = {
     intent: 'CAPTURE',
     purchase_units: [{
@@ -1619,7 +1664,7 @@ function getPlatformMarkupPercent() {
 function domainActualPriceCents(domain, availabilityRow) {
   const premium = availabilityRow?.pricing?.amount;
   if (premium != null && Number.isFinite(Number(premium))) return Math.max(0, Math.round(Number(premium)));
-  const tld = [...FALLBACK_TLD_PRICE_CENTS.keys()].sort((a, b) => b.length - a.length).find((suffix) => domain.endsWith(suffix));
+  const tld = FALLBACK_TLD_SUFFIXES.find((suffix) => domain.endsWith(suffix));
   if (!tld) throw httpError(`No registrar price is configured for ${domain}.`, 400);
   return FALLBACK_TLD_PRICE_CENTS.get(tld);
 }
@@ -1654,7 +1699,7 @@ function centsToUsd(cents) {
 }
 
 function safeReturnUrl(value) {
-  const fallback = process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+  const fallback = process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
   try {
     const url = new URL(value || fallback);
     if (!['http:', 'https:'].includes(url.protocol)) return fallback;

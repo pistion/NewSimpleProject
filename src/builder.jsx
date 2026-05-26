@@ -17,6 +17,7 @@ import {
   createHostingPayPalOrder,
   getRenderSettings,
   getStoredAuth,
+  HOSTING_CHECKOUT_KEY,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -1240,9 +1241,11 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
         outputDirectory: payload.outputDirectory,
         environment: 'production',
       };
-      const order = await createHostingPayPalOrder({ deployment: deploymentPayload, returnUrl: window.location.href, cancelUrl: window.location.href });
+      const paypalReturnUrl = new URL(window.location.href);
+      paypalReturnUrl.searchParams.set('glondia_checkout', 'paypal');
+      const order = await createHostingPayPalOrder({ deployment: deploymentPayload, returnUrl: paypalReturnUrl.toString(), cancelUrl: window.location.href });
       if (!order.approvalUrl) throw new Error('PayPal did not return an approval link.');
-      sessionStorage.setItem('glondia:pending-hosting-checkout', JSON.stringify({ checkoutOrderId: order.checkoutOrderId }));
+      sessionStorage.setItem(HOSTING_CHECKOUT_KEY, JSON.stringify({ checkoutOrderId: order.checkoutOrderId }));
       window.location.href = order.approvalUrl;
     } catch (error) {
       setDeployMsg(error.message || 'Publishing needs attention.');

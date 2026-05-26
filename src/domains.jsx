@@ -307,6 +307,7 @@ export function DomainsBuy({ navigate }) {
   const [registering, setRegistering] = useStateD(false);
   const [registerError, setRegisterError] = useStateD(null);
   const [operations, setOperations] = useStateD([]); // [{ domain, operationId, status }]
+  const [paidAmounts, setPaidAmounts] = useStateD(null); // amounts returned by capture
 
   const addToCart = (item) => {
     if (cart.find(c => c.name === item.name)) return;
@@ -329,41 +330,6 @@ export function DomainsBuy({ navigate }) {
       if (!order.approvalUrl) throw new Error('PayPal did not return an approval link.');
       window.open(order.approvalUrl, '_blank', 'noopener,noreferrer');
       setRegisterError('Approve the PayPal order in the new tab, then use PayPal checkout here to finish registration.');
-      return;
-
-      if (getStoredAuth().accessToken) {
-        // 1. Create a registrant contact in Spaceship with the form data
-        const createdContact = await createRegistrarContact({
-          firstName: contact.firstName.trim(),
-          lastName: contact.lastName.trim(),
-          company: contact.company.trim() || undefined,
-          email: contact.email.trim(),
-          phone: contact.phone.trim(),
-          address1: contact.address1.trim(),
-          address2: contact.address2.trim() || undefined,
-          city: contact.city.trim(),
-          postalCode: contact.postalCode.trim(),
-          country: contact.country.trim().toUpperCase(),
-        });
-        contactId = createdContact.id;
-
-        // 2. Register each domain in the cart using that contact
-        const ops = await Promise.all(
-          cart.map(async (item) => {
-            const result = await registerDomain({
-              hostname: item.name,
-              years: 1,
-              autoRenew: true,
-              privacyProtection: true,
-              contactId,
-            });
-            return { domain: item.name, operationId: result.operationId, status: result.status };
-          })
-        );
-        setOperations(ops);
-      }
-
-      setStep("done");
     } catch (error) {
       setRegisterError(error.message || 'Registration failed — please check your details and try again.');
     } finally {
@@ -373,6 +339,7 @@ export function DomainsBuy({ navigate }) {
 
   const finishPaidOrder = (result) => {
     setOperations(result.operations || []);
+    setPaidAmounts(result.amounts || null);
     setStep("done");
   };
 
@@ -434,8 +401,9 @@ export function DomainsBuy({ navigate }) {
         <Done
           cart={cart}
           subtotal={subtotal}
+          amounts={paidAmounts}
           operations={operations}
-          onNew={() => { setCart([]); setContact(EMPTY_CONTACT); setOperations([]); setStep("search"); }}
+          onNew={() => { setCart([]); setContact(EMPTY_CONTACT); setOperations([]); setPaidAmounts(null); setStep("search"); }}
           onManage={() => navigate({ view: "domains-mine" })}
         />
       )}
@@ -891,10 +859,12 @@ function Checkout({ cart, subtotal, contact, setContact, onBack, onComplete, onP
                   {missing.length > 0 ? 'Fill in all required fields above.' : !phoneOk ? 'Fix the phone number format.' : ''}
                 </p>
               )}
-              <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={onComplete} disabled={busy || !canSubmit}>
-                <span className={busy ? 'anim-spin' : ''} style={{ display: 'inline-flex' }}><ICN.ShieldCheck size={14} /></span>
-                {busy ? " Registering…" : " Complete order"}
-              </button>
+              {pay !== 'paypal' && (
+                <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={onComplete} disabled={busy || !canSubmit}>
+                  <span className={busy ? 'anim-spin' : ''} style={{ display: 'inline-flex' }}><ICN.ShieldCheck size={14} /></span>
+                  {busy ? " Registering…" : " Complete order"}
+                </button>
+              )}
               <p className="muted" style={{ fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
                 Registrations are final once submitted. By continuing you agree to the registrar policy.
               </p>
@@ -928,21 +898,26 @@ function PayPill({ icon, label, active, onClick }) {
 function PayPalCheckoutButton({ disabled, createOrder, captureOrder, onPaid, onError }) {
   const ref = useRef(null);
   const checkoutRef = useRef(null);
+  const disabledRef = useRef(disabled);
+  const buttonsRef = useRef(null);
 
+  // Keep disabledRef current without triggering SDK reload
+  useEffect(() => { disabledRef.current = disabled; }, [disabled]);
+
+  // Load SDK and render buttons exactly once — disabled state is read via ref
   useEffect(() => {
     let cancelled = false;
-    let buttons = null;
-    const render = async () => {
+    const setup = async () => {
       try {
         const settings = await getPayPalClientSettings();
         if (!settings.configured || !settings.clientId) throw new Error('PayPal is not configured yet.');
         await loadPayPalSdk(settings.clientId);
         if (cancelled || !ref.current || !window.paypal?.Buttons) return;
         ref.current.innerHTML = '';
-        buttons = window.paypal.Buttons({
+        const buttons = window.paypal.Buttons({
           style: { layout: 'vertical', shape: 'rect', label: 'paypal' },
           onClick: () => {
-            if (disabled) {
+            if (disabledRef.current) {
               onError?.('Complete the required checkout fields before paying.');
               return false;
             }
@@ -960,17 +935,19 @@ function PayPalCheckoutButton({ disabled, createOrder, captureOrder, onPaid, onE
           onError: (err) => onError?.(err?.message || 'PayPal checkout failed.'),
           onCancel: () => onError?.('PayPal checkout was cancelled.'),
         });
-        buttons.render(ref.current);
+        buttonsRef.current = buttons;
+        await buttons.render(ref.current);
       } catch (error) {
-        onError?.(error.message || 'PayPal checkout is unavailable.');
+        if (!cancelled) onError?.(error.message || 'PayPal checkout is unavailable.');
       }
     };
-    render();
+    setup();
     return () => {
       cancelled = true;
-      buttons?.close?.();
+      buttonsRef.current?.close?.();
+      buttonsRef.current = null;
     };
-  }, [disabled]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div ref={ref} style={{ opacity: disabled ? 0.55 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
 }
@@ -993,7 +970,7 @@ function loadPayPalSdk(clientId) {
   });
 }
 
-function Done({ cart, subtotal, operations, onNew, onManage }) {
+function Done({ cart, subtotal, amounts, operations, onNew, onManage }) {
   const [opStatuses, setOpStatuses] = useStateD(operations); // [{ domain, operationId, status }]
   const [polling, setPolling] = useStateD(false);
   const [pollError, setPollError] = useStateD(null);
@@ -1085,7 +1062,7 @@ function Done({ cart, subtotal, operations, onNew, onManage }) {
 
         <div className="row between" style={{ paddingTop: 16, fontWeight: 600 }}>
           <span>Order total</span>
-          <span style={{ fontFamily: "var(--serif)", fontSize: 22 }}>${(subtotal * 1.1).toFixed(2)}</span>
+          <span style={{ fontFamily: "var(--serif)", fontSize: 22 }}>${amounts?.totalAmount ?? subtotal.toFixed(2)}</span>
         </div>
       </div>
 

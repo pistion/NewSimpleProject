@@ -146,6 +146,7 @@ function liveApiUrl(path) {
 }
 
 export const DATA_CHANGED_EVENT = "glondia:data-changed";
+export const HOSTING_CHECKOUT_KEY = 'glondia:pending-hosting-checkout';
 
 export function notifyDataChanged() {
   window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));

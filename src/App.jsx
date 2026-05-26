@@ -24,7 +24,7 @@ import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
 import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor } from './builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
-import { captureHostingPayPalOrder, notifyDataChanged } from './api';
+import { captureHostingPayPalOrder, notifyDataChanged, HOSTING_CHECKOUT_KEY } from './api';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
@@ -112,10 +112,10 @@ export default function App() {
   // GitHub OAuth callback compatibility for previously connected URLs.
   useEffectApp(() => {
     const params = new URLSearchParams(window.location.search);
-    const pendingHosting = sessionStorage.getItem('glondia:pending-hosting-checkout');
-    if (pendingHosting && params.get('token')) {
+    const pendingHosting = sessionStorage.getItem(HOSTING_CHECKOUT_KEY);
+    if (pendingHosting && params.get('glondia_checkout') === 'paypal' && params.get('token')) {
       const { checkoutOrderId } = JSON.parse(pendingHosting);
-      sessionStorage.removeItem('glondia:pending-hosting-checkout');
+      sessionStorage.removeItem(HOSTING_CHECKOUT_KEY);
       const clean = new URL(window.location.href);
       clean.search = '';
       window.history.replaceState({}, '', clean.toString());
