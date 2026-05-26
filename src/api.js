@@ -124,7 +124,7 @@ async function registrarRequest(path, options = {}) {
 
 async function hostingRequest(path, options = {}) {
   if (!isLiveMode()) return apiRequest(path, options);
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(liveApiUrl(path), {
     method: options.method || 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -137,6 +137,12 @@ async function hostingRequest(path, options = {}) {
     throw new Error(result?.error?.message || result?.message || `Hosting request failed with ${response.status}.`);
   }
   return result?.data ?? result;
+}
+
+function liveApiUrl(path) {
+  const configured = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+  if (!configured) return `/api${path}`;
+  return `${configured}${path}`;
 }
 
 export const DATA_CHANGED_EVENT = "glondia:data-changed";
@@ -162,7 +168,8 @@ export async function createDeployment(projectId, input) {
 }
 
 export async function createRenderDeployment(input) {
-  const deployment = await hostingRequest('/deployments', { method: 'POST', body: JSON.stringify(input) });
+  const path = isLiveMode() ? '/deployments/render' : '/deployments';
+  const deployment = await hostingRequest(path, { method: 'POST', body: JSON.stringify(input) });
   notifyDataChanged();
   return deployment;
 }

@@ -7,6 +7,7 @@ import { validateDeploymentInput } from '../middleware/validationMiddleware.js';
 const router = express.Router();
 
 router.use(authMiddleware);
+router.post('/render', validateDeploymentInput, deploymentController.createRenderDeployment);
 router.post('/', validateDeploymentInput, deploymentController.createDeployment);
 router.get('/:deploymentId', deploymentSessionMiddleware, deploymentController.getDeployment);
 router.get('/:deploymentId/status', deploymentSessionMiddleware, deploymentController.getStatus);

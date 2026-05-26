@@ -3,6 +3,10 @@ import deploymentStatusService from './deploymentStatusService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
 
 class DeploymentService {
+  async createRenderDeployment(input = {}, context = {}) {
+    return this.createDeployment(input, { ...context, requireRender: true });
+  }
+
   async createDeployment(input = {}, context = {}) {
     const now = nowIso();
     const deploymentId = makeId('dep');
@@ -22,26 +26,31 @@ class DeploymentService {
       updatedAt: now,
     };
 
+    if (context.requireRender && !(input.repoUrl || input.repositoryUrl || input.sourceReference || input.renderServiceId || input.serviceId)) {
+      const error = new Error('A GitHub repo URL or existing Render service ID is required to deploy to Render.');
+      error.status = 400;
+      error.expose = true;
+      throw error;
+    }
+
     let renderServiceId = input.renderServiceId || input.serviceId || null;
     let serviceResponse = null;
     if (!renderServiceId) {
       serviceResponse = await renderApiService.createService({ ...input, serviceName, serviceType, sourceReference });
       renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || null;
     }
-    const renderConfigurationRequired = serviceResponse?.status === 'configuration_required';
-    if (!renderServiceId && renderConfigurationRequired) {
-      renderServiceId = makeId('render_pending');
-    }
+    if (!renderServiceId) throw providerError('Render did not return a service ID.', serviceResponse);
 
     let deployResponse = null;
-    if (renderServiceId && !renderConfigurationRequired) {
+    if (renderServiceId) {
       deployResponse = await renderApiService.triggerDeploy(renderServiceId, input);
     } else if (process.env.RENDER_SERVICE_ID && input.useDefaultService) {
       renderServiceId = process.env.RENDER_SERVICE_ID;
       deployResponse = await renderApiService.triggerDeploy(renderServiceId, input);
     }
 
-    const renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || null;
+    const renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || serviceResponse?.deployId || serviceResponse?.deploy?.id || null;
+    if (!renderDeployId && !renderServiceId) throw providerError('Render did not return a service or deploy ID.', { serviceResponse, deployResponse });
     const liveUrl = input.liveUrl || serviceResponse?.service?.serviceDetails?.url || serviceResponse?.service?.url || serviceResponse?.url || null;
     const deployment = {
       deploymentId,
@@ -53,13 +62,15 @@ class DeploymentService {
       deploymentSessionId,
       serviceName,
       serviceType,
-      status: renderDeployId ? 'building' : 'configuration_required',
-      buildStatus: renderDeployId ? 'queued' : 'waiting_for_render_credentials',
-      currentStep: renderDeployId ? 'Queued' : 'Preparing',
+      provider: 'render',
+      providerStatus: deployResponse?.deploy?.status || deployResponse?.status || serviceResponse?.service?.suspended || serviceResponse?.status || 'accepted',
+      status: renderDeployId ? 'building' : 'preparing',
+      buildStatus: renderDeployId ? 'queued' : 'accepted',
+      currentStep: renderDeployId ? 'Queued' : 'Sending to Render',
       liveUrl,
       verifiedUrl: null,
       urlReachable: false,
-      errorMessage: renderDeployId ? null : 'Render credentials or service configuration are required before the deploy can run.',
+      errorMessage: null,
       repoUrl: input.repoUrl || input.repositoryUrl || null,
       githubRepo: input.githubRepo || input.repo || input.repository || input.repoUrl || input.repositoryUrl || null,
       githubBranch: input.branch || input.productionBranch || 'main',
@@ -86,8 +97,8 @@ class DeploymentService {
       store.deployments.unshift(deployment);
       store.logs[deploymentId] = [
         makeLog('Deployment session created.', 'info'),
-        makeLog(renderServiceId ? `Render service ${renderServiceId} selected.` : 'Render service creation is waiting for credentials.', renderServiceId ? 'ok' : 'warn'),
-        makeLog(renderDeployId ? `Render deploy ${renderDeployId} started.` : 'Deploy will start after Render configuration is complete.', renderDeployId ? 'ok' : 'warn'),
+        makeLog(`Render service ${renderServiceId} selected.`, 'ok'),
+        makeLog(renderDeployId ? `Render deploy ${renderDeployId} started.` : 'Render service created; waiting for Render to report the first deploy.', renderDeployId ? 'ok' : 'info'),
       ];
       return deployment;
     });
@@ -152,14 +163,16 @@ class DeploymentService {
     }
     const deployResponse = await renderApiService.triggerDeploy(deployment.renderServiceId, input);
     const renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || deployment.renderDeployId;
+    if (!renderDeployId) throw providerError('Render did not return a deploy ID for the redeploy request.', deployResponse);
     return mutateHostingStore((store) => {
       const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
       Object.assign(stored, {
         renderDeployId,
+        providerStatus: deployResponse?.deploy?.status || deployResponse?.status || 'created',
         status: 'building',
         buildStatus: 'queued',
-        currentStep: deployResponse?.status === 'configuration_required' ? 'Preparing' : 'Queued',
-        errorMessage: deployResponse?.status === 'configuration_required' ? deployResponse.message : null,
+        currentStep: 'Queued',
+        errorMessage: null,
         updatedAt: nowIso(),
       });
       store.logs[deployment.deploymentId] = [
@@ -190,6 +203,14 @@ function makeLog(message, level = 'info') {
 function notFound(message) {
   const error = new Error(message);
   error.status = 404;
+  return error;
+}
+
+function providerError(message, details) {
+  const error = new Error(message);
+  error.status = 502;
+  error.expose = true;
+  error.details = details;
   return error;
 }
 

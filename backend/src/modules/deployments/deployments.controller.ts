@@ -5,6 +5,7 @@ import { RbacGuard } from '../../common/guards/rbac.guard';
 import { RequestWithContext } from '../../common/types/request-with-context';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
+import { CreateRenderDeploymentDto } from './dto/create-render-deployment.dto';
 import { DeploymentParamsDto } from './dto/deployment-params.dto';
 import { ProjectDeploymentParamsDto } from './dto/project-deployment-params.dto';
 import { DeploymentsService } from './deployments.service';
@@ -34,11 +35,29 @@ export class DeploymentsController {
     return this.deploymentsService.create(params.projectId, dto, this.getActorContext(request));
   }
 
+  @Post('deployments/render')
+  @RequirePermissions('deployment:create')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiAcceptedResponse({ description: 'Creates or triggers a real Render deployment.' })
+  createRenderDeployment(
+    @Body() dto: CreateRenderDeploymentDto,
+    @Req() request: RequestWithContext
+  ) {
+    return this.deploymentsService.createRenderDeployment(dto, this.getActorContext(request));
+  }
+
   @Get('deployments/:deploymentId')
   @RequirePermissions('deployment:read')
   @ApiOkResponse({ description: 'Returns one deployment.' })
   get(@Param() params: DeploymentParamsDto, @Req() request: RequestWithContext) {
     return this.deploymentsService.get(params.deploymentId, this.getActorContext(request));
+  }
+
+  @Get('deployments/:deploymentId/status')
+  @RequirePermissions('deployment:read')
+  @ApiOkResponse({ description: 'Refreshes and returns Render deployment status.' })
+  getRenderStatus(@Param() params: DeploymentParamsDto, @Req() request: RequestWithContext) {
+    return this.deploymentsService.getRenderStatus(params.deploymentId, this.getActorContext(request));
   }
 
   @Get('deployments/:deploymentId/logs')

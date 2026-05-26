@@ -11,6 +11,17 @@ import { RenderService } from './render.service';
 export class RenderController {
   constructor(private readonly renderService: RenderService) {}
 
+  @Get('settings')
+  @RequirePermissions('project:read')
+  @ApiOkResponse({ description: 'Returns Render provider configuration status.' })
+  settings() {
+    return {
+      provider: 'render',
+      configured: this.renderService.isConfigured(),
+      required: this.renderService.isConfigured() ? [] : ['RENDER_API_KEY', 'RENDER_OWNER_ID']
+    };
+  }
+
   @Get('services')
   @RequirePermissions('project:read')
   @ApiOkResponse({ description: 'Lists all Render services available to this account.' })

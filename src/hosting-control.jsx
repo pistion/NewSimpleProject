@@ -73,7 +73,7 @@ export function HostingList({ navigate }) {
 }
 
 function HostingAppCard({ app, navigate }) {
-  const building = ['configuration_required', 'preparing', 'queued', 'building', 'deploying'].includes(app.status);
+  const building = Boolean(app.renderServiceId) && ['preparing', 'queued', 'building', 'deploying', 'verifying'].includes(app.status);
   return (
     <button
       type="button"
@@ -143,6 +143,7 @@ export function HostingDetail({ id, navigate }) {
   const merged = useMemo(() => ({ ...(app || {}), ...(status || {}) }), [app, status]);
   const isLive = merged.status === 'live';
   const isFailed = merged.status === 'failed';
+  const isUnverified = merged.status === 'deployed_unverified';
   const isDeleted = merged.status === 'deleted';
 
   const runAction = async (name, fn) => {
@@ -188,7 +189,7 @@ export function HostingDetail({ id, navigate }) {
       {error && <div className="card" style={{ padding: '10px 14px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
 
       <div className="grid-side">
-        <DeploymentStatusPanel app={merged} logs={logs} isLive={isLive} isFailed={isFailed} onVerify={() => runAction('verify', () => verifyRenderDeploymentUrl(deploymentId))} busy={busy} />
+        <DeploymentStatusPanel app={merged} logs={logs} isLive={isLive} isFailed={isFailed} isUnverified={isUnverified} onVerify={() => runAction('verify', () => verifyRenderDeploymentUrl(deploymentId))} busy={busy} />
         <AdminPanel app={merged} busy={busy} onSuspend={() => window.confirm('Suspend this site?') && runAction('suspend', () => suspendHostingDeployment(deploymentId))} onDelete={() => window.confirm('Delete this hosted site? This cannot be undone.') && runAction('delete', () => deleteHostingDeployment(deploymentId))} />
       </div>
 
@@ -204,7 +205,9 @@ export function HostingDetail({ id, navigate }) {
   );
 }
 
-function DeploymentStatusPanel({ app, logs, isLive, isFailed, onVerify, busy }) {
+function DeploymentStatusPanel({ app, logs, isLive, isFailed, isUnverified, onVerify, busy }) {
+  const hasRenderService = Boolean(app.renderServiceId);
+  const shouldAnimate = hasRenderService && ['preparing', 'queued', 'building', 'deploying', 'verifying'].includes(app.status);
   return (
     <div className="card">
       <div className="row between">
@@ -214,13 +217,15 @@ function DeploymentStatusPanel({ app, logs, isLive, isFailed, onVerify, busy }) 
         </div>
         <StatusBadge value={statusLabel(app.status)} />
       </div>
-      {!isLive && !isFailed && <DeploymentPulse />}
+      {!hasRenderService && <RenderNotStartedBlock app={app} />}
+      {shouldAnimate && <DeploymentPulse />}
       {isFailed && <FailureBlock app={app} />}
       {isLive && <SuccessBlock app={app} />}
+      {isUnverified && <WarmingBlock app={app} />}
       <div className="kv" style={{ marginTop: 16, gridTemplateColumns: '150px 1fr' }}>
         <dt>Current step</dt><dd>{app.currentStep || statusLabel(app.status)}</dd>
         <dt>Build status</dt><dd className="mono">{app.buildStatus || 'pending'}</dd>
-        <dt>Service status</dt><dd>{app.status || 'preparing'}</dd>
+        <dt>Service status</dt><dd>{hasRenderService ? app.status || 'preparing' : 'Render deployment not started'}</dd>
         <dt>URL verification</dt><dd>{app.urlReachable ? 'Reachable' : app.liveUrl ? 'Warming up' : 'Pending URL'}</dd>
       </div>
       {app.liveUrl && !app.urlReachable && (
@@ -232,6 +237,15 @@ function DeploymentStatusPanel({ app, logs, isLive, isFailed, onVerify, busy }) 
         <div className="label">Recent logs</div>
         <MiniLogs logs={logs.slice(0, 4)} />
       </div>
+    </div>
+  );
+}
+
+function RenderNotStartedBlock({ app }) {
+  return (
+    <div style={{ marginTop: 18, padding: 14, border: '1px solid var(--warning)', borderRadius: 'var(--r-sm)', background: 'var(--bg-deep)' }}>
+      <div className="row" style={{ gap: 8, color: 'var(--warning)', fontWeight: 700 }}><ICN.AlertCircle size={16} /> Render deployment not started</div>
+      <div className="muted" style={{ marginTop: 8 }}>{app.errorMessage || 'Render has not returned a real service ID yet. Check Render credentials and retry deployment.'}</div>
     </div>
   );
 }
@@ -256,6 +270,15 @@ function SuccessBlock({ app }) {
   );
 }
 
+function WarmingBlock({ app }) {
+  return (
+    <div style={{ marginTop: 18, padding: 14, border: '1px solid var(--warning)', borderRadius: 'var(--r-sm)', background: 'var(--bg-deep)' }}>
+      <div className="row" style={{ gap: 8, color: 'var(--warning)', fontWeight: 700 }}><ICN.Refresh size={16} /> Deployed, still warming up</div>
+      <div className="mono" style={{ marginTop: 8, wordBreak: 'break-all' }}>{app.liveUrl || 'URL pending from Render'}</div>
+    </div>
+  );
+}
+
 function FailureBlock({ app }) {
   return (
     <div style={{ marginTop: 18, padding: 14, border: '1px solid var(--danger)', borderRadius: 'var(--r-sm)', background: 'var(--bg-deep)' }}>
@@ -266,6 +289,7 @@ function FailureBlock({ app }) {
 }
 
 function AdminPanel({ app, busy, onSuspend, onDelete }) {
+  const hasRenderService = Boolean(app.renderServiceId);
   return (
     <div className="card">
       <h2 style={{ marginTop: 0 }}>Admin controls</h2>
@@ -275,8 +299,8 @@ function AdminPanel({ app, busy, onSuspend, onDelete }) {
         <dt>Created</dt><dd>{formatDate(app.createdAt)}</dd>
       </div>
       <div style={{ display: 'grid', gap: 10 }}>
-        <button className="btn btn-outline" disabled={busy === 'suspend' || app.status === 'suspended' || app.status === 'deleted'} onClick={onSuspend}><ICN.Power size={14} /> Suspend Site</button>
-        <button className="btn btn-danger" disabled={busy === 'delete' || app.status === 'deleted'} onClick={onDelete}><ICN.Trash size={14} /> Delete Site</button>
+        <button className="btn btn-outline" disabled={!hasRenderService || busy === 'suspend' || app.status === 'suspended' || app.status === 'deleted'} onClick={onSuspend}><ICN.Power size={14} /> Suspend Site</button>
+        <button className="btn btn-danger" disabled={!hasRenderService || busy === 'delete' || app.status === 'deleted'} onClick={onDelete}><ICN.Trash size={14} /> Delete Site</button>
       </div>
     </div>
   );
@@ -446,6 +470,7 @@ function statusLabel(status) {
     building: 'Building',
     deploying: 'Deploying',
     deployed: 'Verifying URL',
+    deployed_unverified: 'Deployed - Warming Up',
     live: 'Live',
     failed: 'Failed',
     suspended: 'Suspended',

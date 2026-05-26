@@ -15,17 +15,62 @@ class DeploymentStatusService {
   }
 
   async refreshDeployment(deployment) {
-    if (!deployment?.renderServiceId || !deployment?.renderDeployId || !renderApiService.configured()) {
+    if (!deployment?.renderServiceId) {
       return deployment;
     }
-    const renderDeploy = await renderApiService.getDeploy(deployment.renderServiceId, deployment.renderDeployId);
-    const deploy = renderDeploy.deploy || renderDeploy;
+    let deploy = null;
+    try {
+      if (deployment.renderDeployId) {
+        const renderDeploy = await renderApiService.getDeploy(deployment.renderServiceId, deployment.renderDeployId);
+        deploy = renderDeploy.deploy || renderDeploy;
+      } else {
+        const deploysResponse = await renderApiService.listDeploys(deployment.renderServiceId, 1);
+        const deployRows = Array.isArray(deploysResponse) ? deploysResponse : deploysResponse?.deploys || [];
+        const row = deployRows[0] || null;
+        deploy = row?.deploy || row;
+      }
+    } catch (error) {
+      return mutateHostingStore((store) => {
+        const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
+        if (!stored) return deployment;
+        Object.assign(stored, {
+          status: 'failed',
+          buildStatus: 'failed',
+          currentStep: 'Failed',
+          errorMessage: error.message || 'Render status check failed.',
+          updatedAt: nowIso(),
+        });
+        store.logs[stored.deploymentId] = [
+          makeLog(`Render status check failed: ${stored.errorMessage}`, 'error'),
+          ...(store.logs[stored.deploymentId] || []),
+        ];
+        return stored;
+      });
+    }
+    if (!deploy?.id) return deployment;
     const next = this.normalizeStatus(deploy.status);
+    let liveUrl = deployment.liveUrl;
+    let verification = null;
+    if (next.status === 'live') {
+      const renderService = await renderApiService.getService(deployment.renderServiceId).catch(() => null);
+      liveUrl = extractServiceUrl(renderService) || liveUrl;
+      verification = await this.verifyLiveUrl(liveUrl);
+      if (!verification.ok) {
+        next.status = 'deployed_unverified';
+        next.currentStep = 'Verifying URL';
+      }
+    }
     return mutateHostingStore((store) => {
       const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
       if (!stored) return deployment;
       Object.assign(stored, next, {
+        renderDeployId: stored.renderDeployId || deploy.id,
+        providerStatus: deploy.status || stored.providerStatus,
         renderDeployStatus: deploy.status || stored.renderDeployStatus,
+        liveUrl: liveUrl || stored.liveUrl,
+        verifiedUrl: verification?.ok ? liveUrl : stored.verifiedUrl,
+        urlReachable: verification ? Boolean(verification.ok) : stored.urlReachable,
+        errorMessage: verification && !verification.ok ? 'The Render URL exists but is still warming up.' : stored.errorMessage,
         updatedAt: nowIso(),
         lastDeployedAt: next.status === 'live' ? nowIso() : stored.lastDeployedAt,
       });
@@ -51,12 +96,22 @@ class DeploymentStatusService {
       building: 'Building',
       deploying: 'Deploying',
       deployed: 'Verifying URL',
+      deployed_unverified: 'Deployed - Warming Up',
       live: 'Live',
       failed: 'Failed',
       suspended: 'Suspended',
       deleted: 'Deleted',
     }[status] || 'Preparing';
   }
+}
+
+function makeLog(message, level = 'info') {
+  return { id: `log_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`, level, message, timestamp: nowIso(), createdAt: nowIso() };
+}
+
+function extractServiceUrl(response) {
+  const service = response?.service || response;
+  return service?.serviceDetails?.url || service?.url || null;
 }
 
 export default new DeploymentStatusService();

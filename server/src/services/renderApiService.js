@@ -1,9 +1,9 @@
-const RENDER_BASE_URL = 'https://api.render.com/v1';
+const RENDER_BASE_URL = process.env.RENDER_API_BASE_URL || 'https://api.render.com/v1';
 
 class RenderApiService {
   configured() {
     if (String(process.env.RENDER_API_DISABLED || '').toLowerCase() === 'true') return false;
-    return Boolean(process.env.RENDER_API_KEY);
+    return Boolean(process.env.RENDER_API_KEY && process.env.RENDER_OWNER_ID);
   }
 
   settings() {
@@ -16,46 +16,50 @@ class RenderApiService {
   }
 
   async createService(input = {}) {
-    if (!this.configured() || !(input.ownerId || process.env.RENDER_OWNER_ID)) return this.configurationRequired('create_service');
+    this.assertConfigured('create_service');
     const body = this.buildServicePayload(input);
     return this.request('/services', { method: 'POST', body });
   }
 
   async getService(serviceId) {
-    if (!this.configured()) return this.configurationRequired('get_service');
+    this.assertConfigured('get_service');
     return this.request(`/services/${encodeURIComponent(serviceId)}`);
   }
 
   async updateService(serviceId, settings = {}) {
-    if (!this.configured()) return this.configurationRequired('update_service');
+    this.assertConfigured('update_service');
     return this.request(`/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: settings });
   }
 
   async suspendService(serviceId) {
-    if (!this.configured()) return this.configurationRequired('suspend_service');
+    this.assertConfigured('suspend_service');
     return this.request(`/services/${encodeURIComponent(serviceId)}/suspend`, { method: 'POST', body: {} });
   }
 
   async deleteService(serviceId) {
-    if (!this.configured()) return this.configurationRequired('delete_service');
+    this.assertConfigured('delete_service');
     return this.request(`/services/${encodeURIComponent(serviceId)}`, { method: 'DELETE' });
   }
 
   async triggerDeploy(serviceId, input = {}) {
-    if (!this.configured()) return this.configurationRequired('trigger_deploy');
+    this.assertConfigured('trigger_deploy');
     return this.request(`/services/${encodeURIComponent(serviceId)}/deploys`, {
       method: 'POST',
-      body: { clearCache: input.clearCache || 'do_not_clear' },
+      body: {
+        clearCache: input.clearCache || 'do_not_clear',
+        deployMode: input.deployMode || 'build_and_deploy',
+        ...(input.commitId ? { commitId: input.commitId } : {}),
+      },
     });
   }
 
   async getDeploy(serviceId, deployId) {
-    if (!this.configured()) return this.configurationRequired('get_deploy');
+    this.assertConfigured('get_deploy');
     return this.request(`/services/${encodeURIComponent(serviceId)}/deploys/${encodeURIComponent(deployId)}`);
   }
 
   async listDeploys(serviceId, limit = 20) {
-    if (!this.configured()) return this.configurationRequired('list_deploys');
+    this.assertConfigured('list_deploys');
     return this.request(`/services/${encodeURIComponent(serviceId)}/deploys?limit=${encodeURIComponent(limit)}`);
   }
 
@@ -177,6 +181,16 @@ class RenderApiService {
       serviceDetails: details,
       envVars: input.envVars || undefined,
     };
+  }
+
+  assertConfigured(action = 'render_api') {
+    if (this.configured()) return;
+    const error = new Error(this.configurationRequired(action).message);
+    error.status = 503;
+    error.code = 'RENDER_CONFIGURATION_REQUIRED';
+    error.expose = true;
+    error.details = this.settings();
+    throw error;
   }
 
   configurationRequired(action) {

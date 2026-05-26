@@ -53,6 +53,7 @@ const envSchema = z.object({
 
   // Render hosting provider
   RENDER_API_KEY: z.string().default(''),
+  RENDER_OWNER_ID: z.string().default(''),
   RENDER_API_BASE_URL: z.string().url().default('https://api.render.com/v1'),
 
   // Email

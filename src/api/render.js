@@ -3,7 +3,7 @@ import { isLiveMode, modeBlockedResult } from '../app/config.js';
 export async function triggerRenderDeploy(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch('/api/render/deploy', {
+    const response = await fetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -23,10 +23,10 @@ export async function triggerRenderDeploy(input = {}) {
 export async function testRenderDeploy(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch('/api/render/test-deploy', {
+    const response = await fetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, dryRun: true }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result?.error?.message || result?.message || `Render test deploy failed with ${response.status}.`);
@@ -43,7 +43,7 @@ export async function testRenderDeploy(input = {}) {
 export async function activateRenderRepo(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch('/api/render/activate-repo', {
+    const response = await fetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -67,7 +67,7 @@ export async function getRenderSettings() {
     };
   }
   try {
-    const response = await fetch('/api/render/settings');
+    const response = await fetch(renderApiUrl('/render/settings'));
     if (!response.ok) throw new Error(`Render settings returned ${response.status}.`);
     return response.json();
   } catch (error) {
@@ -85,7 +85,7 @@ export async function listRenderDeploys(input = {}) {
   if (!isLiveMode()) return { status: 'demo', deploys: [], error: modeBlockedResult('render').message };
   try {
     const qs = input.serviceId ? `?serviceId=${encodeURIComponent(input.serviceId)}` : '';
-    const response = await fetch(`/api/render/deploys${qs}`);
+    const response = await fetch(renderApiUrl(`/render/deploys${qs}`));
     if (!response.ok) throw new Error(`Render deploy list returned ${response.status}.`);
     return response.json();
   } catch (error) {
@@ -96,10 +96,16 @@ export async function listRenderDeploys(input = {}) {
 export async function listLiveRenderServices() {
   if (!isLiveMode()) return [];
   try {
-    const response = await fetch('/api/render/services');
+    const response = await fetch(renderApiUrl('/render/services'));
     if (!response.ok) throw new Error(`Render services returned ${response.status}.`);
     return response.json();
   } catch {
     return [];
   }
+}
+
+function renderApiUrl(path) {
+  const configured = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+  if (!configured) return `/api${path}`;
+  return `${configured}${path}`;
 }

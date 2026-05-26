@@ -10,6 +10,15 @@ const deploymentController = {
     }
   },
 
+  createRenderDeployment: async (req, res, next) => {
+    try {
+      const deployment = await deploymentService.createRenderDeployment(req.body || {}, { userId: req.user?.id });
+      res.status(202).json({ data: deployment, message: 'Render deployment accepted.', requestId: req.id });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   getDeployment: async (req, res, next) => {
     try {
       res.ok(await deploymentService.getDeployment(req.params.deploymentId));
