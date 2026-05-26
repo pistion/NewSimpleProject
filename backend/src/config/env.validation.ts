@@ -12,7 +12,7 @@ const envSchema = z.object({
 
   // Database & cache
   DATABASE_URL: z.string().min(1).default('file:/var/glondia/data/glondia.db'),
-  REDIS_URL: z.string().min(1),
+  REDIS_URL: z.string().default(''),
 
   // Auth
   JWT_ACCESS_SECRET: z.string().min(16),
