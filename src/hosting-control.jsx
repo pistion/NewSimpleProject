@@ -192,7 +192,15 @@ export function HostingDetail({ id, navigate }) {
 
       <div className="grid-side">
         <DeploymentStatusPanel app={merged} logs={logs} isLive={isLive} isFailed={isFailed} isUnverified={isUnverified} onVerify={() => runAction('verify', () => verifyRenderDeploymentUrl(deploymentId))} busy={busy} />
-        <AdminPanel app={merged} busy={busy} onSuspend={() => window.confirm('Suspend this site?') && runAction('suspend', () => suspendHostingDeployment(deploymentId))} onDelete={() => window.confirm('Delete this hosted site? This cannot be undone.') && runAction('delete', () => deleteHostingDeployment(deploymentId))} />
+        <AdminPanel
+          app={merged}
+          busy={busy}
+          onSuspend={() => window.confirm('Suspend this site?') && runAction('suspend', () => suspendHostingDeployment(deploymentId))}
+          onDelete={() => window.confirm('Delete this hosted site? This cannot be undone.') && runAction('delete', async () => {
+            await deleteHostingDeployment(deploymentId);
+            navigate({ view: 'hosting-list' });
+          })}
+        />
       </div>
 
       <Tabs value={tab} onChange={setTab} options={['Overview', 'Environment Variables', 'Persistent Disk', 'Domains', 'Build Logs', 'Render Settings']} />

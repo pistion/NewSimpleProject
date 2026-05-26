@@ -483,7 +483,32 @@ export async function updateBuilderSite(siteId, input) {
 }
 
 export async function archiveBuilderSite(siteId) {
+  if (isLiveMode()) await deleteRenderHostingForBuilderSite(siteId);
   return builderApi.archiveBuilderSite(siteId);
+}
+
+async function deleteRenderHostingForBuilderSite(siteId) {
+  const db = readLocalDb();
+  const site = db.sites.find((item) => item.id === siteId);
+  if (!site) return;
+  const hostingApps = await listHostingDeployments().catch(() => []);
+  const matches = hostingApps.filter((app) => {
+    const appRepo = String(app.githubRepo || app.repoUrl || app.sourceReference || '').toLowerCase();
+    const siteRepo = String(site.repositoryUrl || site.content?._repository || '').toLowerCase();
+    return app.deploymentId
+      && app.status !== 'deleted'
+      && (
+        app.projectId === site.projectId
+        || app.projectId === site.id
+        || app.siteId === site.id
+        || app.sourceReference === site.id
+        || (siteRepo && appRepo && appRepo.includes(siteRepo.replace(/^https?:\/\/github\.com\//, '')))
+        || (site.repositoryUrl && appRepo === String(site.repositoryUrl).toLowerCase())
+      );
+  });
+  for (const app of matches) {
+    await deleteHostingDeployment(app.deploymentId);
+  }
 }
 
 export async function saveBuilderPage(siteId, pageId, content) {

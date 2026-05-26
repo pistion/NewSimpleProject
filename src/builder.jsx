@@ -216,11 +216,13 @@ function TplThumb({ tpl }) {
 export function BuilderGallery({ navigate }) {
   const { sites, loading: sitesLoading, source: sitesSource } = useSites();
   const [archivingId, setArchivingId] = useStateB(null);
+  const [archiveError, setArchiveError] = useStateB('');
 
   const handleArchive = async (siteId, e) => {
     e.stopPropagation();
     setArchivingId(siteId);
-    try { await archiveBuilderSite(siteId); } catch {} finally { setArchivingId(null); }
+    setArchiveError('');
+    try { await archiveBuilderSite(siteId); } catch (error) { setArchiveError(error.message || 'Could not delete the hosted site on Render.'); } finally { setArchivingId(null); }
   };
 
   return (
@@ -232,6 +234,7 @@ export function BuilderGallery({ navigate }) {
           <p className="sub">
             Start with RoxanneAI, pick a Glondia template, or bring in an existing project from GitHub or an upload.
           </p>
+          {archiveError && <div className="form-error" style={{ marginTop: 10 }}>{archiveError}</div>}
         </div>
       </div>
 

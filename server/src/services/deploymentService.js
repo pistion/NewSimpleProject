@@ -56,6 +56,7 @@ class DeploymentService {
       deploymentId,
       id: deploymentId,
       userId: context.userId,
+      siteId: input.siteId || null,
       projectId: input.projectId || input.siteId || null,
       renderServiceId,
       renderDeployId,

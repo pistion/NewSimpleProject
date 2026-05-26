@@ -15,6 +15,8 @@ class DeploymentStatusService {
   }
 
   async refreshDeployment(deployment) {
+    if (deployment?.status === 'deleted') return deployment;
+    if (deployment?.status === 'suspended') return deployment;
     if (!deployment?.renderServiceId) {
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
@@ -41,6 +43,9 @@ class DeploymentStatusService {
         deploy = row?.deploy || row;
       }
     } catch (error) {
+      if (isRenderGone(error)) {
+        return this.markDeleted(deployment, error);
+      }
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
         if (!stored) return deployment;
@@ -89,6 +94,31 @@ class DeploymentStatusService {
     });
   }
 
+  async markDeleted(deployment, error) {
+    return mutateHostingStore((store) => {
+      const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
+      if (!stored) return deployment;
+      Object.assign(stored, {
+        status: 'deleted',
+        buildStatus: 'deleted',
+        currentStep: 'Deleted',
+        deletedAt: stored.deletedAt || nowIso(),
+        errorMessage: null,
+        updatedAt: nowIso(),
+        renderDeleteResponse: {
+          status: 'deleted_on_render',
+          providerStatus: error.status,
+          message: error.message,
+        },
+      });
+      store.logs[stored.deploymentId] = [
+        makeLog('Render reports this service has been deleted. The hosting app was removed from the active panel.', 'info'),
+        ...(store.logs[stored.deploymentId] || []),
+      ];
+      return stored;
+    });
+  }
+
   async verifyLiveUrl(url) {
     if (!url) return { ok: false, status: 'missing_url' };
     try {
@@ -123,6 +153,10 @@ function makeLog(message, level = 'info') {
 function extractServiceUrl(response) {
   const service = response?.service || response;
   return service?.serviceDetails?.url || service?.url || null;
+}
+
+function isRenderGone(error) {
+  return error?.status === 404 || error?.status === 410;
 }
 
 export default new DeploymentStatusService();
