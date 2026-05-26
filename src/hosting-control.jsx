@@ -1,13 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ICN } from './icons';
 import { Badge, Empty, StatusBadge, Tabs } from './components';
 import {
   addHostingDomain,
   attachHostingDisk,
+  captureHostingPayPalOrder,
+  createHostingPayPalOrder,
   deleteHostingDeployment,
   deleteHostingDomain,
   deleteHostingEnvVar,
+  getHostingPaymentStatus,
   getHostingService,
+  getPayPalClientSettings,
   getRenderDeploymentLogs,
   getRenderDeploymentStatus,
   listHostingDeployments,
@@ -203,9 +207,10 @@ export function HostingDetail({ id, navigate }) {
         />
       </div>
 
-      <Tabs value={tab} onChange={setTab} options={['Overview', 'Environment Variables', 'Persistent Disk', 'Domains', 'Build Logs', 'Render Settings']} />
+      <Tabs value={tab} onChange={setTab} options={['Overview', 'Billing', 'Environment Variables', 'Persistent Disk', 'Domains', 'Build Logs', 'Render Settings']} />
 
       {tab === 'Overview' && <OverviewTab app={merged} logs={logs} />}
+      {tab === 'Billing' && <BillingTab deploymentId={deploymentId} />}
       {tab === 'Environment Variables' && <EnvironmentTab deploymentId={deploymentId} onChanged={load} />}
       {tab === 'Persistent Disk' && <DiskTab deploymentId={deploymentId} app={merged} onChanged={load} />}
       {tab === 'Domains' && <DomainsTab deploymentId={deploymentId} onChanged={load} />}
@@ -498,4 +503,156 @@ function formatTime(value) {
   if (!value) return '--:--:--';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '--:--:--' : date.toLocaleTimeString([], { hour12: false });
+}
+
+// ── Billing Tab ───────────────────────────────────────────────────────────────
+
+function BillingTab({ deploymentId }) {
+  const [billing, setBilling] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
+  const [paypalError, setPaypalError] = useState('');
+
+  const load = () => {
+    setFetchError('');
+    return getHostingPaymentStatus(deploymentId)
+      .then((s) => setBilling(s))
+      .catch((e) => setFetchError(e.message || 'Could not load billing status.'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [deploymentId]);
+
+  if (loading) return <div className="card" style={{ padding: 36 }}><Empty icon="CreditCard" title="Loading billing status…" /></div>;
+
+  if (billing?.paid) {
+    return (
+      <div className="card">
+        <div className="row" style={{ gap: 10, color: 'var(--accent)', marginBottom: 16 }}>
+          <ICN.ShieldCheck size={18} />
+          <h2 style={{ margin: 0 }}>Payment received</h2>
+        </div>
+        <div className="kv" style={{ gridTemplateColumns: '160px 1fr' }}>
+          <dt>Status</dt><dd><Badge tone="success">Paid</Badge></dd>
+          <dt>Paid at</dt><dd>{billing.paidAt ? new Date(billing.paidAt).toLocaleString() : 'On file'}</dd>
+          <dt>Total charged</dt><dd>${billing.amounts?.totalAmount || '—'}</dd>
+          <dt>Platform fee</dt><dd>${billing.amounts?.markupAmount || '—'}</dd>
+          <dt>Hosting cost</dt><dd>${billing.amounts?.actualAmount || '—'}</dd>
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginTop: 16 }}>Your site will remain live. No further action required.</p>
+      </div>
+    );
+  }
+
+  const overdue = billing?.overdue;
+  const hoursLeft = billing?.hoursRemaining ?? null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ borderColor: overdue ? 'var(--danger)' : 'var(--warning)', borderWidth: 1.5 }}>
+        <div className="row" style={{ gap: 10, color: overdue ? 'var(--danger)' : 'var(--warning)', marginBottom: 12, fontWeight: 700, fontSize: 15 }}>
+          <ICN.AlertCircle size={17} />
+          {overdue
+            ? 'Site suspended — payment overdue'
+            : `Pay to keep your site live · ${hoursLeft > 0 ? `${hoursLeft}h remaining` : 'due now'}`}
+        </div>
+
+        <p className="muted" style={{ margin: '0 0 18px', fontSize: 13 }}>
+          {overdue
+            ? 'Your Render service was suspended because no payment was received within 24 hours of deployment. Complete payment below to restore it.'
+            : `Your site will be automatically suspended if payment is not received within 24 hours of deployment. ${hoursLeft > 0 ? `You have ${hoursLeft} hour${hoursLeft === 1 ? '' : 's'} left.` : 'Pay now to avoid interruption.'}`}
+        </p>
+
+        <div className="kv" style={{ gridTemplateColumns: '160px 1fr', marginBottom: 18 }}>
+          <dt>Deployed at</dt><dd>{billing?.deployedAt ? new Date(billing.deployedAt).toLocaleString() : '—'}</dd>
+          <dt>Payment deadline</dt><dd>{billing?.deadlineAt ? new Date(billing.deadlineAt).toLocaleString() : '—'}</dd>
+          <dt>Grace period</dt><dd>{billing?.graceHours || 24} hours</dd>
+        </div>
+
+        {paypalError && (
+          <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12, padding: '8px 12px', background: 'var(--bg-deep)', borderRadius: 'var(--r-sm)', border: '1px solid var(--danger)' }}>
+            <ICN.AlertCircle size={13} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            {paypalError}
+          </div>
+        )}
+
+        <HostingPayPalButton
+          deploymentId={deploymentId}
+          onPaid={() => { setPaypalError(''); load(); }}
+          onError={(msg) => setPaypalError(msg)}
+        />
+      </div>
+
+      {fetchError && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{fetchError}</div>}
+    </div>
+  );
+}
+
+function HostingPayPalButton({ deploymentId, onPaid, onError }) {
+  const ref = useRef(null);
+  const checkoutRef = useRef(null);
+  const buttonsRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const setup = async () => {
+      try {
+        const settings = await getPayPalClientSettings();
+        if (!settings.configured || !settings.clientId) {
+          onError?.('PayPal is not configured on this server. Contact support to arrange payment.');
+          return;
+        }
+        await loadPayPalSdkForHosting(settings.clientId);
+        if (cancelled || !ref.current || !window.paypal?.Buttons) return;
+        ref.current.innerHTML = '';
+        const buttons = window.paypal.Buttons({
+          style: { layout: 'vertical', shape: 'rect', label: 'pay' },
+          createOrder: async () => {
+            const order = await createHostingPayPalOrder({ deploymentId });
+            checkoutRef.current = order.checkoutOrderId;
+            return order.providerOrderId;
+          },
+          onApprove: async (data) => {
+            const result = await captureHostingPayPalOrder({
+              checkoutOrderId: checkoutRef.current,
+              providerOrderId: data.orderID,
+            });
+            onPaid?.(result);
+          },
+          onError: (err) => onError?.(err?.message || 'PayPal checkout failed.'),
+          onCancel: () => onError?.('PayPal payment was cancelled.'),
+        });
+        buttonsRef.current = buttons;
+        await buttons.render(ref.current);
+      } catch (err) {
+        if (!cancelled) onError?.(err.message || 'PayPal checkout is unavailable.');
+      }
+    };
+    setup();
+    return () => {
+      cancelled = true;
+      buttonsRef.current?.close?.();
+      buttonsRef.current = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <div ref={ref} />;
+}
+
+function loadPayPalSdkForHosting(clientId) {
+  if (window.paypal?.Buttons) return Promise.resolve();
+  const existing = document.querySelector('script[data-glondia-paypal]');
+  if (existing) return new Promise((resolve, reject) => {
+    existing.addEventListener('load', resolve, { once: true });
+    existing.addEventListener('error', reject, { once: true });
+  });
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.dataset.glondiaPaypal = 'true';
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture`;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Could not load PayPal checkout.'));
+    document.head.appendChild(script);
+  });
 }

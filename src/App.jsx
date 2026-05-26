@@ -24,7 +24,7 @@ import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
 import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor } from './builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
-import { captureHostingPayPalOrder, notifyDataChanged, HOSTING_CHECKOUT_KEY } from './api';
+import { notifyDataChanged } from './api';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
@@ -109,28 +109,9 @@ export default function App() {
   useEffectApp(() => { applyAccent(t.accent); }, [t.accent]);
   useEffectApp(() => { applyFontPair(t.fontPair); }, [t.fontPair]);
 
-  // GitHub OAuth callback compatibility for previously connected URLs.
+  // GitHub OAuth callback — clear query params and show banner.
   useEffectApp(() => {
     const params = new URLSearchParams(window.location.search);
-    const pendingHosting = sessionStorage.getItem(HOSTING_CHECKOUT_KEY);
-    if (pendingHosting && params.get('glondia_checkout') === 'paypal' && params.get('token')) {
-      const { checkoutOrderId } = JSON.parse(pendingHosting);
-      sessionStorage.removeItem(HOSTING_CHECKOUT_KEY);
-      const clean = new URL(window.location.href);
-      clean.search = '';
-      window.history.replaceState({}, '', clean.toString());
-      setGithubBanner('PayPal approved. Starting Render deployment...');
-      captureHostingPayPalOrder({ checkoutOrderId, providerOrderId: params.get('token') })
-        .then((result) => {
-          const deploymentId = result?.deployment?.deploymentId;
-          setRoute(deploymentId ? { view: 'hosting-detail', params: { id: deploymentId } } : { view: 'hosting-list' });
-          setGithubBanner('Payment captured. Render deployment started.');
-          notifyDataChanged();
-        })
-        .catch((error) => setGithubBanner(error.message || 'Payment capture failed.'))
-        .finally(() => setTimeout(() => setGithubBanner(null), 7000));
-      return;
-    }
     if (params.get('github_connected') === '1') {
       const login = params.get('login') || '';
       setGithubBanner(login ? `GitHub connected as @${login}.` : 'GitHub connected successfully.');

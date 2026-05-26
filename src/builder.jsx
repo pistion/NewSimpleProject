@@ -14,10 +14,8 @@ import {
   importBuilderSiteFromGithub,
   parseGithubRepo,
   createRenderDeployment,
-  createHostingPayPalOrder,
   getRenderSettings,
   getStoredAuth,
-  HOSTING_CHECKOUT_KEY,
 } from './api';
 import { STOREFRONT_TEMPLATES, StorefrontPreview, StorefrontModal } from './storefront-templates';
 
@@ -1241,12 +1239,9 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
         outputDirectory: payload.outputDirectory,
         environment: 'production',
       };
-      const paypalReturnUrl = new URL(window.location.href);
-      paypalReturnUrl.searchParams.set('glondia_checkout', 'paypal');
-      const order = await createHostingPayPalOrder({ deployment: deploymentPayload, returnUrl: paypalReturnUrl.toString(), cancelUrl: window.location.href });
-      if (!order.approvalUrl) throw new Error('PayPal did not return an approval link.');
-      sessionStorage.setItem(HOSTING_CHECKOUT_KEY, JSON.stringify({ checkoutOrderId: order.checkoutOrderId }));
-      window.location.href = order.approvalUrl;
+      const deployment = await createRenderDeployment(deploymentPayload);
+      setDeployMsg('Deployment started. Pay in Hosting → Billing to keep the site live.');
+      navigate({ view: 'hosting-detail', params: { id: deployment.deploymentId } });
     } catch (error) {
       setDeployMsg(error.message || 'Publishing needs attention.');
     } finally {

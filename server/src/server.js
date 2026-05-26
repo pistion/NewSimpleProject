@@ -33,6 +33,7 @@ import environmentRoutes from './routes/environmentRoutes.js';
 import domainHostingRoutes from './routes/domainRoutes.js';
 import diskRoutes from './routes/diskRoutes.js';
 import deploymentService from './services/deploymentService.js';
+import renderApiService from './services/renderApiService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
 
 dotenv.config({ path: '.env.local' });
@@ -225,6 +226,37 @@ app.post('/api/payments/hosting/capture', providerApiGuard, async (req, res, nex
     res.json(await captureHostingPaymentOrder(req.body || {}, req.user || {}));
   } catch (error) {
     next(error);
+  }
+});
+
+// Payment status for an existing deployment — no auth required (billing tab reads this)
+app.get('/api/payments/hosting/status/:deploymentId', async (req, res, next) => {
+  try {
+    const { deploymentId } = req.params;
+    const GRACE_MS = Number(process.env.PAYMENT_GRACE_HOURS || 24) * 60 * 60 * 1000;
+    const store = await readHostingStore();
+    const dep = (store.deployments || []).find((d) => d.deploymentId === deploymentId || d.id === deploymentId);
+    const paidOrder = (store.checkoutOrders || []).find(
+      (o) => o.type === 'hosting_deployment' && o.status === 'paid' && o.metadata?.deploymentId === deploymentId
+    );
+    const deployedAt = dep?.createdAt ? new Date(dep.createdAt).getTime() : null;
+    const deadline = deployedAt ? deployedAt + GRACE_MS : null;
+    const msRemaining = deadline ? Math.max(0, deadline - Date.now()) : null;
+    res.json({
+      deploymentId,
+      paid: Boolean(paidOrder),
+      paymentStatus: dep?.paymentStatus || (paidOrder ? 'paid' : 'pending'),
+      graceHours: Number(process.env.PAYMENT_GRACE_HOURS || 24),
+      deployedAt: dep?.createdAt || null,
+      deadlineAt: deadline ? new Date(deadline).toISOString() : null,
+      hoursRemaining: msRemaining != null ? Math.ceil(msRemaining / (1000 * 3600)) : null,
+      minutesRemaining: msRemaining != null ? Math.ceil(msRemaining / 60000) : null,
+      overdue: deployedAt ? Date.now() > deployedAt + GRACE_MS : false,
+      paidAt: paidOrder?.updatedAt || null,
+      amounts: paidOrder?.amounts || null,
+    });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -1410,6 +1442,26 @@ async function captureDomainPaymentOrder(input = {}, user = {}) {
 }
 
 async function createHostingPaymentOrder(input = {}, user = {}) {
+  // New flow: pay for an already-running deployment from the Billing tab
+  if (input.deploymentId) {
+    const store = await readHostingStore();
+    const dep = (store.deployments || []).find((d) => d.deploymentId === input.deploymentId || d.id === input.deploymentId);
+    if (!dep) throw httpError('Deployment not found.', 404);
+    const existing = (store.checkoutOrders || []).find(
+      (o) => o.type === 'hosting_deployment' && o.status === 'paid' && o.metadata?.deploymentId === input.deploymentId
+    );
+    if (existing) throw httpError('This deployment has already been paid for.', 409);
+    const actualAmountCents = hostingActualCostCents(dep);
+    return createCheckoutOrder({
+      type: 'hosting_deployment',
+      user,
+      source: input,
+      lineItems: [{ type: 'render_deployment', name: dep.serviceName || 'Render hosting', actualAmountCents }],
+      metadata: { deploymentId: dep.deploymentId },
+    });
+  }
+
+  // Legacy flow: deploy-then-pay (kept for compat, no longer called from builder)
   const deploymentPayload = input.deployment || input;
   if (!(deploymentPayload.repoUrl || deploymentPayload.repositoryUrl || deploymentPayload.sourceReference || deploymentPayload.renderServiceId || deploymentPayload.serviceId)) {
     throw httpError('A repository or existing Render service is required before hosting checkout.', 400);
@@ -1433,6 +1485,19 @@ async function captureHostingPaymentOrder(input = {}, user = {}) {
   const capturePayload = await capturePayPalOrder(providerOrderId);
   const captureId = capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
 
+  // New path: payment for an already-deployed service from the Billing tab
+  if (order.metadata?.deploymentId) {
+    const result = { status: 'paid', checkoutOrderId: order.id, deploymentId: order.metadata.deploymentId, amounts: order.amounts };
+    await markCheckoutPaid(order.id, providerOrderId, result, user);
+    // Also stamp paymentStatus on the deployment record
+    await mutateHostingStore((store) => {
+      const dep = (store.deployments || []).find((d) => d.deploymentId === order.metadata.deploymentId);
+      if (dep) { dep.paymentStatus = 'paid'; dep.updatedAt = nowIso(); }
+    });
+    return result;
+  }
+
+  // Legacy path: deploy-then-pay (kept for compat)
   let deployment;
   try {
     deployment = await deploymentService.createRenderDeployment(order.metadata.deploymentPayload || {}, { userId: user.id || 'local-user' });
@@ -1726,11 +1791,54 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ── Payment enforcement job ───────────────────────────────────────────────────
+// Runs every 30 minutes. Suspends hosted sites whose payment window has expired.
+function startPaymentEnforcementJob() {
+  const GRACE_MS = Number(process.env.PAYMENT_GRACE_HOURS || 24) * 60 * 60 * 1000;
+  const INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
+
+  const runEnforcement = async () => {
+    try {
+      const store = await readHostingStore();
+      const paidIds = new Set(
+        (store.checkoutOrders || [])
+          .filter((o) => o.type === 'hosting_deployment' && o.status === 'paid' && o.metadata?.deploymentId)
+          .map((o) => o.metadata.deploymentId)
+      );
+
+      for (const dep of store.deployments || []) {
+        if (dep.paymentStatus === 'paid' || dep.paymentStatus === 'overdue_suspended') continue;
+        if (paidIds.has(dep.deploymentId)) continue;
+        if (!dep.createdAt) continue;
+        if (Date.now() < new Date(dep.createdAt).getTime() + GRACE_MS) continue;
+
+        // Grace period expired and no payment — suspend via Render
+        if (dep.renderServiceId) {
+          await renderApiService.suspendService(dep.renderServiceId).catch((err) => {
+            console.error(`[enforcement] Suspend failed for ${dep.deploymentId}:`, err.message);
+          });
+        }
+        await mutateHostingStore((s) => {
+          const d = (s.deployments || []).find((x) => x.deploymentId === dep.deploymentId);
+          if (d) { d.paymentStatus = 'overdue_suspended'; d.status = 'suspended'; d.updatedAt = nowIso(); }
+        });
+        console.log(`[enforcement] Suspended ${dep.serviceName || dep.deploymentId} — payment overdue after ${GRACE_MS / 3600000}h.`);
+      }
+    } catch (err) {
+      console.error('[enforcement] Job error:', err.message);
+    }
+  };
+
+  runEnforcement(); // immediate first pass on startup
+  return setInterval(runEnforcement, INTERVAL_MS);
+}
+
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[glondia] API + static server listening on port ${PORT}`);
     console.log(`[glondia] Serving Vite app from ${distDir}`);
   });
+  startPaymentEnforcementJob();
 }
 
 export default app;

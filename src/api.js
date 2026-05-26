@@ -261,6 +261,10 @@ export async function captureHostingPayPalOrder(input) {
   return result;
 }
 
+export async function getHostingPaymentStatus(deploymentId) {
+  return hostingRequest(`/payments/hosting/status/${encodeURIComponent(deploymentId)}`);
+}
+
 export async function listHostingEnvVars(deploymentId) {
   return hostingRequest(`/hosting/${deploymentId}/env`);
 }
