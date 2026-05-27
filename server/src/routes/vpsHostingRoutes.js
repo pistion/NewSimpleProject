@@ -148,6 +148,102 @@ router.post('/quote', wrap(async (req, res) => {
   });
 }));
 
+// ─── Direct deploy (usage-billed — no upfront payment) ────────────────────────
+// Deploy immediately; billing accrues hourly and is collected at period end.
+
+router.post('/services', wrap(async (req, res) => {
+  const dto   = req.body || {};
+  const actor = extractActor(req);
+
+  if (!dto.plan || !dto.region || dto.osId == null || !dto.label) {
+    return res.status(400).json({ error: { message: 'plan, region, osId and label are required.' } });
+  }
+
+  const plans = await vultr.listPlans();
+  const plan  = plans.find((p) => p.id === dto.plan);
+  if (!plan) return res.status(404).json({ error: { message: `Plan "${dto.plan}" not found.` } });
+
+  const { baseCents, mkupCents, totalCents, markup } = calcPricing(plan.monthly_cost);
+
+  // Resolve OS name for display
+  let osName = null;
+  try {
+    const osList = await vultr.listOs();
+    const osEntry = osList.find((o) => o.id === dto.osId);
+    osName = osEntry?.name ?? null;
+  } catch { /* non-critical */ }
+
+  // Register SSH key if a public key was pasted
+  let resolvedSshKeyId = dto.sshKeyId || undefined;
+  if (dto.sshPublicKey) {
+    try {
+      const keyName = dto.sshKeyName || `glondia-${dto.label}`;
+      const newKey  = await vultr.createSshKey(keyName, dto.sshPublicKey);
+      resolvedSshKeyId = newKey.id;
+    } catch (e) {
+      console.warn('[vps] SSH key creation failed, continuing without it:', e.message);
+    }
+  }
+
+  // Provision the Vultr instance immediately
+  const now = new Date().toISOString();
+  let instance;
+  try {
+    instance = await vultr.createInstance({
+      region:   dto.region,
+      plan:     dto.plan,
+      os_id:    dto.osId,
+      label:    dto.label,
+      hostname: dto.hostname ?? dto.label,
+      ...(resolvedSshKeyId   ? { sshkey_id: [resolvedSshKeyId] } : {}),
+      ...(dto.userData        ? { user_data: Buffer.from(dto.userData).toString('base64') } : {}),
+      ...(dto.enableIpv6      ? { enable_ipv6: true } : {}),
+      ...(dto.backups         ? { backups: 'enabled' } : {}),
+      ...(dto.ddosProtection  ? { ddos_protection: true } : {}),
+      tags: [`org:${actor.organizationId}`],
+    });
+  } catch (err) {
+    console.error('[vps] Vultr createInstance failed:', err.message);
+    return res.status(502).json({ error: { message: `Server provisioning failed: ${err.message}` } });
+  }
+
+  // Persist the VPS record in the file store
+  const record = {
+    id:                 newId(),
+    organizationId:     actor.organizationId,
+    createdByUserId:    actor.userId,
+    providerInstanceId: instance.id,
+    label:              dto.label,
+    hostname:           dto.hostname ?? dto.label,
+    region:             dto.region,
+    plan:               dto.plan,
+    osId:               dto.osId,
+    osName,
+    status:             instance.status ?? 'pending',
+    mainIp:             instance.main_ip ?? null,
+    vcpuCount:          instance.vcpu_count ?? null,
+    ramMb:              instance.ram ?? null,
+    diskGb:             instance.disk ?? null,
+    monthlyCostCents:   baseCents,
+    markupPercent:      markup,
+    markupAmountCents:  mkupCents,
+    totalPriceCents:    totalCents,
+    currency:           'USD',
+    paymentStatus:      'active',
+    metadata:           JSON.stringify({ billingModel: 'usage', vultrId: instance.id }),
+    createdAt:          now,
+    updatedAt:          now,
+  };
+
+  await mutateStore((s) => {
+    s.services.push(record);
+    logAction(s, record.id, actor.organizationId, actor.userId, 'create', 'success', dto);
+  });
+
+  console.log(`[vps] Deployed ${record.id} — Vultr instance ${instance.id} in ${dto.region}`);
+  res.status(201).json(serializeVps(record));
+}));
+
 // ─── PayPal — create order ──────────────────────────────────────────────────────
 
 router.post('/paypal/create-order', wrap(async (req, res) => {
