@@ -448,24 +448,44 @@ export class VpsHostingService {
 
   async destroyService(id: string, actor: ActorContext) {
     const record = await this.requireOwned(id, actor);
-    const provisionable = record.providerInstanceId !== 'pending' && record.providerInstanceId !== 'FAILED';
 
-    if (provisionable) {
+    // ── Step 1: Cancel the BullMQ provision job if it hasn't started yet ─────
+    // This prevents the worker from creating a Vultr instance for a server
+    // the user already asked to destroy.
+    if (record.providerInstanceId === 'pending') {
+      const cancelled = await this.vpsQueue.cancelProvisionJob(id);
+      this.logger.log(`VPS ${id}: provision job ${cancelled ? 'cancelled' : 'already active or not found'}`);
+    }
+
+    // ── Step 2: Delete from Vultr if a real instance ID is known ─────────────
+    // We attempt the delete even if the status is still 'provisioning' — the
+    // worker may have just created the instance and not yet updated the DB.
+    // If providerInstanceId is still 'pending', the worker either hasn't run
+    // yet (job cancelled above) or is in the SSH-key registration phase
+    // (before createInstance) — nothing to delete on Vultr yet.
+    const hasVultrId = record.providerInstanceId !== 'pending' && record.providerInstanceId !== 'FAILED';
+    if (hasVultrId) {
       try {
         await this.vultr.deleteInstance(record.providerInstanceId);
+        this.logger.log(`VPS ${id}: Vultr instance ${record.providerInstanceId} deleted`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        // 404 = already gone on Vultr side — that's fine, continue with DB cleanup
-        // Any other error: log it but still soft-delete the DB record so the UI stays consistent
-        this.logger.warn(`Vultr deleteInstance for ${record.providerInstanceId} failed (continuing DB cleanup): ${msg}`);
+        // 404 = already gone on Vultr — that's fine, continue with DB cleanup.
+        // All other errors are logged; we still soft-delete so the UI stays consistent.
+        this.logger.warn(`VPS ${id}: Vultr deleteInstance failed (proceeding with DB cleanup): ${msg}`);
       }
     }
 
+    // ── Step 3: Soft-delete the DB record — always runs ──────────────────────
     await this.prisma.vpsService.update({
       where: { id },
       data: { deletedAt: new Date(), status: 'destroyed' },
     });
-    await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
+    await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {
+      providerInstanceId: record.providerInstanceId,
+    });
+
+    this.logger.log(`VPS ${id} destroyed by user ${actor.userId}`);
     return { ok: true };
   }
 

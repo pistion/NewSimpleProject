@@ -921,19 +921,22 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
   }, [server?.status]);
 
   const act = async (key, fn) => {
-    setError(''); setBusy(key);
+    setError('');
+    setBusy(key);
     try {
-      // Optimistic destroy: navigate immediately, confirm with API in background
+      // Always call the API first and wait for confirmation.
+      // For destroy: the "Destroying…" label is shown while we wait.
+      // Only navigate after the server confirms deletion — that way the
+      // list re-fetch happens AFTER the DB soft-delete is committed.
+      await fn();
       if (key === 'destroy') {
+        if (onDestroyed) onDestroyed(); // bump parent refreshKey AFTER API succeeds
         navigate({ view: 'vps-hosting' });
-        if (onDestroyed) onDestroyed();
-        await fn(); // fire-and-forget from UX perspective; errors logged server-side
         return;
       }
-      await fn();
-      load(false); // silent refresh after other actions
+      load(false); // silent refresh for start / halt / reboot
     } catch (err) {
-      setError(err.message || `${key} failed.`);
+      setError(err.message || `${key} failed. Please try again.`);
     } finally {
       setBusy('');
       setConfirm('');

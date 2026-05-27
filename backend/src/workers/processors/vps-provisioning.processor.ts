@@ -104,6 +104,24 @@ export class VpsProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
         tags: [`org:${organizationId}`]
       });
 
+      // ── Race-condition guard ───────────────────────────────────────────────
+      // The user may have clicked "Destroy" while createInstance was in-flight
+      // (Vultr calls can take 1–3 s). Re-read the record to see if it was
+      // soft-deleted during that window. If so, delete the Vultr instance
+      // immediately and bail out — never write the instance ID to the DB.
+      const freshRecord = await this.prisma.vpsService.findFirst({
+        where: { id: vpsServiceId },
+        select: { deletedAt: true }
+      });
+      if (freshRecord?.deletedAt) {
+        this.logger.warn(
+          `VPS ${vpsServiceId} was destroyed while provisioning was in-flight — ` +
+          `cleaning up orphan Vultr instance ${instance.id}`
+        );
+        try { await this.vultr.deleteInstance(instance.id); } catch { /* best-effort */ }
+        return;
+      }
+
       await this.prisma.vpsService.update({
         where: { id: vpsServiceId },
         data: {

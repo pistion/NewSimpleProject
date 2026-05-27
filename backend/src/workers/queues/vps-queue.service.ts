@@ -67,6 +67,23 @@ export class VpsQueueService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Attempts to remove a pending/delayed provision job before it starts.
+   * Returns true if the job was found and removed, false if it was already
+   * active/completed/not found (caller handles the active-worker race separately).
+   */
+  async cancelProvisionJob(vpsServiceId: string): Promise<boolean> {
+    const jobId = `${VPS_PROVISION_JOB}:${vpsServiceId}`;
+    const job = await this.queue.getJob(jobId);
+    if (!job) return false;
+    const state = await job.getState();
+    if (state === 'waiting' || state === 'delayed') {
+      await job.remove();
+      return true;
+    }
+    return false; // active — worker already running; handled by processor guard
+  }
+
   async onModuleDestroy() {
     await this.queue.close();
     this.connection.disconnect();
