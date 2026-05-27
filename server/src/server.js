@@ -34,6 +34,7 @@ import environmentRoutes from './routes/environmentRoutes.js';
 import domainHostingRoutes from './routes/domainRoutes.js';
 import diskRoutes from './routes/diskRoutes.js';
 import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
+import { prisma } from './services/db.js';
 import deploymentService from './services/deploymentService.js';
 import renderApiService from './services/renderApiService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
@@ -120,8 +121,14 @@ app.use(requestId);
 app.use(responseHelper);
 
 // ── Health check (must come before API and static routes) ───────────────────
-app.get('/healthz', (req, res) => {
-  res.type('text/plain').send('ok');
+app.get('/healthz', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.type('text/plain').send('ok');
+  } catch (err) {
+    console.error('[healthz] DB check failed:', err.message);
+    res.status(503).type('text/plain').send(`db_error: ${err.message}`);
+  }
 });
 
 // ── Landing page — static assets + root HTML ─────────────────────────────────
@@ -1958,6 +1965,12 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[glondia] API + static server listening on port ${PORT}`);
     console.log(`[glondia] Serving Vite app from ${distDir}`);
+    console.log(`[glondia] DATABASE_URL: ${(process.env.DATABASE_URL || '(not set)').replace(/:[^:@]+@/, ':***@')}`);
+
+    // Verify DB is reachable on startup — logs clearly if the file can't be opened.
+    prisma.$connect()
+      .then(() => console.log('[glondia] Database connection established.'))
+      .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
   startPaymentEnforcementJob();
 }
