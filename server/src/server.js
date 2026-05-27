@@ -33,6 +33,7 @@ import hostingRoutes from './routes/hostingRoutes.js';
 import environmentRoutes from './routes/environmentRoutes.js';
 import domainHostingRoutes from './routes/domainRoutes.js';
 import diskRoutes from './routes/diskRoutes.js';
+import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import deploymentService from './services/deploymentService.js';
 import renderApiService from './services/renderApiService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
@@ -527,6 +528,9 @@ app.use('/api/v1/workspaces/:workspaceId/analytics', analyticsRoutes);
 app.use('/api/v1/workspaces/:workspaceId/billing', billingRoutes);
 app.use('/api/v1/workspaces/:workspaceId/settings', settingsRoutes);
 app.use('/api/v1/workspaces/:workspaceId/events', eventStreamRoutes);
+
+// VPS hosting — Vultr-backed cloud servers
+app.use('/api/v1/vps-hosting', vpsHostingRoutes);
 
 // Render-powered customer hosting surface used by the site builder and hosting dashboard.
 app.use('/api/deployments', deploymentRoutes);

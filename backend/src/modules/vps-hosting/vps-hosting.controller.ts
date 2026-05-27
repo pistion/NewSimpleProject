@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../common/decorators/public.decorator';
 import { RequestWithContext } from '../../common/types/request-with-context';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CaptureVpsPayPalDto } from './dto/capture-paypal.dto';
@@ -20,30 +21,35 @@ function actor(req: RequestWithContext): { userId: string; organizationId: strin
 export class VpsHostingController {
   constructor(private readonly vpsHosting: VpsHostingService) {}
 
+  @Public()
   @Get('settings')
   @ApiOkResponse({ description: 'Returns Vultr and PayPal configuration status.' })
   getSettings() {
     return this.vpsHosting.getSettings();
   }
 
+  @Public()
   @Get('regions')
   @ApiOkResponse({ description: 'Lists Vultr regions.' })
   listRegions() {
     return this.vpsHosting.listRegions();
   }
 
+  @Public()
   @Get('plans')
   @ApiOkResponse({ description: 'Lists Vultr plans.' })
   listPlans(@Query('type') type?: string) {
     return this.vpsHosting.listPlans(type);
   }
 
+  @Public()
   @Get('os')
   @ApiOkResponse({ description: 'Lists Vultr operating systems.' })
   listOs() {
     return this.vpsHosting.listOs();
   }
 
+  @Public()
   @Post('quote')
   @ApiOkResponse({ description: 'Returns pricing quote with markup for a VPS configuration.' })
   getQuote(@Body() dto: VpsQuoteDto) {

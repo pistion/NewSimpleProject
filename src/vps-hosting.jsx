@@ -17,6 +17,8 @@ import {
   startVpsService,
 } from './api/vultr.js';
 
+const fmtCents = (cents) => cents != null ? (cents / 100).toFixed(2) : '—';
+
 // ─── Plan type catalogue ───────────────────────────────────────────────────────
 
 const PLAN_TYPES = [
@@ -237,7 +239,7 @@ export function VpsHostingList({ navigate }) {
                       <td className="mono">{s.mainIp || '—'}</td>
                       <td><StatusBadge value={s.status} /></td>
                       <td className="mono" style={{ fontWeight: 600 }}>
-                        ${((s.totalPriceCents ?? 0) / 100).toFixed(2)}
+                        ${fmtCents(s.totalPriceCents)}
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <ICN.ArrowRight size={13} style={{ color: 'var(--text-faint)' }} />
@@ -300,10 +302,13 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
       })
       .catch((err) => setError(err.message))
       .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      alive = false;
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
   }, []);
 
-  // Fetch quote when reaching review step
+  // Fetch quote when reaching review step; re-fetch if config changed after going back
   useEffect(() => {
     if (step !== 5 || !form.region || !form.plan || !form.osId) return;
     setQL(true);
@@ -311,7 +316,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
       .then(setQuote)
       .catch((err) => setError(err.message))
       .finally(() => setQL(false));
-  }, [step]);
+  }, [step, form.region, form.plan, form.osId]);
 
   const handlePay = async () => {
     setError('');
@@ -341,6 +346,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
               },
             });
             clearInterval(pollRef.current);
+            pollRef.current = null;
             navigate({ view: 'vps-detail', params: { id: vps.id } });
           } catch { /* not captured yet */ }
         }, 3000);
@@ -886,7 +892,7 @@ export function VpsDetail({ id, navigate }) {
                 {server.vcpuCount && <tr><td className="label">vCPU</td><td>{server.vcpuCount} cores</td></tr>}
                 {server.ramMb     && <tr><td className="label">RAM</td><td>{(server.ramMb / 1024).toFixed(0)} GB</td></tr>}
                 {server.diskGb    && <tr><td className="label">Storage</td><td>{server.diskGb} GB SSD</td></tr>}
-                <tr><td className="label">OS</td><td className="mono">ID {server.osId}</td></tr>
+                <tr><td className="label">OS</td><td className="mono">{server.osName || `ID ${server.osId}`}</td></tr>
                 <tr><td className="label">Created</td>
                   <td>{new Date(server.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td></tr>
               </tbody>
@@ -922,17 +928,17 @@ export function VpsDetail({ id, navigate }) {
             <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                 <span style={{ color: 'var(--text-muted)' }}>Server cost</span>
-                <span className="mono">${(server.monthlyCostCents / 100).toFixed(2)}/mo</span>
+                <span className="mono">${fmtCents(server.monthlyCostCents)}/mo</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Platform fee ({server.markupPercent}%)</span>
-                <span className="mono">${(server.markupAmountCents / 100).toFixed(2)}/mo</span>
+                <span style={{ color: 'var(--text-muted)' }}>Platform fee ({server.markupPercent ?? 0}%)</span>
+                <span className="mono">${fmtCents(server.markupAmountCents)}/mo</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700,
                 borderTop: '1px solid var(--border)', paddingTop: 10, fontSize: 15 }}>
                 <span>Total / month</span>
                 <span className="mono" style={{ color: 'var(--accent)' }}>
-                  ${(server.totalPriceCents / 100).toFixed(2)}
+                  ${fmtCents(server.totalPriceCents)}
                 </span>
               </div>
             </div>

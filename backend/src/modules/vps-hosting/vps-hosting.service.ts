@@ -235,6 +235,14 @@ export class VpsHostingService {
     const markupCents     = Math.round(baseCostCents * (markup / 100));
     const totalCents      = baseCostCents + markupCents;
 
+    // Resolve OS name for display
+    let osName: string | null = null;
+    try {
+      const osList = await this.vultr.listOperatingSystems();
+      const osEntry = osList.find((o: { id: number }) => o.id === provisionDetails.osId);
+      osName = (osEntry as { name?: string } | undefined)?.name ?? null;
+    } catch { /* non-critical */ }
+
     // Register SSH key if a public key was pasted
     let resolvedSshKeyId = provisionDetails.sshKeyId;
     if (provisionDetails.sshPublicKey) {
@@ -277,6 +285,7 @@ export class VpsHostingService {
           region:            provisionDetails.region,
           plan:              provisionDetails.plan,
           osId:              provisionDetails.osId,
+          osName,
           status:            'error',
           monthlyCostCents:  baseCostCents,
           markupPercent:     markup,
@@ -305,6 +314,7 @@ export class VpsHostingService {
         region:            provisionDetails.region,
         plan:              provisionDetails.plan,
         osId:              provisionDetails.osId,
+        osName,
         status:            vultrInstance.status ?? 'pending',
         mainIp:            vultrInstance.main_ip,
         vcpuCount:         vultrInstance.vcpu_count,
@@ -382,11 +392,23 @@ export class VpsHostingService {
   async destroyService(id: string, actor: ActorContext) {
     const record = await this.requireOwned(id, actor);
     await this.vultr.deleteInstance(record.providerInstanceId);
-    await this.prisma.vpsService.update({
-      where: { id },
-      data: { deletedAt: new Date(), status: 'destroyed' },
-    });
-    await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
+    try {
+      await this.prisma.vpsService.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: 'destroyed' },
+      });
+      await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
+    } catch (dbErr: unknown) {
+      const msg = dbErr instanceof Error ? dbErr.message : 'DB update failed after destroy';
+      this.logger.error(`Vultr instance ${record.providerInstanceId} destroyed but DB update failed: ${msg}`);
+      try {
+        await this.prisma.vpsService.update({
+          where: { id },
+          data: { status: 'error', metadata: JSON.stringify({ destroyError: msg }) },
+        });
+      } catch { /* best-effort */ }
+      throw dbErr;
+    }
     return { ok: true };
   }
 
@@ -412,6 +434,7 @@ export class VpsHostingService {
     region: string;
     plan: string;
     osId: number;
+    osName?: string | null;
     status: string;
     mainIp: string | null;
     vcpuCount: number | null;
@@ -435,6 +458,7 @@ export class VpsHostingService {
       region:               record.region,
       plan:                 record.plan,
       osId:                 record.osId,
+      osName:               record.osName ?? null,
       status:               record.status,
       mainIp:               record.mainIp,
       vcpuCount:            record.vcpuCount,

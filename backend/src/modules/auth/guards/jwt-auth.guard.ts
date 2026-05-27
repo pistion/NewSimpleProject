@@ -1,6 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
 import { PrismaService } from '../../../database/prisma.service';
 import { RequestWithContext } from '../../../common/types/request-with-context';
 
@@ -14,12 +16,19 @@ interface AccessTokenPayload {
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
+    private readonly reflector: Reflector,
     private readonly config: ConfigService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService
   ) {}
 
   async canActivate(context: ExecutionContext) {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest<RequestWithContext>();
     const token = this.getBearerToken(request);
 
