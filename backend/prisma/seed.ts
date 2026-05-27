@@ -212,8 +212,8 @@ async function main() {
         priceMonthlyCents: plan.priceMonthlyCents,
         priceYearlyCents: plan.priceYearlyCents,
         isActive: plan.isActive,
-        limits: JSON.stringify(plan.limits),
-        features: JSON.stringify(plan.features)
+        limits: plan.limits,
+        features: plan.features
       },
       create: {
         key: plan.key,
@@ -222,8 +222,8 @@ async function main() {
         priceMonthlyCents: plan.priceMonthlyCents,
         priceYearlyCents: plan.priceYearlyCents,
         isActive: plan.isActive,
-        limits: JSON.stringify(plan.limits),
-        features: JSON.stringify(plan.features)
+        limits: plan.limits,
+        features: plan.features
       }
     });
   }
@@ -296,13 +296,27 @@ async function main() {
     await prisma.template.createMany({
       data: templateSeeds.map((template) => ({
         ...template,
-        contentJson: JSON.stringify(template.contentJson)
+        contentJson: template.contentJson
       }))
     });
     console.log(`Seeded ${templateSeeds.length} templates.`);
   } else {
     console.log(`Templates already seeded (${templateCount} rows), skipping.`);
   }
+
+  // Seed default pricing rules
+  const pricingRules = [
+    { scope: 'vps_markup',    key: 'default', value: '20', currency: 'USD' },
+    { scope: 'domain_markup', key: 'default', value: '15', currency: 'USD' },
+  ];
+  for (const rule of pricingRules) {
+    await prisma.pricingRule.upsert({
+      where: { scope_key: { scope: rule.scope, key: rule.key } },
+      update: { value: rule.value, isActive: true },
+      create: { scope: rule.scope, key: rule.key, value: rule.value, currency: rule.currency, isActive: true }
+    });
+  }
+  console.log('Seeded default pricing rules.');
 }
 
 function toTitle(key: string) {

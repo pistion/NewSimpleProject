@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DnsRecord } from '@prisma/client';
 import { DnsRecordStatus, DnsRecordType } from '../../common/prisma-enums';
 import { DomainsRepository } from '../domains/domains.repository';
+import { RegistrarQueueService } from '../../workers/queues/registrar-queue.service';
 import { CheckAvailabilityDto } from './dto/check-availability.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { RegisterDomainDto } from './dto/register-domain.dto';
@@ -34,6 +35,7 @@ export class RegistrarService {
   constructor(
     private readonly spaceship: SpaceshipService,
     private readonly domainsRepo: DomainsRepository,
+    private readonly registrarQueue: RegistrarQueueService,
     private readonly config: ConfigService
   ) {}
 
@@ -62,37 +64,40 @@ export class RegistrarService {
       );
     }
 
-    // Kick off async registration with Spaceship
-    const op = await this.spaceship.registerDomain(hostname, {
-      autoRenew: dto.autoRenew ?? true,
-      years: dto.years ?? 1,
-      privacyProtection: {
-        level: dto.privacyProtection !== false ? 'high' : 'public',
-        userConsent: true,
-      },
-      contacts: { registrant: contactId },
-    });
-
-    // Create a local domain record in pending_verification state so the user
-    // can see it immediately while Spaceship processes asynchronously.
+    // Create the domain record immediately so the user sees it right away
     const existing = await this.domainsRepo.findDomainByHostnameAny(hostname);
-    if (!existing || existing.deletedAt !== null) {
-      const token = `glondia-registrar=${Date.now()}`;
-      await this.domainsRepo.createDomain({
+    let domainRecord = existing && !existing.deletedAt ? existing : null;
+
+    if (!domainRecord) {
+      domainRecord = await this.domainsRepo.createDomain({
         organizationId: context.organizationId,
         projectId: dto.projectId ?? null,
         hostname,
         rootDomain: hostname,
-        verificationToken: token,
+        verificationToken: `glondia-registrar=${Date.now()}`,
         createdByUserId: context.userId,
       });
     }
 
+    // Enqueue the Spaceship API call — does not block the HTTP response
+    await this.registrarQueue.enqueueRegistration({
+      version: 1,
+      domainId: domainRecord.id,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      hostname,
+      contactId,
+      years: dto.years ?? 1,
+      autoRenew: dto.autoRenew ?? true,
+      privacyProtection: dto.privacyProtection !== false,
+      projectId: dto.projectId ?? null,
+    });
+
     return {
-      operationId: op.operationId,
-      status: op.status,
+      domainId: domainRecord.id,
+      status: 'queued',
       domain: hostname,
-      message: 'Registration submitted — check operation status for completion.',
+      message: 'Registration queued — you will receive a status update when complete.',
     };
   }
 

@@ -4,13 +4,22 @@ import helmet from 'helmet';
 import { ClassSerializerInterceptor, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+
+  // Use Winston as the NestJS logger
+  const winstonLogger = app.get(WINSTON_MODULE_NEST_PROVIDER);
+  app.useLogger(winstonLogger);
+
+  // Enable WebSocket adapter (needed for StatusGateway)
+  app.useWebSocketAdapter(new IoAdapter(app));
   const config = app.get(ConfigService);
   const reflector = app.get(Reflector);
   const port = config.getOrThrow<number>('app.port');

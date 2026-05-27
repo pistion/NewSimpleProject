@@ -5,17 +5,26 @@ import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
+  const configValues: Record<string, unknown> = {
+    JWT_ACCESS_SECRET: 'test_access_secret_value',
+    ACCESS_TOKEN_TTL_MINUTES: 15,
+    REFRESH_TOKEN_TTL_DAYS: 30
+  };
+
   const config = {
-    getOrThrow: (key: string) => ({
-      JWT_ACCESS_SECRET: 'test_access_secret_value',
-      ACCESS_TOKEN_TTL_MINUTES: 15,
-      REFRESH_TOKEN_TTL_DAYS: 30
-    })[key]
+    getOrThrow: (key: string) => configValues[key],
+    get: (key: string, fallback?: unknown) => configValues[key] ?? fallback,
   } as ConfigService;
 
   const jwtService = {
     sign: jest.fn().mockReturnValue('access.jwt.token')
   } as unknown as JwtService;
+
+  const redis = {
+    blacklistSession: jest.fn().mockResolvedValue(undefined),
+    isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+    isSessionBlacklisted: jest.fn().mockResolvedValue(false),
+  } as never;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -52,7 +61,7 @@ describe('AuthService', () => {
       }))
     };
 
-    const service = new AuthService(config, jwtService, prisma as never);
+    const service = new AuthService(config, jwtService, prisma as never, redis);
     const result = await service.register({
       name: 'Matilda Karowal',
       email: 'MATILDA@GLONDIA.APP',
@@ -72,7 +81,7 @@ describe('AuthService', () => {
       user: {
         findUnique: jest.fn().mockResolvedValue({ id: 'user_1' })
       }
-    } as never);
+    } as never, redis);
 
     await expect(service.register({
       name: 'Existing User',
@@ -110,7 +119,7 @@ describe('AuthService', () => {
       }
     };
 
-    const service = new AuthService(config, jwtService, prisma as never);
+    const service = new AuthService(config, jwtService, prisma as never, redis);
     const result = await service.refresh({
       sessionId: records.session.id,
       refreshToken: 'current-refresh-token-value'
@@ -141,7 +150,7 @@ describe('AuthService', () => {
       $transaction: jest.fn().mockResolvedValue([])
     };
 
-    const service = new AuthService(config, jwtService, prisma as never);
+    const service = new AuthService(config, jwtService, prisma as never, redis);
     const result = await service.logout({
       sessionId: records.session.id,
       refreshToken: 'current-refresh-token-value'

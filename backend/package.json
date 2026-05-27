@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/src/main.js",
     "start:dev": "nest start --watch",
-    "build": "prisma generate && prisma db push --accept-data-loss && nest build",
+    "build": "prisma generate && prisma migrate deploy && nest build",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint \"src/**/*.ts\"",
@@ -28,8 +28,10 @@
     "@nestjs/core": "^10.4.15",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^10.4.15",
+    "@nestjs/platform-socket.io": "^11.1.24",
     "@nestjs/swagger": "^8.1.0",
     "@nestjs/throttler": "^6.5.0",
+    "@nestjs/websockets": "^11.1.24",
     "@prisma/client": "^5.22.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
@@ -39,9 +41,12 @@
     "compression": "^1.7.5",
     "helmet": "^8.0.0",
     "ioredis": "^5.10.1",
+    "nest-winston": "^1.10.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3",
     "stripe": "^16.12.0",
+    "winston": "^3.19.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

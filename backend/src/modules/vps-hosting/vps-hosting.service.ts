@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -9,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { VultrService } from '../../integrations/vultr/vultr.service';
+import { VpsQueueService } from '../../workers/queues/vps-queue.service';
+import { PricingService } from '../pricing/pricing.service';
 import { CreateVpsDto } from './dto/create-vps.dto';
 import { VpsQuoteDto } from './dto/vps-quote.dto';
 import { CaptureVpsPayPalDto } from './dto/capture-paypal.dto';
@@ -41,7 +42,6 @@ export class VpsHostingService {
   private readonly paypalClientId: string;
   private readonly paypalClientSecret: string;
   private readonly paypalEnabled: boolean;
-  private readonly markupPercent: number;
   private readonly frontendUrl: string;
 
   private cachedPaypalToken: string | null = null;
@@ -50,13 +50,14 @@ export class VpsHostingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly vultr: VultrService,
+    private readonly vpsQueue: VpsQueueService,
+    private readonly pricing: PricingService,
     private readonly config: ConfigService,
   ) {
     this.paypalClientId     = this.config.get<string>('PAYPAL_CLIENT_ID', '');
     this.paypalClientSecret = this.config.get<string>('PAYPAL_CLIENT_SECRET', '');
     this.paypalEnabled      = Boolean(this.paypalClientId && this.paypalClientSecret);
     this.frontendUrl        = this.config.get<string>('FRONTEND_URL', 'http://localhost:5173');
-    this.markupPercent      = this.config.get<number>('PLATFORM_MARKUP_PERCENT', 30);
 
     const sandbox = this.config.get<string>('PAYPAL_SANDBOX', 'true') !== 'false';
     this.paypalBaseUrl = sandbox ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
@@ -69,7 +70,7 @@ export class VpsHostingService {
     return {
       vultrConfigured:  this.vultr.isConfigured(),
       paypalConfigured: this.paypalEnabled,
-      markupPercent:    this.markupPercent,
+      markupPercent:    this.pricing.getVpsMarkup(),
       sandbox,
     };
   }
@@ -85,20 +86,20 @@ export class VpsHostingService {
     const plan = plans.find((p: { id: string }) => p.id === dto.plan);
     if (!plan) throw new NotFoundException(`Plan "${dto.plan}" not found.`);
 
-    const markup = this.markupPercent;
-    const baseCostCents    = Math.round(plan.monthly_cost * 100);
-    const markupCents      = Math.round(baseCostCents * (markup / 100));
-    const totalCents       = baseCostCents + markupCents;
+    const markup = this.pricing.getVpsMarkup();
+    const baseCostCents  = Math.round(plan.monthly_cost * 100);
+    const markupCents    = Math.round(baseCostCents * (markup / 100));
+    const totalCents     = baseCostCents + markupCents;
 
     return {
       plan:              plan.id,
       region:            dto.region,
       osId:              dto.osId,
-      baseMonthlyCostCents:    baseCostCents,
-      markupPercent:           markup,
-      markupAmountCents:       markupCents,
-      totalMonthlyCostCents:   totalCents,
-      currency:                'USD',
+      baseMonthlyCostCents:  baseCostCents,
+      markupPercent:         markup,
+      markupAmountCents:     markupCents,
+      totalMonthlyCostCents: totalCents,
+      currency:              'USD',
       breakdown: {
         vpsPrice:    `$${(baseCostCents / 100).toFixed(2)}`,
         platformFee: `$${(markupCents / 100).toFixed(2)}`,
@@ -110,46 +111,38 @@ export class VpsHostingService {
   // ─── PayPal order ─────────────────────────────────────────────────────────────
 
   async createPayPalOrder(dto: CreateVpsDto, actor: ActorContext) {
-    if (!this.paypalEnabled) {
-      throw new BadRequestException('PayPal is not configured. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET.');
-    }
+    if (!this.paypalEnabled) throw new BadRequestException('PayPal is not configured.');
 
     const quote = await this.getQuote({ region: dto.region, plan: dto.plan, osId: dto.osId });
     const totalAmount = (quote.totalMonthlyCostCents / 100).toFixed(2);
-
     const token = await this.getPayPalAccessToken();
+
     const orderBody = {
       intent: 'CAPTURE',
-      purchase_units: [
-        {
-          reference_id: `vps-${actor.organizationId}-${Date.now()}`,
-          description: `Glondia VPS – ${dto.label} (${dto.region} / ${dto.plan})`,
-          amount: {
-            currency_code: 'USD',
-            value: totalAmount,
-            breakdown: {
-              item_total: { currency_code: 'USD', value: totalAmount },
-            },
-          },
-          items: [
-            {
-              name: `VPS Server — ${dto.label}`,
-              description: `Region: ${dto.region} | Plan: ${dto.plan}`,
-              quantity: '1',
-              unit_amount: { currency_code: 'USD', value: totalAmount },
-              category: 'DIGITAL_GOODS',
-            },
-          ],
+      purchase_units: [{
+        reference_id: `vps-${actor.organizationId}-${Date.now()}`,
+        description: `Glondia VPS – ${dto.label} (${dto.region} / ${dto.plan})`,
+        amount: {
+          currency_code: 'USD',
+          value: totalAmount,
+          breakdown: { item_total: { currency_code: 'USD', value: totalAmount } }
         },
-      ],
+        items: [{
+          name: `VPS Server — ${dto.label}`,
+          description: `Region: ${dto.region} | Plan: ${dto.plan}`,
+          quantity: '1',
+          unit_amount: { currency_code: 'USD', value: totalAmount },
+          category: 'DIGITAL_GOODS'
+        }]
+      }],
       application_context: {
         brand_name: 'Glondia',
         locale: 'en-US',
         shipping_preference: 'NO_SHIPPING',
         user_action: 'PAY_NOW',
         return_url: `${this.frontendUrl}/dashboard/hosting?vps=success`,
-        cancel_url: `${this.frontendUrl}/dashboard/hosting?vps=cancelled`,
-      },
+        cancel_url: `${this.frontendUrl}/dashboard/hosting?vps=cancelled`
+      }
     };
 
     const res = await fetch(`${this.paypalBaseUrl}/v2/checkout/orders`, {
@@ -157,9 +150,9 @@ export class VpsHostingService {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=representation',
+        Prefer: 'return=representation'
       },
-      body: JSON.stringify(orderBody),
+      body: JSON.stringify(orderBody)
     });
 
     if (!res.ok) {
@@ -170,45 +163,29 @@ export class VpsHostingService {
 
     const order = await res.json() as PayPalOrderResponse;
     const approvalUrl = order.links.find((l) => l.rel === 'approve')?.href;
-
     this.logger.log(`PayPal VPS order created: ${order.id} for org ${actor.organizationId}`);
 
-    return {
-      orderId:     order.id,
-      approvalUrl,
-      quote,
-      provisionDetails: dto,
-    };
+    return { orderId: order.id, approvalUrl, quote, provisionDetails: dto };
   }
 
-  // ─── PayPal capture (idempotent) and provision ────────────────────────────────
+  // ─── PayPal capture → record + enqueue (idempotent) ──────────────────────────
 
   async capturePayPalOrder(dto: CaptureVpsPayPalDto, provisionDetails: CreateVpsDto, actor: ActorContext) {
-    if (!this.paypalEnabled) {
-      throw new BadRequestException('PayPal is not configured.');
-    }
+    if (!this.paypalEnabled) throw new BadRequestException('PayPal is not configured.');
 
-    // Idempotency — check if this order was already captured and a VPS already created
+    // Idempotency guard
     const existing = await this.prisma.vpsService.findFirst({
-      where: {
-        organizationId: actor.organizationId,
-        paypalOrderId:  dto.orderId,
-        deletedAt:      null,
-      },
+      where: { organizationId: actor.organizationId, paypalOrderId: dto.orderId, deletedAt: null }
     });
     if (existing) {
       this.logger.log(`Duplicate capture for order ${dto.orderId} — returning existing VPS ${existing.id}`);
       return this.serializeVps(existing);
     }
 
-    // Capture the PayPal order
     const token = await this.getPayPalAccessToken();
     const res = await fetch(`${this.paypalBaseUrl}/v2/checkout/orders/${dto.orderId}/capture`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
     });
 
     if (!res.ok) {
@@ -222,104 +199,29 @@ export class VpsHostingService {
     if (!captureRecord || captureRecord.status !== 'COMPLETED') {
       throw new BadRequestException(`Payment not completed. Status: ${captureRecord?.status ?? 'unknown'}`);
     }
-
     this.logger.log(`PayPal capture COMPLETED: orderId=${dto.orderId} captureId=${captureRecord.id}`);
 
-    // Calculate pricing
+    const markup = this.pricing.getVpsMarkup();
     const plans = await this.vultr.listPlans();
     const plan = plans.find((p: { id: string }) => p.id === provisionDetails.plan);
     if (!plan) throw new NotFoundException(`Plan "${provisionDetails.plan}" not found.`);
 
-    const markup = this.markupPercent;
-    const baseCostCents   = Math.round(plan.monthly_cost * 100);
-    const markupCents     = Math.round(baseCostCents * (markup / 100));
-    const totalCents      = baseCostCents + markupCents;
+    const baseCostCents  = Math.round(plan.monthly_cost * 100);
+    const markupCents    = Math.round(baseCostCents * (markup / 100));
+    const totalCents     = baseCostCents + markupCents;
 
-    // Resolve OS name for display
-    let osName: string | null = null;
-    try {
-      const osList = await this.vultr.listOperatingSystems();
-      const osEntry = osList.find((o: { id: number }) => o.id === provisionDetails.osId);
-      osName = (osEntry as { name?: string } | undefined)?.name ?? null;
-    } catch { /* non-critical */ }
-
-    // Register SSH key if a public key was pasted
-    let resolvedSshKeyId = provisionDetails.sshKeyId;
-    if (provisionDetails.sshPublicKey) {
-      try {
-        const keyName = provisionDetails.sshKeyName || `glondia-${provisionDetails.label}`;
-        const newKey = await this.vultr.createSshKey(keyName, provisionDetails.sshPublicKey);
-        resolvedSshKeyId = newKey.id;
-      } catch (err: unknown) {
-        this.logger.warn(`SSH key creation failed, continuing without: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    // Create the Vultr instance
-    let vultrInstance: Awaited<ReturnType<VultrService['createInstance']>>;
-    try {
-      vultrInstance = await this.vultr.createInstance({
-        region:   provisionDetails.region,
-        plan:     provisionDetails.plan,
-        os_id:    provisionDetails.osId,
-        label:    provisionDetails.label,
-        hostname: provisionDetails.hostname ?? provisionDetails.label,
-        ...(resolvedSshKeyId ? { sshkey_id: [resolvedSshKeyId] } : {}),
-        ...(provisionDetails.userData ? { user_data: Buffer.from(provisionDetails.userData).toString('base64') } : {}),
-        ...(provisionDetails.enableIpv6  ? { enable_ipv6: true } : {}),
-        ...(provisionDetails.backups     ? { backups: 'enabled' } : {}),
-        ...(provisionDetails.ddosProtection ? { ddos_protection: true } : {}),
-        tags: [`org:${actor.organizationId}`],
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Vultr instance creation failed.';
-      this.logger.error(`Vultr createInstance failed after PayPal capture: ${msg}`);
-      // Store a failed record for support investigation
-      await this.prisma.vpsService.create({
-        data: {
-          organizationId:    actor.organizationId,
-          createdByUserId:   actor.userId,
-          providerInstanceId: 'FAILED',
-          label:             provisionDetails.label,
-          hostname:          provisionDetails.hostname ?? provisionDetails.label,
-          region:            provisionDetails.region,
-          plan:              provisionDetails.plan,
-          osId:              provisionDetails.osId,
-          osName,
-          status:            'error',
-          monthlyCostCents:  baseCostCents,
-          markupPercent:     markup,
-          markupAmountCents: markupCents,
-          totalPriceCents:   totalCents,
-          paypalOrderId:     dto.orderId,
-          paypalCaptureId:   captureRecord.id,
-          paymentStatus:     'completed',
-          metadata:          JSON.stringify({ error: msg }),
-        },
-      });
-      throw new ConflictException(
-        'Payment was captured but server provisioning failed. Our team has been notified. ' +
-        'Please contact support@glondia.co with your order ID: ' + dto.orderId
-      );
-    }
-
-    // Persist the VPS record
+    // Create record in pending state — worker provisions asynchronously
     const vpsRecord = await this.prisma.vpsService.create({
       data: {
         organizationId:    actor.organizationId,
         createdByUserId:   actor.userId,
-        providerInstanceId: vultrInstance.id,
+        providerInstanceId: 'pending',
         label:             provisionDetails.label,
         hostname:          provisionDetails.hostname ?? provisionDetails.label,
         region:            provisionDetails.region,
         plan:              provisionDetails.plan,
         osId:              provisionDetails.osId,
-        osName,
-        status:            vultrInstance.status ?? 'pending',
-        mainIp:            vultrInstance.main_ip,
-        vcpuCount:         vultrInstance.vcpu_count,
-        ramMb:             vultrInstance.ram,
-        diskGb:            vultrInstance.disk,
+        status:            'pending',
         monthlyCostCents:  baseCostCents,
         markupPercent:     markup,
         markupAmountCents: markupCents,
@@ -327,12 +229,32 @@ export class VpsHostingService {
         paypalOrderId:     dto.orderId,
         paypalCaptureId:   captureRecord.id,
         paymentStatus:     'completed',
-        metadata:          JSON.stringify({ vultrId: vultrInstance.id }),
-      },
+        metadata:          { captureId: captureRecord.id }
+      }
     });
 
-    await this.logAction(vpsRecord.id, actor.organizationId, actor.userId, 'create', 'success', provisionDetails);
+    await this.vpsQueue.enqueueProvision({
+      version: 1,
+      vpsServiceId: vpsRecord.id,
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      provisionDetails: {
+        region:         provisionDetails.region,
+        plan:           provisionDetails.plan,
+        osId:           provisionDetails.osId,
+        label:          provisionDetails.label,
+        hostname:       provisionDetails.hostname ?? provisionDetails.label,
+        sshKeyId:       provisionDetails.sshKeyId,
+        sshPublicKey:   provisionDetails.sshPublicKey,
+        sshKeyName:     provisionDetails.sshKeyName,
+        userData:       provisionDetails.userData,
+        enableIpv6:     provisionDetails.enableIpv6,
+        backups:        provisionDetails.backups,
+        ddosProtection: provisionDetails.ddosProtection
+      }
+    });
 
+    this.logger.log(`VPS ${vpsRecord.id} created in pending state and queued for provisioning`);
     return this.serializeVps(vpsRecord);
   }
 
@@ -341,27 +263,25 @@ export class VpsHostingService {
   async listServices(actor: ActorContext) {
     const records = await this.prisma.vpsService.findMany({
       where: { organizationId: actor.organizationId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
-    return records.map((r: Parameters<typeof this.serializeVps>[0]) => this.serializeVps(r));
+    return records.map((r) => this.serializeVps(r));
   }
 
   async getService(id: string, actor: ActorContext) {
     const record = await this.requireOwned(id, actor);
-    // Refresh status from Vultr if not failed
-    if (record.providerInstanceId !== 'FAILED') {
+    const provisionable = record.providerInstanceId !== 'pending' && record.providerInstanceId !== 'FAILED';
+    if (provisionable) {
       try {
         const live = await this.vultr.getInstance(record.providerInstanceId);
         if (live.status !== record.status || live.main_ip !== record.mainIp) {
           await this.prisma.vpsService.update({
             where: { id },
-            data: { status: live.status, mainIp: live.main_ip },
+            data: { status: live.status, mainIp: live.main_ip }
           });
           return this.serializeVps({ ...record, status: live.status, mainIp: live.main_ip });
         }
-      } catch {
-        // Vultr unreachable — return cached record
-      }
+      } catch { /* Vultr unreachable — return cached record */ }
     }
     return this.serializeVps(record);
   }
@@ -391,109 +311,48 @@ export class VpsHostingService {
 
   async destroyService(id: string, actor: ActorContext) {
     const record = await this.requireOwned(id, actor);
-    await this.vultr.deleteInstance(record.providerInstanceId);
-    try {
-      await this.prisma.vpsService.update({
-        where: { id },
-        data: { deletedAt: new Date(), status: 'destroyed' },
-      });
-      await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
-    } catch (dbErr: unknown) {
-      const msg = dbErr instanceof Error ? dbErr.message : 'DB update failed after destroy';
-      this.logger.error(`Vultr instance ${record.providerInstanceId} destroyed but DB update failed: ${msg}`);
-      try {
-        await this.prisma.vpsService.update({
-          where: { id },
-          data: { status: 'error', metadata: JSON.stringify({ destroyError: msg }) },
-        });
-      } catch { /* best-effort */ }
-      throw dbErr;
-    }
+    const provisionable = record.providerInstanceId !== 'pending' && record.providerInstanceId !== 'FAILED';
+    if (provisionable) await this.vultr.deleteInstance(record.providerInstanceId);
+    await this.prisma.vpsService.update({ where: { id }, data: { deletedAt: new Date(), status: 'destroyed' } });
+    await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
     return { ok: true };
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
 
   private async requireOwned(id: string, actor: ActorContext) {
-    const record = await this.prisma.vpsService.findFirst({
-      where: { id, deletedAt: null },
-    });
+    const record = await this.prisma.vpsService.findFirst({ where: { id, deletedAt: null } });
     if (!record) throw new NotFoundException('VPS service not found.');
-    if (record.organizationId !== actor.organizationId) {
-      throw new ForbiddenException('Access denied.');
-    }
+    if (record.organizationId !== actor.organizationId) throw new ForbiddenException('Access denied.');
     return record;
   }
 
   private serializeVps(record: {
-    id: string;
-    organizationId: string;
-    providerInstanceId: string;
-    label: string;
-    hostname: string;
-    region: string;
-    plan: string;
-    osId: number;
-    osName?: string | null;
-    status: string;
-    mainIp: string | null;
-    vcpuCount: number | null;
-    ramMb: number | null;
-    diskGb: number | null;
-    monthlyCostCents: number;
-    markupPercent: number;
-    markupAmountCents: number;
-    totalPriceCents: number;
-    currency: string;
-    paymentStatus: string;
-    createdAt: Date;
-    updatedAt: Date;
+    id: string; organizationId: string; providerInstanceId: string; label: string; hostname: string;
+    region: string; plan: string; osId: number; status: string; mainIp: string | null;
+    vcpuCount: number | null; ramMb: number | null; diskGb: number | null;
+    monthlyCostCents: number; markupPercent: number; markupAmountCents: number; totalPriceCents: number;
+    currency: string; paymentStatus: string; createdAt: Date; updatedAt: Date;
   }) {
     return {
-      id:                   record.id,
-      organizationId:       record.organizationId,
-      providerInstanceId:   record.providerInstanceId,
-      label:                record.label,
-      hostname:             record.hostname,
-      region:               record.region,
-      plan:                 record.plan,
-      osId:                 record.osId,
-      osName:               record.osName ?? null,
-      status:               record.status,
-      mainIp:               record.mainIp,
-      vcpuCount:            record.vcpuCount,
-      ramMb:                record.ramMb,
-      diskGb:               record.diskGb,
-      monthlyCostCents:     record.monthlyCostCents,
-      markupPercent:        record.markupPercent,
-      markupAmountCents:    record.markupAmountCents,
-      totalPriceCents:      record.totalPriceCents,
-      currency:             record.currency,
-      paymentStatus:        record.paymentStatus,
-      createdAt:            record.createdAt,
-      updatedAt:            record.updatedAt,
+      id: record.id, organizationId: record.organizationId,
+      providerInstanceId: record.providerInstanceId, label: record.label, hostname: record.hostname,
+      region: record.region, plan: record.plan, osId: record.osId, status: record.status,
+      mainIp: record.mainIp, vcpuCount: record.vcpuCount, ramMb: record.ramMb, diskGb: record.diskGb,
+      monthlyCostCents: record.monthlyCostCents, markupPercent: record.markupPercent,
+      markupAmountCents: record.markupAmountCents, totalPriceCents: record.totalPriceCents,
+      currency: record.currency, paymentStatus: record.paymentStatus,
+      createdAt: record.createdAt, updatedAt: record.updatedAt
     };
   }
 
   private async logAction(
-    vpsServiceId: string,
-    organizationId: string,
-    actorUserId: string | null,
-    action: string,
-    status: string,
-    request: unknown,
+    vpsServiceId: string, organizationId: string, actorUserId: string | null,
+    action: string, status: string, request: object
   ) {
     try {
       await this.prisma.vpsActionLog.create({
-        data: {
-          vpsServiceId,
-          organizationId,
-          actorUserId,
-          action,
-          status,
-          request:  JSON.stringify(request),
-          response: JSON.stringify({}),
-        },
+        data: { vpsServiceId, organizationId, actorUserId, action, status, request, response: {} }
       });
     } catch (err) {
       this.logger.warn(`Failed to write VPS action log: ${err}`);
@@ -501,24 +360,14 @@ export class VpsHostingService {
   }
 
   private async getPayPalAccessToken(): Promise<string> {
-    if (this.cachedPaypalToken && Date.now() < this.paypalTokenExpiry) {
-      return this.cachedPaypalToken;
-    }
-
+    if (this.cachedPaypalToken && Date.now() < this.paypalTokenExpiry) return this.cachedPaypalToken;
     const creds = Buffer.from(`${this.paypalClientId}:${this.paypalClientSecret}`).toString('base64');
     const res = await fetch(`${this.paypalBaseUrl}/v1/oauth2/token`, {
       method: 'POST',
-      headers: {
-        Authorization: `Basic ${creds}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: 'grant_type=client_credentials',
+      headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=client_credentials'
     });
-
-    if (!res.ok) {
-      throw new BadRequestException('Failed to authenticate with PayPal.');
-    }
-
+    if (!res.ok) throw new BadRequestException('Failed to authenticate with PayPal.');
     const data = await res.json() as { access_token: string; expires_in: number };
     this.cachedPaypalToken = data.access_token;
     this.paypalTokenExpiry = Date.now() + (data.expires_in - 60) * 1000;

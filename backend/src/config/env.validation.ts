@@ -11,7 +11,7 @@ const envSchema = z.object({
   API_BASE_URL: z.string().url().default('http://localhost:4000/api/v1'),
 
   // Database & cache
-  DATABASE_URL: z.string().min(1).default('file:/var/glondia/data/glondia.db'),
+  DATABASE_URL: z.string().min(1).default('postgresql://glondia:glondia_password@localhost:5432/glondia'),
   REDIS_URL: z.string().default(''),
 
   // Auth

@@ -50,6 +50,20 @@ function makeVultr(overrides: Partial<{
   };
 }
 
+function makeQueue() {
+  return {
+    enqueueProvision: jest.fn().mockResolvedValue(undefined),
+    enqueueRefund:    jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+function makePricing(markup = 30) {
+  return {
+    getVpsMarkup:    jest.fn().mockReturnValue(markup),
+    getDomainMarkup: jest.fn().mockReturnValue(15),
+  };
+}
+
 function makePrisma(overrides: Record<string, unknown> = {}) {
   return {
     vpsService: {
@@ -125,18 +139,18 @@ describe('VpsHostingService', () => {
   describe('getSettings', () => {
     it('reports vultr configured when api key is present', () => {
       const vultr = makeVultr({ isConfigured: () => true });
-      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
       expect(svc.getSettings().vultrConfigured).toBe(true);
     });
 
     it('reports vultr not configured when api key is missing', () => {
       const vultr = makeVultr({ isConfigured: () => false });
-      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
       expect(svc.getSettings().vultrConfigured).toBe(false);
     });
 
     it('reports paypal configured when both credentials are present', () => {
-      const svc = new VpsHostingService(makePrisma() as never, makeVultr() as never, makeConfig());
+      const svc = new VpsHostingService(makePrisma() as never, makeVultr() as never, makeQueue() as never, makePricing() as never, makeConfig());
       expect(svc.getSettings().paypalConfigured).toBe(true);
     });
 
@@ -144,32 +158,32 @@ describe('VpsHostingService', () => {
       const svc = new VpsHostingService(
         makePrisma() as never,
         makeVultr() as never,
+        makeQueue() as never,
+        makePricing() as never,
         makeConfig({ PAYPAL_CLIENT_ID: '', PAYPAL_CLIENT_SECRET: '' }),
       );
       expect(svc.getSettings().paypalConfigured).toBe(false);
     });
 
-    it('returns markup percent from env', () => {
+    it('returns markup percent from pricing service', () => {
       const svc = new VpsHostingService(
         makePrisma() as never,
         makeVultr() as never,
-        makeConfig({ PLATFORM_MARKUP_PERCENT: 25 }),
+        makeQueue() as never,
+        makePricing(25) as never,
+        makeConfig(),
       );
       expect(svc.getSettings().markupPercent).toBe(25);
     });
 
-    it('defaults markup to 30 when PLATFORM_MARKUP_PERCENT is not set', () => {
-      const config = {
-        get: (key: string, fallback?: unknown) =>
-          key === 'PLATFORM_MARKUP_PERCENT' ? fallback : ({
-            PAYPAL_CLIENT_ID: 'pp_client',
-            PAYPAL_CLIENT_SECRET: 'pp_secret',
-            PAYPAL_SANDBOX: 'true',
-            FRONTEND_URL: 'http://localhost:5173',
-          } as Record<string, unknown>)[key],
-      } as unknown as ConfigService;
-
-      const svc = new VpsHostingService(makePrisma() as never, makeVultr() as never, config);
+    it('defaults markup to 30 when pricing service returns default', () => {
+      const svc = new VpsHostingService(
+        makePrisma() as never,
+        makeVultr() as never,
+        makeQueue() as never,
+        makePricing(30) as never,
+        makeConfig(),
+      );
       expect(svc.getSettings().markupPercent).toBe(30);
     });
   });
@@ -181,7 +195,7 @@ describe('VpsHostingService', () => {
       const vultr = makeVultr({
         listPlans: async () => [{ id: 'vc2-1c-1gb', monthly_cost: 6 }],
       });
-      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeQueue() as never, makePricing(30) as never, makeConfig());
 
       const quote = await svc.getQuote({ plan: 'vc2-1c-1gb', region: 'ewr', osId: 387 });
 
@@ -192,14 +206,16 @@ describe('VpsHostingService', () => {
       expect(quote.breakdown.total).toBe('$7.80');
     });
 
-    it('applies a custom markup percent from config', async () => {
+    it('applies a custom markup percent from pricing service', async () => {
       const vultr = makeVultr({
         listPlans: async () => [{ id: 'vc2-1c-1gb', monthly_cost: 10 }],
       });
       const svc = new VpsHostingService(
         makePrisma() as never,
         vultr as never,
-        makeConfig({ PLATFORM_MARKUP_PERCENT: 20 }),
+        makeQueue() as never,
+        makePricing(20) as never,
+        makeConfig(),
       );
 
       const quote = await svc.getQuote({ plan: 'vc2-1c-1gb', region: 'ewr', osId: 387 });
@@ -213,7 +229,7 @@ describe('VpsHostingService', () => {
       const vultr = makeVultr({
         listPlans: async () => [{ id: 'vc2-1c-1gb', monthly_cost: 6 }],
       });
-      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(makePrisma() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await expect(svc.getQuote({ plan: 'does-not-exist', region: 'ewr', osId: 387 }))
         .rejects.toBeInstanceOf(NotFoundException);
@@ -241,7 +257,7 @@ describe('VpsHostingService', () => {
           update: jest.fn(),
         },
       });
-      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       const result = await svc.capturePayPalOrder({ orderId: 'pp_order_1' }, provision, actor);
 
@@ -253,7 +269,7 @@ describe('VpsHostingService', () => {
     it('throws BadRequestException when PayPal capture status is not COMPLETED', async () => {
       const prisma = makePrisma();
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prisma as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       // PayPal token
       mockPaypalTokenFetch(fetchMock);
@@ -273,10 +289,11 @@ describe('VpsHostingService', () => {
       expect(vultr.createInstance).not.toHaveBeenCalled();
     });
 
-    it('provisions a Vultr instance after a COMPLETED capture', async () => {
+    it('creates a pending VPS record and enqueues provisioning after a COMPLETED capture', async () => {
       const prisma = makePrisma();
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prisma as never, vultr as never, makeConfig());
+      const queue = makeQueue();
+      const svc = new VpsHostingService(prisma as never, vultr as never, queue as never, makePricing() as never, makeConfig());
 
       // PayPal token
       mockPaypalTokenFetch(fetchMock);
@@ -292,17 +309,17 @@ describe('VpsHostingService', () => {
 
       await svc.capturePayPalOrder({ orderId: 'pp_order_1' }, provision, actor);
 
-      expect(vultr.createInstance).toHaveBeenCalledWith(
-        expect.objectContaining({ region: 'ewr', plan: 'vc2-1c-1gb', label: 'my-server' }),
-      );
       expect(prisma.vpsService.create).toHaveBeenCalled();
+      expect(queue.enqueueProvision).toHaveBeenCalled();
+      expect(vultr.createInstance).not.toHaveBeenCalled();
     });
 
-    it('does not create a second Vultr instance on duplicate capture', async () => {
+    it('does not enqueue a second provision on duplicate capture', async () => {
       // First call — no existing VPS
       const prisma = makePrisma();
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prisma as never, vultr as never, makeConfig());
+      const queue = makeQueue();
+      const svc = new VpsHostingService(prisma as never, vultr as never, queue as never, makePricing() as never, makeConfig());
 
       mockPaypalTokenFetch(fetchMock);
       fetchMock.mockResolvedValueOnce({
@@ -321,7 +338,7 @@ describe('VpsHostingService', () => {
 
       const result = await svc.capturePayPalOrder({ orderId: 'pp_order_1' }, provision, actor);
 
-      expect(vultr.createInstance).toHaveBeenCalledTimes(1); // not called again
+      expect(queue.enqueueProvision).toHaveBeenCalledTimes(1); // not called again
       expect(result.id).toBe('vps_1');
     });
 
@@ -329,6 +346,8 @@ describe('VpsHostingService', () => {
       const svc = new VpsHostingService(
         makePrisma() as never,
         makeVultr() as never,
+        makeQueue() as never,
+        makePricing() as never,
         makeConfig({ PAYPAL_CLIENT_ID: '', PAYPAL_CLIENT_SECRET: '' }),
       );
 
@@ -353,7 +372,7 @@ describe('VpsHostingService', () => {
           update: jest.fn(),
         },
       });
-      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       const result = await svc.listServices(actor);
 
@@ -377,7 +396,7 @@ describe('VpsHostingService', () => {
           update: jest.fn(),
         },
       });
-      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await expect(svc.startService('vps_1', { userId: 'user_A', organizationId: 'org_A' }))
         .rejects.toBeInstanceOf(ForbiddenException);
@@ -392,7 +411,7 @@ describe('VpsHostingService', () => {
           update: jest.fn(),
         },
       });
-      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, makeVultr() as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await expect(svc.startService('missing', actor))
         .rejects.toBeInstanceOf(NotFoundException);
@@ -415,7 +434,7 @@ describe('VpsHostingService', () => {
 
     it('startService calls vultr.startInstance with the provider instance id', async () => {
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       const result = await svc.startService('vps_1', actor);
 
@@ -425,7 +444,7 @@ describe('VpsHostingService', () => {
 
     it('haltService calls vultr.haltInstance', async () => {
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await svc.haltService('vps_1', actor);
 
@@ -434,7 +453,7 @@ describe('VpsHostingService', () => {
 
     it('rebootService calls vultr.rebootInstance', async () => {
       const vultr = makeVultr();
-      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(prismaWithOwned() as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await svc.rebootService('vps_1', actor);
 
@@ -444,7 +463,7 @@ describe('VpsHostingService', () => {
     it('destroyService calls vultr.deleteInstance and marks record deleted', async () => {
       const vultr = makeVultr();
       const prisma = prismaWithOwned();
-      const svc = new VpsHostingService(prisma as never, vultr as never, makeConfig());
+      const svc = new VpsHostingService(prisma as never, vultr as never, makeQueue() as never, makePricing() as never, makeConfig());
 
       await svc.destroyService('vps_1', actor);
 

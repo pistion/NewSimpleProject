@@ -1,11 +1,16 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { WinstonModule } from 'nest-winston';
 import appConfig from './config/app.config';
 import { validateEnv } from './config/env.validation';
+import { buildLoggerConfig } from './config/logger.config';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { RedisModule } from './common/redis/redis.module';
 import { DatabaseModule } from './database/database.module';
 import { EmailModule } from './common/email/email.module';
+import { PricingModule } from './modules/pricing/pricing.module';
+import { StatusModule } from './gateways/status.module';
 import { ActivityModule } from './modules/activity/activity.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ArtifactsModule } from './modules/artifacts/artifacts.module';
@@ -34,26 +39,38 @@ import { VpsHostingModule } from './modules/vps-hosting/vps-hosting.module';
       validate: validateEnv
     }),
 
+    WinstonModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        buildLoggerConfig(config.get<string>('LOG_LEVEL', 'info'))
+    }),
+
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
           name: 'default',
-          ttl: config.get<number>('RATE_LIMIT_TTL_SECONDS', 60) * 1000, // ThrottlerModule uses ms
+          ttl: config.get<number>('RATE_LIMIT_TTL_SECONDS', 60) * 1000,
           limit: config.get<number>('RATE_LIMIT_MAX_REQUESTS', 100)
         },
         {
           name: 'auth',
           ttl: 60 * 1000,
-          limit: 10 // 10 auth attempts per minute
+          limit: 10
         }
       ]
     }),
 
+    // Infrastructure
     DatabaseModule,
+    RedisModule,
     EmailModule,
 
-    // Core modules
+    // Shared services (global)
+    PricingModule,
+    StatusModule,
+
+    // Domain modules
     ActivityModule,
     ArtifactsModule,
     AuthModule,
@@ -65,8 +82,6 @@ import { VpsHostingModule } from './modules/vps-hosting/vps-hosting.module';
     GitHubModule,
     RenderModule,
     WorkspaceModule,
-
-    // New modules
     AdminModule,
     BuilderModule,
     NotificationsModule,
@@ -74,7 +89,7 @@ import { VpsHostingModule } from './modules/vps-hosting/vps-hosting.module';
     RegistrarModule,
     SslModule,
     WebhooksModule,
-    VpsHostingModule,
+    VpsHostingModule
   ]
 })
 export class AppModule implements NestModule {

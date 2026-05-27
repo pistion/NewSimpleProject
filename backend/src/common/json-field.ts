@@ -1,17 +1,13 @@
 import { Prisma } from '@prisma/client';
 
-export function jsonToDb(value: Prisma.InputJsonValue | unknown, fallback: unknown = {}): string {
-  return JSON.stringify(value ?? fallback);
+// PostgreSQL native Json — Prisma handles serialization; these are passthrough helpers.
+export function jsonToDb<T extends Prisma.InputJsonValue = Prisma.InputJsonValue>(
+  value: T | unknown,
+  fallback: T = {} as T
+): T {
+  return (value ?? fallback) as T;
 }
 
 export function jsonFromDb<T = unknown>(value: unknown, fallback: T): T {
-  if (typeof value !== 'string') {
-    return (value ?? fallback) as T;
-  }
-
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
+  return (value ?? fallback) as T;
 }

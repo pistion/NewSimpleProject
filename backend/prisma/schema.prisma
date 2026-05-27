@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -14,7 +14,7 @@ model User {
   avatarUrl       String?    @map("avatar_url")
   passwordHash    String?    @map("password_hash")
   emailVerifiedAt DateTime?  @map("email_verified_at")
-  status          String @default("pending")
+  status          String     @default("pending")
   lastLoginAt     DateTime?  @map("last_login_at")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
@@ -35,8 +35,8 @@ model User {
   domainsCreated             Domain[]                     @relation("DomainCreator")
   sessions                   Session[]
   userActivityLogs           ActivityLog[]                @relation("ActivityActor")
-  vpsServicesCreated         VpsService[]                 @relation("VpsServiceCreator")
   ProjectEnvironmentVariable ProjectEnvironmentVariable[]
+  vpsServicesCreated         VpsService[]                 @relation("VpsServiceCreator")
 
   @@map("users")
 }
@@ -87,7 +87,7 @@ model ApiKey {
   lastUsedAt     DateTime? @map("last_used_at")
   expiresAt      DateTime? @map("expires_at")
   revokedAt      DateTime? @map("revoked_at")
-  scopes         String      @default("[]")
+  scopes         Json      @default("[]")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -105,7 +105,7 @@ model Organization {
   slug             String             @unique
   billingEmail     String?            @map("billing_email")
   stripeCustomerId String?            @unique @map("stripe_customer_id")
-  status           String @default("active")
+  status           String             @default("active")
   createdByUserId  String?            @map("created_by_user_id")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
@@ -147,15 +147,15 @@ model Organization {
 }
 
 model OrganizationMember {
-  id              String                   @id @default(uuid())
-  organizationId  String                   @map("organization_id")
-  userId          String                   @map("user_id")
-  roleId          String                   @map("role_id")
-  status          String @default("invited")
-  invitedByUserId String?                  @map("invited_by_user_id")
-  joinedAt        DateTime?                @map("joined_at")
-  removedAt       DateTime?                @map("removed_at")
-  createdAt       DateTime                 @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  userId          String    @map("user_id")
+  roleId          String    @map("role_id")
+  status          String    @default("invited")
+  invitedByUserId String?   @map("invited_by_user_id")
+  joinedAt        DateTime? @map("joined_at")
+  removedAt       DateTime? @map("removed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   invitedBy    User?        @relation("InvitedMemberships", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -171,17 +171,17 @@ model OrganizationMember {
 }
 
 model OrganizationInvite {
-  id                String    @id @default(uuid())
-  organizationId    String    @map("organization_id")
-  invitedByUserId   String    @map("invited_by_user_id")
-  acceptedByUserId  String?   @map("accepted_by_user_id")
-  email             String
-  roleKey           String    @map("role_key")
-  token             String    @unique
-  expiresAt         DateTime  @map("expires_at")
-  acceptedAt        DateTime? @map("accepted_at")
-  revokedAt         DateTime? @map("revoked_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  invitedByUserId  String    @map("invited_by_user_id")
+  acceptedByUserId String?   @map("accepted_by_user_id")
+  email            String
+  roleKey          String    @map("role_key")
+  token            String    @unique
+  expiresAt        DateTime  @map("expires_at")
+  acceptedAt       DateTime? @map("accepted_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation("OrganizationInvites", fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -249,7 +249,7 @@ model Project {
   buildCommand       String?       @map("build_command")
   outputDirectory    String?       @map("output_directory")
   installCommand     String?       @map("install_command")
-  status             String @default("active")
+  status             String        @default("active")
   createdByUserId    String?       @map("created_by_user_id")
   deletedAt          DateTime?     @map("deleted_at")
   createdAt          DateTime      @default(now()) @map("created_at")
@@ -261,8 +261,8 @@ model Project {
   deployments       Deployment[]
   domains           Domain[]
   envVars           ProjectEnvironmentVariable[]
-  vpsServices       VpsService[]
   organization      Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vpsServices       VpsService[]
 
   @@unique([organizationId, slug])
   @@index([createdByUserId])
@@ -272,15 +272,15 @@ model Project {
 }
 
 model ProjectEnvironmentVariable {
-  id              String             @id @default(uuid())
-  projectId       String             @map("project_id")
-  organizationId  String             @map("organization_id")
+  id              String   @id @default(uuid())
+  projectId       String   @map("project_id")
+  organizationId  String   @map("organization_id")
   key             String
-  valueEncrypted  String             @map("value_encrypted")
+  valueEncrypted  String   @map("value_encrypted")
   environment     String
-  createdByUserId String?            @map("created_by_user_id")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   createdBy    User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -299,7 +299,7 @@ model Domain {
   projectId         String?      @map("project_id")
   hostname          String
   rootDomain        String       @map("root_domain")
-  status            String @default("pending_verification")
+  status            String       @default("pending_verification")
   verificationToken String       @map("verification_token")
   verifiedAt        DateTime?    @map("verified_at")
   createdByUserId   String?      @map("created_by_user_id")
@@ -322,19 +322,19 @@ model Domain {
 }
 
 model DnsRecord {
-  id               String          @id @default(uuid())
-  organizationId   String          @map("organization_id")
-  domainId         String          @map("domain_id")
+  id               String   @id @default(uuid())
+  organizationId   String   @map("organization_id")
+  domainId         String   @map("domain_id")
   type             String
   name             String
   value            String
-  ttl              Int             @default(3600)
+  ttl              Int      @default(3600)
   priority         Int?
-  proxied          Boolean         @default(false)
-  providerRecordId String?         @map("provider_record_id")
-  status           String @default("pending")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
+  proxied          Boolean  @default(false)
+  providerRecordId String?  @map("provider_record_id")
+  status           String   @default("pending")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   domain       Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -346,18 +346,18 @@ model DnsRecord {
 }
 
 model SslCertificate {
-  id            String               @id @default(uuid())
-  domainId      String               @map("domain_id")
-  organizationId String              @map("organization_id")
-  status        String @default("pending")
-  provider      String
-  certificateRef String?             @map("certificate_ref")
-  issuedAt      DateTime?            @map("issued_at")
-  expiresAt     DateTime?            @map("expires_at")
-  lastCheckedAt DateTime?            @map("last_checked_at")
-  errorMessage  String?              @map("error_message")
-  createdAt     DateTime             @default(now()) @map("created_at")
-  updatedAt     DateTime             @updatedAt @map("updated_at")
+  id             String    @id @default(uuid())
+  domainId       String    @map("domain_id")
+  organizationId String    @map("organization_id")
+  status         String    @default("pending")
+  provider       String
+  certificateRef String?   @map("certificate_ref")
+  issuedAt       DateTime? @map("issued_at")
+  expiresAt      DateTime? @map("expires_at")
+  lastCheckedAt  DateTime? @map("last_checked_at")
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   domain       Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -369,18 +369,18 @@ model SslCertificate {
 }
 
 model BuilderSite {
-  id              String            @id @default(uuid())
-  organizationId  String            @map("organization_id")
-  projectId       String?           @map("project_id")
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  projectId       String?   @map("project_id")
   name            String
   slug            String
-  templateId      String?           @map("template_id")
-  status          String @default("draft")
-  publishedAt     DateTime?         @map("published_at")
-  createdByUserId String?           @map("created_by_user_id")
-  deletedAt       DateTime?         @map("deleted_at")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  templateId      String?   @map("template_id")
+  status          String    @default("draft")
+  publishedAt     DateTime? @map("published_at")
+  createdByUserId String?   @map("created_by_user_id")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   createdBy    User?         @relation("BuilderSiteCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -394,19 +394,19 @@ model BuilderSite {
 }
 
 model BuilderPage {
-  id             String            @id @default(uuid())
-  organizationId String            @map("organization_id")
-  siteId         String            @map("site_id")
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  siteId         String    @map("site_id")
   path           String
   title          String
-  content        String              @default("{}")
-  seoTitle       String?           @map("seo_title")
-  seoDescription String?           @map("seo_description")
-  status         String @default("draft")
-  sortOrder      Int               @default(0) @map("sort_order")
-  deletedAt      DateTime?         @map("deleted_at")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  content        Json      @default("{}")
+  seoTitle       String?   @map("seo_title")
+  seoDescription String?   @map("seo_description")
+  status         String    @default("draft")
+  sortOrder      Int       @default(0) @map("sort_order")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   site         BuilderSite          @relation(fields: [siteId], references: [id], onDelete: Cascade)
@@ -424,7 +424,7 @@ model BuilderPageVersion {
   siteId          String    @map("site_id")
   pageId          String    @map("page_id")
   versionNumber   Int       @map("version_number")
-  contentJson     String      @map("content_json")
+  contentJson     Json      @map("content_json")
   label           String?
   createdByUserId String?   @map("created_by_user_id")
   publishedAt     DateTime? @map("published_at")
@@ -445,7 +445,7 @@ model Template {
   name            String
   category        String
   previewImageUrl String?  @map("preview_image_url")
-  contentJson     String     @map("content_json")
+  contentJson     Json     @map("content_json")
   isPublic        Boolean  @default(true) @map("is_public")
   isActive        Boolean  @default(true) @map("is_active")
   sortOrder       Int      @default(0) @map("sort_order")
@@ -468,8 +468,8 @@ model BillingPlan {
   priceMonthlyCents Int      @default(0) @map("price_monthly_cents")
   priceYearlyCents  Int      @default(0) @map("price_yearly_cents")
   currency          String   @default("USD")
-  limits            String     @default("{}")
-  features          String     @default("{}")
+  limits            Json     @default("{}")
+  features          Json     @default("{}")
   isActive          Boolean  @default(true) @map("is_active")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
@@ -481,18 +481,18 @@ model BillingPlan {
 }
 
 model BillingSubscription {
-  id                     String             @id @default(uuid())
-  organizationId         String             @map("organization_id")
-  planId                 String             @map("plan_id")
-  provider               String             @default("stripe")
-  status                 String @default("active")
-  currentPeriodStart     DateTime           @map("current_period_start")
-  currentPeriodEnd       DateTime           @map("current_period_end")
-  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
-  providerCustomerId     String?            @map("provider_customer_id")
-  providerSubscriptionId String?            @unique @map("provider_subscription_id")
-  createdAt              DateTime           @default(now()) @map("created_at")
-  updatedAt              DateTime           @updatedAt @map("updated_at")
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  planId                 String   @map("plan_id")
+  provider               String   @default("stripe")
+  status                 String   @default("active")
+  currentPeriodStart     DateTime @map("current_period_start")
+  currentPeriodEnd       DateTime @map("current_period_end")
+  cancelAtPeriodEnd      Boolean  @default(false) @map("cancel_at_period_end")
+  providerCustomerId     String?  @map("provider_customer_id")
+  providerSubscriptionId String?  @unique @map("provider_subscription_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   invoices     BillingInvoice[]
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -505,21 +505,21 @@ model BillingSubscription {
 }
 
 model BillingInvoice {
-  id                String        @id @default(uuid())
-  organizationId    String        @map("organization_id")
-  subscriptionId    String?       @map("subscription_id")
-  providerInvoiceId String?       @unique @map("provider_invoice_id")
-  status            String @default("open")
-  currency          String        @default("USD")
-  amountDueCents    Int           @default(0) @map("amount_due_cents")
-  amountPaidCents   Int           @default(0) @map("amount_paid_cents")
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  subscriptionId    String?   @map("subscription_id")
+  providerInvoiceId String?   @unique @map("provider_invoice_id")
+  status            String    @default("open")
+  currency          String    @default("USD")
+  amountDueCents    Int       @default(0) @map("amount_due_cents")
+  amountPaidCents   Int       @default(0) @map("amount_paid_cents")
   description       String?
-  periodStart       DateTime?     @map("period_start")
-  periodEnd         DateTime?     @map("period_end")
-  issuedAt          DateTime?     @map("issued_at")
-  paidAt            DateTime?     @map("paid_at")
-  hostedInvoiceUrl  String?       @map("hosted_invoice_url")
-  createdAt         DateTime      @default(now()) @map("created_at")
+  periodStart       DateTime? @map("period_start")
+  periodEnd         DateTime? @map("period_end")
+  issuedAt          DateTime? @map("issued_at")
+  paidAt            DateTime? @map("paid_at")
+  hostedInvoiceUrl  String?   @map("hosted_invoice_url")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   subscription BillingSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
@@ -538,7 +538,7 @@ model BillingUsageRecord {
   quantity       Int      @default(0)
   periodStart    DateTime @map("period_start")
   periodEnd      DateTime @map("period_end")
-  metadata       String     @default("{}")
+  metadata       Json     @default("{}")
   createdAt      DateTime @default(now()) @map("created_at")
 
   organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -564,7 +564,7 @@ model CheckoutOrder {
   markupPercent     Decimal  @default(30) @map("markup_percent")
   markupAmountCents Int      @default(0) @map("markup_amount_cents")
   totalAmountCents  Int      @default(0) @map("total_amount_cents")
-  metadata          String   @default("{}")
+  metadata          Json     @default("{}")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -590,11 +590,11 @@ model Payment {
   markupPercent     Decimal  @default(30) @map("markup_percent")
   markupAmountCents Int      @default(0) @map("markup_amount_cents")
   totalAmountCents  Int      @default(0) @map("total_amount_cents")
-  metadata          String   @default("{}")
+  metadata          Json     @default("{}")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  checkoutOrder CheckoutOrder @relation(fields: [checkoutOrderId], references: [id], onDelete: Cascade)
+  checkoutOrder CheckoutOrder    @relation(fields: [checkoutOrderId], references: [id], onDelete: Cascade)
   lineItems     PaymentLineItem[]
 
   @@index([organizationId, status])
@@ -610,7 +610,7 @@ model PaymentLineItem {
   actualAmountCents Int      @default(0) @map("actual_amount_cents")
   markupAmountCents Int      @default(0) @map("markup_amount_cents")
   totalAmountCents  Int      @default(0) @map("total_amount_cents")
-  metadata          String   @default("{}")
+  metadata          Json     @default("{}")
   createdAt         DateTime @default(now()) @map("created_at")
 
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
@@ -620,35 +620,35 @@ model PaymentLineItem {
 }
 
 model Deployment {
-  id                String                @id @default(uuid())
-  organizationId    String                @map("organization_id")
-  projectId         String                @map("project_id")
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  projectId         String    @map("project_id")
   environment       String
-  status            String      @default("queued")
+  status            String    @default("queued")
   source            String
   provider          String?
-  providerServiceId String?               @map("provider_service_id")
-  providerDeployId  String?               @map("provider_deploy_id")
-  providerStatus    String?               @map("provider_status")
-  commitSha         String?               @map("commit_sha")
-  commitMessage     String?               @map("commit_message")
+  providerServiceId String?   @map("provider_service_id")
+  providerDeployId  String?   @map("provider_deploy_id")
+  providerStatus    String?   @map("provider_status")
+  commitSha         String?   @map("commit_sha")
+  commitMessage     String?   @map("commit_message")
   branch            String?
-  triggeredByUserId String?               @map("triggered_by_user_id")
-  artifactId        String?               @map("artifact_id")
-  startedAt         DateTime?             @map("started_at")
-  finishedAt        DateTime?             @map("finished_at")
-  durationMs        Int?                  @map("duration_ms")
-  errorCode         String?               @map("error_code")
-  errorMessage      String?               @map("error_message")
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
+  triggeredByUserId String?   @map("triggered_by_user_id")
+  artifactId        String?   @map("artifact_id")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  durationMs        Int?      @map("duration_ms")
+  errorCode         String?   @map("error_code")
+  errorMessage      String?   @map("error_message")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   aliases         DeploymentAlias[]
   artifacts       Artifact[]
   logs            DeploymentLog[]
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  triggeredByUser User?           @relation("DeploymentTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  triggeredByUser User?        @relation("DeploymentTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
@@ -659,14 +659,14 @@ model Deployment {
 }
 
 model DeploymentLog {
-  id             String             @id @default(uuid())
-  deploymentId   String             @map("deployment_id")
-  organizationId String             @map("organization_id")
+  id             String   @id @default(uuid())
+  deploymentId   String   @map("deployment_id")
+  organizationId String   @map("organization_id")
   sequence       Int
   level          String
   message        String
-  metadata       String               @default("{}")
-  createdAt      DateTime           @default(now()) @map("created_at")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   deployment   Deployment   @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -700,16 +700,16 @@ model DeploymentAlias {
 }
 
 model Artifact {
-  id             String         @id @default(uuid())
-  organizationId String         @map("organization_id")
-  projectId      String         @map("project_id")
-  deploymentId   String?        @map("deployment_id")
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  projectId      String    @map("project_id")
+  deploymentId   String?   @map("deployment_id")
   bucket         String
-  objectKey      String         @map("object_key")
-  sizeBytes      Int            @default(0) @map("size_bytes")
+  objectKey      String    @map("object_key")
+  sizeBytes      Int       @default(0) @map("size_bytes")
   checksum       String?
-  status         String @default("uploading")
-  createdAt      DateTime       @default(now()) @map("created_at")
+  status         String    @default("uploading")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   deployment   Deployment?  @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -722,20 +722,20 @@ model Artifact {
 }
 
 model Asset {
-  id               String          @id @default(uuid())
-  organizationId   String          @map("organization_id")
-  uploadedByUserId String?         @map("uploaded_by_user_id")
+  id               String    @id @default(uuid())
+  organizationId   String    @map("organization_id")
+  uploadedByUserId String?   @map("uploaded_by_user_id")
   bucket           String
-  objectKey        String          @map("object_key")
-  publicUrl        String?         @map("public_url")
-  mimeType         String          @map("mime_type")
-  sizeBytes        Int             @default(0) @map("size_bytes")
+  objectKey        String    @map("object_key")
+  publicUrl        String?   @map("public_url")
+  mimeType         String    @map("mime_type")
+  sizeBytes        Int       @default(0) @map("size_bytes")
   checksum         String?
-  visibility       String @default("private")
-  metadata         String            @default("{}")
-  deletedAt        DateTime?       @map("deleted_at")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
+  visibility       String    @default("private")
+  metadata         Json      @default("{}")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   uploadedBy   User?        @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
@@ -754,7 +754,7 @@ model ActivityLog {
   entityId       String   @map("entity_id")
   action         String
   message        String
-  metadata       String     @default("{}")
+  metadata       Json     @default("{}")
   createdAt      DateTime @default(now()) @map("created_at")
 
   actor        User?        @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -775,7 +775,7 @@ model AuditLog {
   resourceId     String?  @map("resource_id")
   ipAddress      String?  @map("ip_address")
   userAgent      String?  @map("user_agent")
-  metadata       String     @default("{}")
+  metadata       Json     @default("{}")
   createdAt      DateTime @default(now()) @map("created_at")
 
   actor        User?         @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -788,16 +788,16 @@ model AuditLog {
 }
 
 model WebhookEvent {
-  id              String             @id @default(uuid())
-  organizationId  String?            @map("organization_id")
+  id              String    @id @default(uuid())
+  organizationId  String?   @map("organization_id")
   provider        String
-  eventType       String             @map("event_type")
-  externalEventId String             @map("external_event_id")
-  payload         String               @default("{}")
-  status          String @default("received")
-  processedAt     DateTime?          @map("processed_at")
-  errorMessage    String?            @map("error_message")
-  createdAt       DateTime           @default(now()) @map("created_at")
+  eventType       String    @map("event_type")
+  externalEventId String    @map("external_event_id")
+  payload         Json      @default("{}")
+  status          String    @default("received")
+  processedAt     DateTime? @map("processed_at")
+  errorMessage    String?   @map("error_message")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
@@ -812,7 +812,7 @@ model OutgoingWebhookEndpoint {
   organizationId  String    @map("organization_id")
   createdByUserId String?   @map("created_by_user_id")
   url             String
-  events          String    @default("[]")
+  events          Json      @default("[]")
   secret          String?
   isActive        Boolean   @default(true) @map("is_active")
   deletedAt       DateTime? @map("deleted_at")
@@ -827,21 +827,21 @@ model OutgoingWebhookEndpoint {
 }
 
 model OutgoingWebhookDelivery {
-  id             String                @id @default(uuid())
-  organizationId String                @map("organization_id")
-  endpointId     String                @map("endpoint_id")
-  endpointUrl    String                @map("endpoint_url")
-  eventType      String                @map("event_type")
-  payload        String                  @default("{}")
-  status         String @default("pending")
-  statusCode     Int?                  @map("status_code")
-  responseBody   String?               @map("response_body")
-  errorMessage   String?               @map("error_message")
-  attemptCount   Int                   @default(0) @map("attempt_count")
-  deliveredAt    DateTime?             @map("delivered_at")
-  nextAttemptAt  DateTime?             @map("next_attempt_at")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  endpointId     String    @map("endpoint_id")
+  endpointUrl    String    @map("endpoint_url")
+  eventType      String    @map("event_type")
+  payload        Json      @default("{}")
+  status         String    @default("pending")
+  statusCode     Int?      @map("status_code")
+  responseBody   String?   @map("response_body")
+  errorMessage   String?   @map("error_message")
+  attemptCount   Int       @default(0) @map("attempt_count")
+  deliveredAt    DateTime? @map("delivered_at")
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   endpoint     OutgoingWebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -861,7 +861,7 @@ model Notification {
   body           String?
   actionUrl      String?   @map("action_url")
   readAt         DateTime? @map("read_at")
-  metadata       String      @default("{}")
+  metadata       Json      @default("{}")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -873,14 +873,14 @@ model Notification {
 }
 
 model NotificationPreference {
-  id             String    @id @default(uuid())
-  userId         String    @map("user_id")
-  organizationId String    @map("organization_id")
-  eventType      String    @map("event_type")
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  organizationId String   @map("organization_id")
+  eventType      String   @map("event_type")
   channel        String
-  enabled        Boolean   @default(true)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -918,15 +918,15 @@ model VpsService {
   paypalOrderId      String?   @map("paypal_order_id")
   paypalCaptureId    String?   @map("paypal_capture_id")
   paymentStatus      String    @default("pending") @map("payment_status")
-  metadata           String    @default("{}")
+  metadata           Json      @default("{}")
   deletedAt          DateTime? @map("deleted_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy     User?        @relation("VpsServiceCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  project       Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  actionLogs    VpsActionLog[]
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?           @relation("VpsServiceCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  project      Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  actionLogs   VpsActionLog[]
 
   @@index([organizationId])
   @@index([providerInstanceId])
@@ -937,21 +937,39 @@ model VpsService {
 }
 
 model VpsActionLog {
-  id           String   @id @default(uuid())
-  organizationId String @map("organization_id")
-  vpsServiceId  String  @map("vps_service_id")
-  actorUserId   String? @map("actor_user_id")
-  action        String
-  status        String  @default("pending")
-  request       String  @default("{}")
-  response      String  @default("{}")
-  errorMessage  String? @map("error_message")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  vpsServiceId   String   @map("vps_service_id")
+  actorUserId    String?  @map("actor_user_id")
+  action         String
+  status         String   @default("pending")
+  request        Json     @default("{}")
+  response       Json     @default("{}")
+  errorMessage   String?  @map("error_message")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  vpsService    VpsService   @relation(fields: [vpsServiceId], references: [id], onDelete: Cascade)
-  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vpsService   VpsService   @relation(fields: [vpsServiceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([vpsServiceId])
   @@index([organizationId, createdAt])
   @@map("vps_action_logs")
+}
+
+// ─── Pricing ──────────────────────────────────────────────────────────────────
+
+model PricingRule {
+  id        String   @id @default(uuid())
+  scope     String
+  key       String
+  value     Decimal
+  currency  String   @default("USD")
+  metadata  Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([scope, key])
+  @@index([scope, isActive])
+  @@map("pricing_rules")
 }

@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { jsonToDb } from '../../common/json-field';
 import { UserStatus } from '../../common/prisma-enums';
 import { PrismaService } from '../../database/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -25,7 +26,8 @@ export class AuthService {
   constructor(
     private readonly config: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService
   ) {}
 
   async register(dto: RegisterDto, context: ClientContext = {}) {
@@ -268,6 +270,11 @@ export class AuthService {
       })
     ]);
 
+    // Blacklist the session in Redis for the access token TTL so in-flight tokens
+    // are immediately rejected without waiting for the DB revokedAt propagation.
+    const ttlSeconds = this.config.get<number>('ACCESS_TOKEN_TTL_MINUTES', 15) * 60;
+    await this.redis.blacklistSession(session.id, ttlSeconds);
+
     return { revoked: true };
   }
 
@@ -378,7 +385,8 @@ export class AuthService {
       sub: data.user.id,
       organizationId: data.organization.id,
       membershipId: data.membership.id,
-      sessionId: data.session.id
+      sessionId: data.session.id,
+      jti: randomUUID()
     }, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
       expiresIn: `${this.config.getOrThrow<number>('ACCESS_TOKEN_TTL_MINUTES')}m`
