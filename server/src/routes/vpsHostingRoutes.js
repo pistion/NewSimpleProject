@@ -1,5 +1,5 @@
 import express from 'express';
-import { newId, mutateStore, readStore, logAction } from '../services/vpsStore.js';
+import { prisma } from '../services/db.js';
 import * as vultr from '../services/vultrApiService.js';
 
 const router = express.Router();
@@ -37,6 +37,8 @@ function serializeVps(r) {
   return {
     id:                 r.id,
     organizationId:     r.organizationId,
+    createdByUserId:    r.createdByUserId ?? null,
+    checkoutOrderId:    r.checkoutOrderId ?? null,
     providerInstanceId: r.providerInstanceId,
     label:              r.label,
     hostname:           r.hostname,
@@ -54,17 +56,12 @@ function serializeVps(r) {
     markupAmountCents:  r.markupAmountCents,
     totalPriceCents:    r.totalPriceCents,
     currency:           r.currency || 'USD',
+    paypalOrderId:      r.paypalOrderId ?? null,
+    paypalCaptureId:    r.paypalCaptureId ?? null,
     paymentStatus:      r.paymentStatus,
     createdAt:          r.createdAt,
     updatedAt:          r.updatedAt,
   };
-}
-
-function requireOwned(store, id, organizationId) {
-  const record = (store.services || []).find((s) => s.id === id && !s.deletedAt);
-  if (!record) return { err: 404, msg: 'VPS service not found.' };
-  if (record.organizationId !== organizationId) return { err: 403, msg: 'Access denied.' };
-  return { record };
 }
 
 async function getPayPalToken() {
@@ -98,6 +95,27 @@ function wrap(fn) {
       res.status(err.status || 500).json({ error: { message: err.message } });
     }
   };
+}
+
+/**
+ * Log a VPS action into the database. Best-effort — never throws.
+ */
+async function logAction(vpsServiceId, organizationId, actorUserId, action, status, request = {}) {
+  try {
+    await prisma.vpsActionLog.create({
+      data: {
+        vpsServiceId,
+        organizationId,
+        actorUserId:  actorUserId || null,
+        action,
+        status,
+        request,
+        response:     {},
+      },
+    });
+  } catch (err) {
+    console.warn('[vps] Failed to write action log:', err.message);
+  }
 }
 
 // ─── Catalog / settings ────────────────────────────────────────────────────────
@@ -149,7 +167,6 @@ router.post('/quote', wrap(async (req, res) => {
 }));
 
 // ─── Direct deploy (usage-billed — no upfront payment) ────────────────────────
-// Deploy immediately; billing accrues hourly and is collected at period end.
 
 router.post('/services', wrap(async (req, res) => {
   const dto   = req.body || {};
@@ -185,8 +202,7 @@ router.post('/services', wrap(async (req, res) => {
     }
   }
 
-  // Provision the Vultr instance immediately
-  const now = new Date().toISOString();
+  // Provision the Vultr instance
   let instance;
   try {
     instance = await vultr.createInstance({
@@ -207,44 +223,39 @@ router.post('/services', wrap(async (req, res) => {
     return res.status(502).json({ error: { message: `Server provisioning failed: ${err.message}` } });
   }
 
-  // Persist the VPS record in the file store
-  const record = {
-    id:                 newId(),
-    organizationId:     actor.organizationId,
-    createdByUserId:    actor.userId,
-    providerInstanceId: instance.id,
-    label:              dto.label,
-    hostname:           dto.hostname ?? dto.label,
-    region:             dto.region,
-    plan:               dto.plan,
-    osId:               dto.osId,
-    osName,
-    status:             instance.status ?? 'pending',
-    mainIp:             instance.main_ip ?? null,
-    vcpuCount:          instance.vcpu_count ?? null,
-    ramMb:              instance.ram ?? null,
-    diskGb:             instance.disk ?? null,
-    monthlyCostCents:   baseCents,
-    markupPercent:      markup,
-    markupAmountCents:  mkupCents,
-    totalPriceCents:    totalCents,
-    currency:           'USD',
-    paymentStatus:      'active',
-    metadata:           JSON.stringify({ billingModel: 'usage', vultrId: instance.id }),
-    createdAt:          now,
-    updatedAt:          now,
-  };
-
-  await mutateStore((s) => {
-    s.services.push(record);
-    logAction(s, record.id, actor.organizationId, actor.userId, 'create', 'success', dto);
+  // Persist in PostgreSQL
+  const record = await prisma.vpsService.create({
+    data: {
+      organizationId:     actor.organizationId,
+      createdByUserId:    actor.userId === 'local-user' ? null : actor.userId,
+      providerInstanceId: instance.id,
+      label:              dto.label,
+      hostname:           dto.hostname ?? dto.label,
+      region:             dto.region,
+      plan:               dto.plan,
+      osId:               dto.osId,
+      osName,
+      status:             instance.status ?? 'pending',
+      mainIp:             instance.main_ip ?? null,
+      vcpuCount:          instance.vcpu_count ?? null,
+      ramMb:              instance.ram ?? null,
+      diskGb:             instance.disk ?? null,
+      monthlyCostCents:   baseCents,
+      markupPercent:      markup,
+      markupAmountCents:  mkupCents,
+      totalPriceCents:    totalCents,
+      currency:           'USD',
+      paymentStatus:      'active',
+      metadata:           { billingModel: 'usage', vultrId: instance.id },
+    },
   });
 
+  await logAction(record.id, actor.organizationId, actor.userId, 'create', 'success', dto);
   console.log(`[vps] Deployed ${record.id} — Vultr instance ${instance.id} in ${dto.region}`);
   res.status(201).json(serializeVps(record));
 }));
 
-// ─── PayPal — create order ──────────────────────────────────────────────────────
+// ─── PayPal — create order ─────────────────────────────────────────────────────
 
 router.post('/paypal/create-order', wrap(async (req, res) => {
   const dto    = req.body || {};
@@ -300,7 +311,7 @@ router.post('/paypal/create-order', wrap(async (req, res) => {
   });
 }));
 
-// ─── PayPal — capture + provision ──────────────────────────────────────────────
+// ─── PayPal — capture + provision ─────────────────────────────────────────────
 
 router.post('/paypal/capture', wrap(async (req, res) => {
   const { orderId, provisionDetails: dto } = req.body || {};
@@ -311,10 +322,9 @@ router.post('/paypal/capture', wrap(async (req, res) => {
   }
 
   // Idempotency — return existing VPS if this order was already captured
-  const store = await readStore();
-  const existing = (store.services || []).find(
-    (s) => s.organizationId === actor.organizationId && s.paypalOrderId === orderId && !s.deletedAt,
-  );
+  const existing = await prisma.vpsService.findFirst({
+    where: { organizationId: actor.organizationId, paypalOrderId: orderId, deletedAt: null },
+  });
   if (existing) return res.json(serializeVps(existing));
 
   // Capture the PayPal payment
@@ -340,7 +350,7 @@ router.post('/paypal/capture', wrap(async (req, res) => {
   if (!plan) return res.status(404).json({ error: { message: `Plan "${dto.plan}" not found.` } });
   const { baseCents, mkupCents, totalCents, markup } = calcPricing(plan.monthly_cost);
 
-  // Resolve OS name for display
+  // Resolve OS name
   let osName = null;
   try {
     const osList = await vultr.listOs();
@@ -362,7 +372,6 @@ router.post('/paypal/capture', wrap(async (req, res) => {
 
   // Create the Vultr instance
   let instance;
-  const now = new Date().toISOString();
   try {
     instance = await vultr.createInstance({
       region:   dto.region,
@@ -378,21 +387,22 @@ router.post('/paypal/capture', wrap(async (req, res) => {
       tags: [`org:${actor.organizationId}`],
     });
   } catch (err) {
-    // Payment captured but provisioning failed — store error record
-    const failId = newId();
-    await mutateStore((s) => {
-      s.services.push({
-        id: failId, organizationId: actor.organizationId, createdByUserId: actor.userId,
-        providerInstanceId: 'FAILED', label: dto.label, hostname: dto.hostname ?? dto.label,
+    // Payment captured but provisioning failed — persist error record so user can see it
+    const failRecord = await prisma.vpsService.create({
+      data: {
+        organizationId:     actor.organizationId,
+        createdByUserId:    actor.userId === 'local-user' ? null : actor.userId,
+        providerInstanceId: 'FAILED',
+        label: dto.label, hostname: dto.hostname ?? dto.label,
         region: dto.region, plan: dto.plan, osId: dto.osId, osName,
-        status: 'error', mainIp: null, vcpuCount: null, ramMb: null, diskGb: null,
-        monthlyCostCents: baseCents, markupPercent: markup, markupAmountCents: mkupCents,
-        totalPriceCents: totalCents, currency: 'USD',
+        status: 'error',
+        monthlyCostCents: baseCents, markupPercent: markup,
+        markupAmountCents: mkupCents, totalPriceCents: totalCents, currency: 'USD',
         paypalOrderId: orderId, paypalCaptureId: captureRecord.id, paymentStatus: 'completed',
-        metadata: JSON.stringify({ error: err.message }),
-        createdAt: now, updatedAt: now,
-      });
+        metadata: { error: err.message },
+      },
     });
+    await logAction(failRecord.id, actor.organizationId, actor.userId, 'create', 'error', { error: err.message });
     console.error('[vps] Vultr createInstance failed after PayPal capture:', err.message);
     return res.status(409).json({
       error: { message: `Payment was captured but server provisioning failed. Contact support@glondia.co with order ID: ${orderId}` },
@@ -400,25 +410,26 @@ router.post('/paypal/capture', wrap(async (req, res) => {
   }
 
   // Persist the VPS record
-  const record = {
-    id: newId(), organizationId: actor.organizationId, createdByUserId: actor.userId,
-    providerInstanceId: instance.id, label: dto.label, hostname: dto.hostname ?? dto.label,
-    region: dto.region, plan: dto.plan, osId: dto.osId, osName,
-    status: instance.status ?? 'pending',
-    mainIp: instance.main_ip ?? null, vcpuCount: instance.vcpu_count ?? null,
-    ramMb: instance.ram ?? null, diskGb: instance.disk ?? null,
-    monthlyCostCents: baseCents, markupPercent: markup, markupAmountCents: mkupCents,
-    totalPriceCents: totalCents, currency: 'USD',
-    paypalOrderId: orderId, paypalCaptureId: captureRecord.id, paymentStatus: 'completed',
-    metadata: JSON.stringify({ vultrId: instance.id }),
-    createdAt: now, updatedAt: now,
-  };
-
-  await mutateStore((s) => {
-    s.services.push(record);
-    logAction(s, record.id, actor.organizationId, actor.userId, 'create', 'success', dto);
+  const record = await prisma.vpsService.create({
+    data: {
+      organizationId:     actor.organizationId,
+      createdByUserId:    actor.userId === 'local-user' ? null : actor.userId,
+      providerInstanceId: instance.id,
+      label: dto.label, hostname: dto.hostname ?? dto.label,
+      region: dto.region, plan: dto.plan, osId: dto.osId, osName,
+      status: instance.status ?? 'pending',
+      mainIp: instance.main_ip ?? null,
+      vcpuCount: instance.vcpu_count ?? null,
+      ramMb: instance.ram ?? null,
+      diskGb: instance.disk ?? null,
+      monthlyCostCents: baseCents, markupPercent: markup,
+      markupAmountCents: mkupCents, totalPriceCents: totalCents, currency: 'USD',
+      paypalOrderId: orderId, paypalCaptureId: captureRecord.id, paymentStatus: 'completed',
+      metadata: { vultrId: instance.id },
+    },
   });
 
+  await logAction(record.id, actor.organizationId, actor.userId, 'create', 'success', dto);
   res.status(201).json(serializeVps(record));
 }));
 
@@ -426,30 +437,78 @@ router.post('/paypal/capture', wrap(async (req, res) => {
 
 router.get('/services', wrap(async (req, res) => {
   const { organizationId } = extractActor(req);
-  const store = await readStore();
-  const services = (store.services || [])
-    .filter((s) => s.organizationId === organizationId && !s.deletedAt)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .map(serializeVps);
-  res.json(services);
+
+  const services = await prisma.vpsService.findMany({
+    where: { organizationId, deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  // Best-effort Vultr sync: update statuses from live instances
+  if (vultr.isConfigured() && services.length > 0) {
+    try {
+      const liveInstances = await vultr.listInstances();
+      const liveMap = new Map(liveInstances.map((i) => [i.id, i]));
+
+      const updates = [];
+      for (const svc of services) {
+        if (svc.providerInstanceId === 'FAILED' || svc.providerInstanceId === 'pending') continue;
+        const live = liveMap.get(svc.providerInstanceId);
+        if (!live) {
+          // Instance gone from Vultr — mark as destroyed
+          updates.push(
+            prisma.vpsService.update({
+              where: { id: svc.id },
+              data: { deletedAt: new Date(), status: 'destroyed', updatedAt: new Date() },
+            })
+          );
+        } else if (live.status !== svc.status || live.main_ip !== svc.mainIp) {
+          updates.push(
+            prisma.vpsService.update({
+              where: { id: svc.id },
+              data: {
+                status: live.status,
+                mainIp: live.main_ip ?? null,
+                vcpuCount: live.vcpu_count ?? svc.vcpuCount,
+                ramMb: live.ram ?? svc.ramMb,
+                diskGb: live.disk ?? svc.diskGb,
+                updatedAt: new Date(),
+              },
+            })
+          );
+        }
+      }
+      if (updates.length > 0) await Promise.all(updates);
+    } catch (err) {
+      console.warn('[vps] Vultr sync failed, returning cached data:', err.message);
+    }
+  }
+
+  // Re-fetch after sync
+  const fresh = await prisma.vpsService.findMany({
+    where: { organizationId, deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  res.json(fresh.map(serializeVps));
 }));
 
 router.get('/services/:id', wrap(async (req, res) => {
   const { organizationId } = extractActor(req);
-  const store = await readStore();
-  const { record, err, msg } = requireOwned(store, req.params.id, organizationId);
-  if (err) return res.status(err).json({ error: { message: msg } });
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
 
   // Refresh status from Vultr if possible
-  if (record.providerInstanceId !== 'FAILED') {
+  if (record.providerInstanceId !== 'FAILED' && vultr.isConfigured()) {
     try {
       const live = await vultr.getInstance(record.providerInstanceId);
       if (live.status !== record.status || live.main_ip !== record.mainIp) {
-        await mutateStore((s) => {
-          const r = s.services.find((x) => x.id === record.id);
-          if (r) { r.status = live.status; r.mainIp = live.main_ip; r.updatedAt = new Date().toISOString(); }
+        const updated = await prisma.vpsService.update({
+          where: { id: record.id },
+          data: { status: live.status, mainIp: live.main_ip, updatedAt: new Date() },
         });
-        return res.json(serializeVps({ ...record, status: live.status, mainIp: live.main_ip }));
+        return res.json(serializeVps(updated));
       }
     } catch { /* Vultr unreachable — return cached */ }
   }
@@ -458,57 +517,177 @@ router.get('/services/:id', wrap(async (req, res) => {
 
 router.post('/services/:id/start', wrap(async (req, res) => {
   const actor = extractActor(req);
-  const store = await readStore();
-  const { record, err, msg } = requireOwned(store, req.params.id, actor.organizationId);
-  if (err) return res.status(err).json({ error: { message: msg } });
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+
   await vultr.startInstance(record.providerInstanceId);
-  await mutateStore((s) => logAction(s, record.id, actor.organizationId, actor.userId, 'start', 'success', {}));
+  await prisma.vpsService.update({ where: { id: record.id }, data: { status: 'running', updatedAt: new Date() } });
+  await logAction(record.id, actor.organizationId, actor.userId, 'start', 'success', {});
   res.json({ ok: true });
 }));
 
 router.post('/services/:id/halt', wrap(async (req, res) => {
   const actor = extractActor(req);
-  const store = await readStore();
-  const { record, err, msg } = requireOwned(store, req.params.id, actor.organizationId);
-  if (err) return res.status(err).json({ error: { message: msg } });
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+
   await vultr.haltInstance(record.providerInstanceId);
-  await mutateStore((s) => logAction(s, record.id, actor.organizationId, actor.userId, 'halt', 'success', {}));
+  await prisma.vpsService.update({ where: { id: record.id }, data: { status: 'stopped', updatedAt: new Date() } });
+  await logAction(record.id, actor.organizationId, actor.userId, 'halt', 'success', {});
   res.json({ ok: true });
 }));
 
 router.post('/services/:id/reboot', wrap(async (req, res) => {
   const actor = extractActor(req);
-  const store = await readStore();
-  const { record, err, msg } = requireOwned(store, req.params.id, actor.organizationId);
-  if (err) return res.status(err).json({ error: { message: msg } });
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+
   await vultr.rebootInstance(record.providerInstanceId);
-  await mutateStore((s) => logAction(s, record.id, actor.organizationId, actor.userId, 'reboot', 'success', {}));
+  await prisma.vpsService.update({ where: { id: record.id }, data: { updatedAt: new Date() } });
+  await logAction(record.id, actor.organizationId, actor.userId, 'reboot', 'success', {});
   res.json({ ok: true });
 }));
 
 router.delete('/services/:id', wrap(async (req, res) => {
   const actor = extractActor(req);
-  const store = await readStore();
-  const { record, err, msg } = requireOwned(store, req.params.id, actor.organizationId);
-  if (err) return res.status(err).json({ error: { message: msg } });
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
 
-  // Delete from Vultr first; if DB update fails, mark error rather than leaving stale
-  await vultr.deleteInstance(record.providerInstanceId);
-
-  try {
-    await mutateStore((s) => {
-      const r = s.services.find((x) => x.id === record.id);
-      if (r) { r.deletedAt = new Date().toISOString(); r.status = 'destroyed'; r.updatedAt = new Date().toISOString(); }
-      logAction(s, record.id, actor.organizationId, actor.userId, 'destroy', 'success', {});
-    });
-  } catch (dbErr) {
-    // Vultr instance is gone — mark as error so the user isn't stuck
-    await mutateStore((s) => {
-      const r = s.services.find((x) => x.id === record.id);
-      if (r) { r.status = 'error'; r.metadata = JSON.stringify({ destroyError: dbErr.message }); r.updatedAt = new Date().toISOString(); }
-    });
-    throw dbErr;
+  // Step 1: Delete from Vultr (non-fatal — if instance already gone, proceed)
+  if (record.providerInstanceId !== 'FAILED') {
+    try {
+      await vultr.deleteInstance(record.providerInstanceId);
+    } catch (err) {
+      console.warn(`[vps] Vultr deleteInstance failed for ${record.providerInstanceId}:`, err.message);
+      // Continue — we still soft-delete from our DB
+    }
   }
+
+  // Step 2: Soft-delete from database
+  await prisma.vpsService.update({
+    where: { id: record.id },
+    data: { deletedAt: new Date(), status: 'destroyed', updatedAt: new Date() },
+  });
+
+  await logAction(record.id, actor.organizationId, actor.userId, 'destroy', 'success', {});
+  console.log(`[vps] Destroyed service ${record.id} (Vultr: ${record.providerInstanceId})`);
+  res.json({ ok: true });
+}));
+
+// ─── SSH keys ──────────────────────────────────────────────────────────────────
+
+router.get('/ssh-keys', wrap(async (req, res) => {
+  const data = await vultr.listSshKeys();
+  res.json(data);
+}));
+
+router.delete('/ssh-keys/:keyId', wrap(async (req, res) => {
+  await vultr.deleteSshKey(req.params.keyId);
+  res.json({ ok: true });
+}));
+
+// ─── Bandwidth ─────────────────────────────────────────────────────────────────
+
+router.get('/services/:id/bandwidth', wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  const data = await vultr.getInstanceBandwidth(record.providerInstanceId);
+  res.json(data);
+}));
+
+// ─── Snapshots ─────────────────────────────────────────────────────────────────
+
+router.get('/snapshots', wrap(async (req, res) => {
+  const data = await vultr.listSnapshots();
+  res.json(data);
+}));
+
+router.post('/services/:id/snapshots', wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  const snap = await vultr.createSnapshot(record.providerInstanceId, req.body?.description || '');
+  res.status(201).json(snap);
+}));
+
+router.delete('/snapshots/:snapshotId', wrap(async (req, res) => {
+  await vultr.deleteSnapshot(req.params.snapshotId);
+  res.json({ ok: true });
+}));
+
+router.post('/services/:id/restore', wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  await vultr.restoreInstance(record.providerInstanceId, req.body?.snapshotId);
+  res.json({ ok: true });
+}));
+
+// ─── Backup schedule ───────────────────────────────────────────────────────────
+
+router.get('/services/:id/backup-schedule', wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  const data = await vultr.getBackupSchedule(record.providerInstanceId);
+  res.json(data);
+}));
+
+router.post('/services/:id/backup-schedule', wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  const data = await vultr.setBackupSchedule(record.providerInstanceId, req.body || {});
+  res.json(data);
+}));
+
+// ─── Resize & reinstall ────────────────────────────────────────────────────────
+
+router.patch('/services/:id/resize', wrap(async (req, res) => {
+  const actor = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+  if (!req.body?.plan) return res.status(400).json({ error: { message: 'plan is required.' } });
+
+  await vultr.resizeInstance(record.providerInstanceId, req.body.plan);
+  await prisma.vpsService.update({ where: { id: record.id }, data: { plan: req.body.plan, updatedAt: new Date() } });
+  await logAction(record.id, actor.organizationId, actor.userId, 'resize', 'success', { plan: req.body.plan });
+  res.json({ ok: true });
+}));
+
+router.post('/services/:id/reinstall', wrap(async (req, res) => {
+  const actor = extractActor(req);
+  const record = await prisma.vpsService.findFirst({
+    where: { id: req.params.id, organizationId: actor.organizationId, deletedAt: null },
+  });
+  if (!record) return res.status(404).json({ error: { message: 'VPS service not found.' } });
+
+  await vultr.reinstallInstance(record.providerInstanceId, req.body?.osId);
+  if (req.body?.osId) {
+    await prisma.vpsService.update({ where: { id: record.id }, data: { osId: req.body.osId, updatedAt: new Date() } });
+  }
+  await logAction(record.id, actor.organizationId, actor.userId, 'reinstall', 'success', req.body || {});
   res.json({ ok: true });
 }));
 

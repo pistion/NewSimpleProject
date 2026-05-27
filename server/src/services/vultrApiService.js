@@ -80,3 +80,73 @@ export async function rebootInstance(instanceId) {
 export async function startInstance(instanceId) {
   await vultrReq(`/instances/${encodeURIComponent(instanceId)}/start`, { method: 'POST' });
 }
+
+export async function listInstances() {
+  const d = await vultrReq('/instances?per_page=500');
+  return d.instances ?? [];
+}
+
+export async function resizeInstance(instanceId, plan) {
+  await vultrReq(`/instances/${encodeURIComponent(instanceId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ plan }),
+  });
+}
+
+export async function reinstallInstance(instanceId, osId) {
+  await vultrReq(`/instances/${encodeURIComponent(instanceId)}/reinstall`, {
+    method: 'POST',
+    body: JSON.stringify(osId != null ? { os_id: osId } : {}),
+  });
+}
+
+export async function listSshKeys() {
+  const d = await vultrReq('/ssh-keys?per_page=500');
+  return d.ssh_keys ?? [];
+}
+
+export async function deleteSshKey(keyId) {
+  await vultrReq(`/ssh-keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
+}
+
+export async function getInstanceBandwidth(instanceId) {
+  const d = await vultrReq(`/instances/${encodeURIComponent(instanceId)}/bandwidth`);
+  return d.bandwidth ?? {};
+}
+
+export async function listSnapshots() {
+  const d = await vultrReq('/snapshots?per_page=500');
+  return d.snapshots ?? [];
+}
+
+export async function createSnapshot(instanceId, description) {
+  const d = await vultrReq('/snapshots', {
+    method: 'POST',
+    body: JSON.stringify({ instance_id: instanceId, description }),
+  });
+  return d.snapshot;
+}
+
+export async function deleteSnapshot(snapshotId) {
+  await vultrReq(`/snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' });
+}
+
+export async function restoreInstance(instanceId, snapshotId) {
+  await vultrReq(`/instances/${encodeURIComponent(instanceId)}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ snapshot_id: snapshotId }),
+  });
+}
+
+export async function getBackupSchedule(instanceId) {
+  const d = await vultrReq(`/instances/${encodeURIComponent(instanceId)}/backup-schedule`);
+  return d.backup_schedule ?? {};
+}
+
+export async function setBackupSchedule(instanceId, schedule) {
+  const d = await vultrReq(`/instances/${encodeURIComponent(instanceId)}/backup-schedule`, {
+    method: 'POST',
+    body: JSON.stringify(schedule),
+  });
+  return d.backup_schedule ?? {};
+}

@@ -1,7 +1,6 @@
-# Render Blueprint - Glondia Sites active deployment.
-# One Node web service runs the lightweight Express server at server/src/server.js.
-# Express serves the built Vite app from dist and exposes the active API endpoints.
-# The Nest backend under backend/ is not part of this active deployment.
+# Render Blueprint — Glondia Sites
+# Web service: Express server serves the Vite SPA and API routes.
+# Database:    Render-managed PostgreSQL (persistent, survives deploys).
 
 services:
   - type: web
@@ -9,14 +8,10 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    buildCommand: npm ci && npm run build
+    # Build: install deps, build Vite SPA, generate Prisma client, apply DB migrations
+    buildCommand: npm ci && npm run build && npx prisma generate && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /healthz
-
-    disk:
-      name: glondia-disk
-      mountPath: /var/glondia
-      sizeGB: 10
 
     envVars:
       - key: NODE_ENV
@@ -27,12 +22,18 @@ services:
         value: /api
       - key: DATA_DIR
         value: /var/glondia/data
-      - key: RENDER_API_KEY
+
+      # Database — auto-wired from the Render PostgreSQL instance below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: glondiasites-db
+          property: connectionString
+
+      # Vultr API — set in Render dashboard
+      - key: VULTR_API_KEY
         sync: false
-      - key: RENDER_OWNER_ID
-        sync: false
-      - key: RENDER_SERVICE_ID
-        sync: false
+
+      # PayPal
       - key: PAYPAL_CLIENT_ID
         sync: false
       - key: PAYPAL_CLIENT_SECRET
@@ -40,12 +41,37 @@ services:
       - key: PAYPAL_WEBHOOK_ID
         sync: false
       - key: PAYPAL_SANDBOX
-        value: true
+        value: "true"
+
+      # Platform config
       - key: PLATFORM_MARKUP_PERCENT
-        value: 30
+        value: "30"
       - key: PLATFORM_PAYPAL_EMAIL
         sync: false
+
+      # Render integration
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_OWNER_ID
+        sync: false
+      - key: RENDER_SERVICE_ID
+        sync: false
+
+      # Domain registrar (Spaceship)
+      - key: SPACESHIP_API_KEY
+        sync: false
+      - key: SPACESHIP_API_SECRET
+        sync: false
+
+      # Misc
       - key: DOMAIN_REGISTRAR_COST_ACCOUNT
         sync: false
       - key: HOSTING_COST_ACCOUNT
         sync: false
+
+databases:
+  - name: glondiasites-db
+    plan: starter
+    region: oregon
+    databaseName: glondiasites
+    user: glondiasites
