@@ -13,6 +13,11 @@ import { PricingService } from '../pricing/pricing.service';
 import { CreateVpsDto } from './dto/create-vps.dto';
 import { VpsQuoteDto } from './dto/vps-quote.dto';
 import { CaptureVpsPayPalDto } from './dto/capture-paypal.dto';
+import { ResizeVpsDto } from './dto/resize-vps.dto';
+import { ReinstallVpsDto } from './dto/reinstall-vps.dto';
+import { CreateSnapshotDto } from './dto/create-snapshot.dto';
+import { RestoreSnapshotDto } from './dto/restore-snapshot.dto';
+import { SetBackupScheduleDto } from './dto/set-backup-schedule.dto';
 
 interface ActorContext {
   userId: string;
@@ -322,9 +327,82 @@ export class VpsHostingService {
   async listServices(actor: ActorContext) {
     const records = await this.prisma.vpsService.findMany({
       where: { organizationId: actor.organizationId, deletedAt: null },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
-    return records.map((r) => this.serializeVps(r));
+
+    // Sync live state from Vultr in a single batch call — never block on failure
+    const destroyedIds = new Set<string>();
+
+    // Build a mutable patch map so we don't mutate Prisma result types
+    const patches = new Map<string, Partial<{
+      status: string; mainIp: string | null; vcpuCount: number; ramMb: number; diskGb: number;
+    }>>();
+
+    try {
+      const liveInstances = await this.vultr.listInstances();
+      const liveMap = new Map(liveInstances.map((i) => [i.id, i]));
+
+      const updates: Promise<unknown>[] = [];
+      for (const record of records) {
+        if (record.providerInstanceId === 'pending' || record.providerInstanceId === 'FAILED') continue;
+        const live = liveMap.get(record.providerInstanceId);
+
+        if (!live) {
+          // Instance no longer exists on Vultr — soft-delete DB record
+          if (record.status !== 'destroyed') {
+            destroyedIds.add(record.id);
+            updates.push(
+              this.prisma.vpsService.update({
+                where: { id: record.id },
+                data: { status: 'destroyed', deletedAt: new Date() },
+              })
+            );
+          }
+          continue;
+        }
+
+        const needsUpdate =
+          live.status  !== record.status  ||
+          live.main_ip !== record.mainIp  ||
+          (live.vcpu_count != null && live.vcpu_count !== record.vcpuCount) ||
+          (live.ram       != null && live.ram        !== record.ramMb)      ||
+          (live.disk      != null && live.disk       !== record.diskGb);
+
+        if (needsUpdate) {
+          patches.set(record.id, {
+            status:    live.status,
+            mainIp:    live.main_ip,
+            vcpuCount: live.vcpu_count,
+            ramMb:     live.ram,
+            diskGb:    live.disk,
+          });
+          updates.push(
+            this.prisma.vpsService.update({
+              where: { id: record.id },
+              data: {
+                status:    live.status,
+                mainIp:    live.main_ip,
+                vcpuCount: live.vcpu_count,
+                ramMb:     live.ram,
+                diskGb:    live.disk,
+              },
+            })
+          );
+        }
+      }
+
+      if (updates.length) await Promise.allSettled(updates);
+    } catch (err: unknown) {
+      // Vultr unreachable — return cached DB data, don't fail the whole list
+      this.logger.warn(`Vultr sync skipped during listServices: ${err instanceof Error ? err.message : err}`);
+    }
+
+    return records
+      .filter((r) => !destroyedIds.has(r.id))
+      .map((r) => {
+        const patch = patches.get(r.id);
+        return this.serializeVps(patch ? { ...r, ...patch } : r);
+      });
   }
 
   async getService(id: string, actor: ActorContext) {
@@ -371,9 +449,126 @@ export class VpsHostingService {
   async destroyService(id: string, actor: ActorContext) {
     const record = await this.requireOwned(id, actor);
     const provisionable = record.providerInstanceId !== 'pending' && record.providerInstanceId !== 'FAILED';
-    if (provisionable) await this.vultr.deleteInstance(record.providerInstanceId);
-    await this.prisma.vpsService.update({ where: { id }, data: { deletedAt: new Date(), status: 'destroyed' } });
+
+    if (provisionable) {
+      try {
+        await this.vultr.deleteInstance(record.providerInstanceId);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // 404 = already gone on Vultr side — that's fine, continue with DB cleanup
+        // Any other error: log it but still soft-delete the DB record so the UI stays consistent
+        this.logger.warn(`Vultr deleteInstance for ${record.providerInstanceId} failed (continuing DB cleanup): ${msg}`);
+      }
+    }
+
+    await this.prisma.vpsService.update({
+      where: { id },
+      data: { deletedAt: new Date(), status: 'destroyed' },
+    });
     await this.logAction(id, actor.organizationId, actor.userId, 'destroy', 'success', {});
+    return { ok: true };
+  }
+
+  // ─── Resize (plan upgrade) ────────────────────────────────────────────────────
+
+  async resizeService(id: string, dto: ResizeVpsDto, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+
+    const plans = await this.vultr.listPlans();
+    const plan = plans.find((p: { id: string }) => p.id === dto.plan);
+    if (!plan) throw new NotFoundException(`Plan "${dto.plan}" not found.`);
+
+    await this.vultr.resizeInstance(record.providerInstanceId, dto.plan);
+
+    const markup        = this.pricing.getVpsMarkup();
+    const baseCostCents = Math.round(plan.monthly_cost * 100);
+    const markupCents   = Math.round(baseCostCents * (markup / 100));
+    const totalCents    = baseCostCents + markupCents;
+
+    const updated = await this.prisma.vpsService.update({
+      where: { id },
+      data: { plan: dto.plan, monthlyCostCents: baseCostCents, markupAmountCents: markupCents, totalPriceCents: totalCents },
+    });
+
+    await this.logAction(id, actor.organizationId, actor.userId, 'resize', 'success', { plan: dto.plan });
+    return this.serializeVps(updated);
+  }
+
+  // ─── Reinstall ────────────────────────────────────────────────────────────────
+
+  async reinstallService(id: string, _dto: ReinstallVpsDto, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    await this.vultr.reinstallInstance(record.providerInstanceId, record.hostname);
+    await this.logAction(id, actor.organizationId, actor.userId, 'reinstall', 'success', {});
+    return { ok: true };
+  }
+
+  // ─── SSH keys ─────────────────────────────────────────────────────────────────
+
+  async listSshKeys() {
+    return this.vultr.listSshKeys();
+  }
+
+  async deleteSshKey(keyId: string) {
+    await this.vultr.deleteSshKey(keyId);
+    return { ok: true };
+  }
+
+  // ─── Bandwidth ────────────────────────────────────────────────────────────────
+
+  async getBandwidth(id: string, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    return this.vultr.getInstanceBandwidth(record.providerInstanceId);
+  }
+
+  // ─── Snapshots ────────────────────────────────────────────────────────────────
+
+  async listSnapshots() {
+    return this.vultr.listSnapshots();
+  }
+
+  async createSnapshot(id: string, dto: CreateSnapshotDto, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    const snapshot = await this.vultr.createSnapshot(record.providerInstanceId, dto.description);
+    await this.logAction(id, actor.organizationId, actor.userId, 'snapshot-create', 'success', { snapshotId: snapshot.id });
+    return snapshot;
+  }
+
+  async deleteSnapshot(snapshotId: string) {
+    await this.vultr.deleteSnapshot(snapshotId);
+    return { ok: true };
+  }
+
+  async restoreFromSnapshot(id: string, dto: RestoreSnapshotDto, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    await this.vultr.restoreInstance(record.providerInstanceId, dto.snapshotId);
+    await this.logAction(id, actor.organizationId, actor.userId, 'restore', 'success', { snapshotId: dto.snapshotId });
+    return { ok: true };
+  }
+
+  // ─── Backup schedule ──────────────────────────────────────────────────────────
+
+  async getBackupSchedule(id: string, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    return this.vultr.getBackupSchedule(record.providerInstanceId);
+  }
+
+  async setBackupSchedule(id: string, dto: SetBackupScheduleDto, actor: ActorContext) {
+    const record = await this.requireOwned(id, actor);
+    this.requireProvisioned(record);
+    await this.vultr.setBackupSchedule(record.providerInstanceId, {
+      type: dto.type,
+      hour: dto.hour,
+      dow: dto.dow,
+      dom: dto.dom,
+    });
+    await this.logAction(id, actor.organizationId, actor.userId, 'backup-schedule-set', 'success', { type: dto.type });
     return { ok: true };
   }
 
@@ -384,6 +579,12 @@ export class VpsHostingService {
     if (!record) throw new NotFoundException('VPS service not found.');
     if (record.organizationId !== actor.organizationId) throw new ForbiddenException('Access denied.');
     return record;
+  }
+
+  private requireProvisioned(record: { providerInstanceId: string }) {
+    if (record.providerInstanceId === 'pending' || record.providerInstanceId === 'FAILED') {
+      throw new BadRequestException('VPS is not yet provisioned. Please wait until the instance is active.');
+    }
   }
 
   private serializeVps(record: {

@@ -65,6 +65,40 @@ export interface CreateInstanceOptions {
   user_data?: string;
   tags?: string[];
   backups?: 'enabled' | 'disabled';
+  enable_ipv6?: boolean;
+  ddos_protection?: boolean;
+}
+
+export interface VultrBandwidth {
+  bandwidth: Record<string, { incoming_bytes: number; outgoing_bytes: number }>;
+}
+
+export interface VultrSnapshot {
+  id: string;
+  date_created: string;
+  description: string;
+  size: number;
+  status: string;
+  os_id: number;
+  app_id: number;
+}
+
+export interface VultrBackupSchedule {
+  scheduled_backup: {
+    enabled: boolean;
+    next_scheduled_time_utc: string;
+    type: string;
+    hour: number;
+    dow: number;
+    dom: number;
+  };
+}
+
+export interface VultrBackupScheduleInput {
+  type: string;
+  hour?: number;
+  dow?: number;
+  dom?: number;
 }
 
 @Injectable()
@@ -144,6 +178,67 @@ export class VultrService {
       body: JSON.stringify(payload),
     });
     return data.instance;
+  }
+
+  async resizeInstance(instanceId: string, plan: string): Promise<VultrInstance> {
+    const data = await this.request<{ instance: VultrInstance }>(`/instances/${encodeURIComponent(instanceId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ plan }),
+    });
+    return data.instance;
+  }
+
+  async reinstallInstance(instanceId: string, hostname?: string): Promise<VultrInstance> {
+    const body: Record<string, string> = {};
+    if (hostname) body.hostname = hostname;
+    const data = await this.request<{ instance: VultrInstance }>(
+      `/instances/${encodeURIComponent(instanceId)}/reinstall`,
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+    return data.instance;
+  }
+
+  async deleteSshKey(keyId: string): Promise<void> {
+    await this.request(`/ssh-keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
+  }
+
+  async getInstanceBandwidth(instanceId: string): Promise<VultrBandwidth> {
+    return this.request<VultrBandwidth>(`/instances/${encodeURIComponent(instanceId)}/bandwidth`);
+  }
+
+  async listSnapshots(): Promise<VultrSnapshot[]> {
+    const data = await this.request<{ snapshots: VultrSnapshot[] }>('/snapshots?per_page=500');
+    return data.snapshots ?? [];
+  }
+
+  async createSnapshot(instanceId: string, description: string): Promise<VultrSnapshot> {
+    const data = await this.request<{ snapshot: VultrSnapshot }>('/snapshots', {
+      method: 'POST',
+      body: JSON.stringify({ instance_id: instanceId, description }),
+    });
+    return data.snapshot;
+  }
+
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    await this.request(`/snapshots/${encodeURIComponent(snapshotId)}`, { method: 'DELETE' });
+  }
+
+  async restoreInstance(instanceId: string, snapshotId: string): Promise<void> {
+    await this.request(`/instances/${encodeURIComponent(instanceId)}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ snapshot_id: snapshotId }),
+    });
+  }
+
+  async getBackupSchedule(instanceId: string): Promise<VultrBackupSchedule> {
+    return this.request<VultrBackupSchedule>(`/instances/${encodeURIComponent(instanceId)}/backup-schedule`);
+  }
+
+  async setBackupSchedule(instanceId: string, schedule: VultrBackupScheduleInput): Promise<void> {
+    await this.request(`/instances/${encodeURIComponent(instanceId)}/backup-schedule`, {
+      method: 'POST',
+      body: JSON.stringify(schedule),
+    });
   }
 
   private getApiKey(): string {

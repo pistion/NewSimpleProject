@@ -143,23 +143,45 @@ function SelectCard({ selected, onClick, children, style }) {
   );
 }
 
+// ─── Skeleton helpers ─────────────────────────────────────────────────────────
+
+function Skel({ w = '80%', h = 14, style }) {
+  return (
+    <span className="skel" style={{
+      display: 'inline-block', width: w, height: h, borderRadius: 4,
+      ...style,
+    }} />
+  );
+}
+
 // ─── VPS List ─────────────────────────────────────────────────────────────────
 
-export function VpsHostingList({ navigate }) {
+export function VpsHostingList({ navigate, refreshKey = 0 }) {
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
+  const [tab, setTab]         = useState('servers');
 
-  const [tab, setTab] = useState('servers');
+  const load = () => {
+    setLoading(true);
+    listVpsServices()
+      .then((list) => setServers(list ?? []))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  };
 
+  // Re-fetch whenever the parent bumps refreshKey (e.g. after destroy)
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     listVpsServices()
       .then((list) => { if (alive) setServers(list ?? []); })
       .catch((err) => { if (alive) setError(err.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [refreshKey]);
+
+  const SKELETON_ROWS = 3;
 
   return (
     <>
@@ -191,12 +213,36 @@ export function VpsHostingList({ navigate }) {
       {tab === 'servers' ? (
         <>
           {error && (
-            <div className="card" style={{ padding: '10px 16px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+            <div className="card" style={{ padding: '10px 16px', color: 'var(--danger)', fontSize: 13 }}>
+              {error}{' '}
+              <button className="btn btn-ghost btn-sm" onClick={load} style={{ marginLeft: 8 }}>Retry</button>
+            </div>
           )}
 
+          {/* Always render the table shell — skeleton rows fill while loading */}
           {loading ? (
-            <div className="card" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Loading servers…
+            <div className="card card-flush">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Server</th><th>Location</th><th>Specs</th>
+                    <th>IP address</th><th>Status</th><th>Monthly</th><th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                    <tr key={i}>
+                      <td><Skel w="120px" /><br /><Skel w="80px" h={10} style={{ marginTop: 4 }} /></td>
+                      <td><Skel w="60px" /></td>
+                      <td><Skel w="140px" /></td>
+                      <td><Skel w="100px" /></td>
+                      <td><Skel w="56px" h={20} style={{ borderRadius: 99 }} /></td>
+                      <td><Skel w="50px" /></td>
+                      <td />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : servers.length === 0 ? (
             <Empty
@@ -214,13 +260,8 @@ export function VpsHostingList({ navigate }) {
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Server</th>
-                    <th>Location</th>
-                    <th>Specs</th>
-                    <th>IP address</th>
-                    <th>Status</th>
-                    <th>Monthly</th>
-                    <th />
+                    <th>Server</th><th>Location</th><th>Specs</th>
+                    <th>IP address</th><th>Status</th><th>Monthly</th><th />
                   </tr>
                 </thead>
                 <tbody>
@@ -237,9 +278,7 @@ export function VpsHostingList({ navigate }) {
                       </td>
                       <td className="mono">{s.mainIp || '—'}</td>
                       <td><StatusBadge value={s.status} /></td>
-                      <td className="mono" style={{ fontWeight: 600 }}>
-                        ${fmtCents(s.totalPriceCents)}
-                      </td>
+                      <td className="mono" style={{ fontWeight: 600 }}>${fmtCents(s.totalPriceCents)}</td>
                       <td style={{ textAlign: 'right' }}>
                         <ICN.ArrowRight size={13} style={{ color: 'var(--text-faint)' }} />
                       </td>
@@ -262,12 +301,14 @@ export function VpsHostingList({ navigate }) {
 // ─── VPS Create Wizard ────────────────────────────────────────────────────────
 
 export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = '' }) {
-  const [step, setStep]         = useState(initialPlanType ? 1 : 0);
-  const [regions, setRegions]   = useState([]);
-  const [plans, setPlans]       = useState([]);
-  const [osList, setOsList]     = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState('');
+  const [step, setStep]           = useState(initialPlanType ? 1 : 0);
+  const [regions, setRegions]     = useState([]);
+  const [plans, setPlans]         = useState([]);
+  const [osList, setOsList]       = useState([]);
+  const [regionsReady, setRR]     = useState(false);
+  const [plansReady, setPR]       = useState(false);
+  const [osReady, setOR]          = useState(false);
+  const [error, setError]         = useState('');
   const [quote, setQuote]         = useState(null);
   const [quoteLoading, setQL]     = useState(false);
   const [deployLoading, setDL]    = useState(false);
@@ -289,17 +330,22 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const toggle = (k) => () => setForm((f) => ({ ...f, [k]: !f[k] }));
 
+  // Load catalog data in parallel — each resolves independently so the wizard
+  // renders immediately and each step fills in as its data arrives.
   useEffect(() => {
     let alive = true;
-    Promise.all([listVultrRegions(), listVultrPlans(), listVultrOperatingSystems()])
-      .then(([r, p, o]) => {
-        if (!alive) return;
-        setRegions(r ?? []);
-        setPlans(p ?? []);
-        setOsList(o ?? []);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => { if (alive) setLoading(false); });
+    listVultrRegions()
+      .then((r) => { if (alive) setRegions(r ?? []); })
+      .catch((err) => { if (alive) setError((e) => e || err.message); })
+      .finally(() => { if (alive) setRR(true); });
+    listVultrPlans()
+      .then((p) => { if (alive) setPlans(p ?? []); })
+      .catch((err) => { if (alive) setError((e) => e || err.message); })
+      .finally(() => { if (alive) setPR(true); });
+    listVultrOperatingSystems()
+      .then((o) => { if (alive) setOsList(o ?? []); })
+      .catch((err) => { if (alive) setError((e) => e || err.message); })
+      .finally(() => { if (alive) setOR(true); });
     return () => { alive = false; };
   }, []);
 
@@ -348,12 +394,6 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
     if (step === 4) return form.label.trim().length > 0;
     return true;
   };
-
-  if (loading) return (
-    <div className="card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
-      Loading server catalog…
-    </div>
-  );
 
   const typePlans  = form.planType ? plans.filter((p) => p.type === form.planType) : plans;
   const regionPlans = form.region
@@ -438,7 +478,17 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
               <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
                 Pick the datacenter closest to your users for the best latency.
               </p>
-              {['Americas', 'Europe', 'Asia-Pacific', 'Africa', 'Other'].map((continent) => {
+              {!regionsReady && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 8 }}>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="card" style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <Skel w={28} h={28} style={{ borderRadius: '50%', flexShrink: 0 }} />
+                      <div><Skel w="80px" /><br /><Skel w="50px" h={10} style={{ marginTop: 4 }} /></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {regionsReady && ['Americas', 'Europe', 'Asia-Pacific', 'Africa', 'Other'].map((continent) => {
                 const group = regions.filter((r) => regionContinent(r) === continent);
                 if (!group.length) return null;
                 return (
@@ -473,7 +523,17 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
               <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
                 Prices shown include platform fee. You can upgrade anytime.
               </p>
-              <div style={{ overflowX: 'auto' }}>
+              {!plansReady && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                      <Skel w={16} h={16} style={{ borderRadius: '50%', flexShrink: 0 }} />
+                      <Skel w="90px" /><Skel w="40px" /><Skel w="50px" /><Skel w="60px" /><Skel w="60px" /><Skel w="55px" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ overflowX: 'auto', display: plansReady ? 'block' : 'none' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: '2px solid var(--border)' }}>
@@ -532,6 +592,19 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
 
           {/* ── Step 3: OS ── */}
           {step === 3 && (() => {
+            if (!osReady) return (
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: 4 }}>Choose an operating system</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 8 }}>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="card" style={{ padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <Skel w={30} h={30} style={{ borderRadius: 8, flexShrink: 0 }} />
+                      <div><Skel w="80px" /><br /><Skel w="40px" h={10} style={{ marginTop: 4 }} /></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
             const popular = ['Ubuntu', 'Debian', 'AlmaLinux', 'Rocky Linux', 'Fedora', 'Windows', 'FreeBSD'];
             const sorted  = [...osList].sort((a, b) => {
               const ai = popular.indexOf(a.family ?? a.name);
@@ -822,47 +895,62 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
 
 // ─── VPS Detail ───────────────────────────────────────────────────────────────
 
-export function VpsDetail({ id, navigate }) {
+export function VpsDetail({ id, navigate, onDestroyed }) {
   const [server, setServer]   = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy]       = useState('');
   const [error, setError]     = useState('');
   const [confirm, setConfirm] = useState('');
 
-  const load = () => {
-    setLoading(true);
+  const load = (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     getVpsService(id)
-      .then(setServer)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .then((s) => { setServer(s); setLoading(false); })
+      .catch((err) => { setError(err.message); setLoading(false); });
   };
 
   useEffect(() => { load(); }, [id]);
 
+  // Auto-poll every 5 s while the server is still provisioning
+  useEffect(() => {
+    if (!server) return;
+    const provisioning = ['pending', 'provisioning'].includes(server.status);
+    if (!provisioning) return;
+    const t = setInterval(() => load(false), 5000);
+    return () => clearInterval(t);
+  }, [server?.status]);
+
   const act = async (key, fn) => {
     setError(''); setBusy(key);
     try {
+      // Optimistic destroy: navigate immediately, confirm with API in background
+      if (key === 'destroy') {
+        navigate({ view: 'vps-hosting' });
+        if (onDestroyed) onDestroyed();
+        await fn(); // fire-and-forget from UX perspective; errors logged server-side
+        return;
+      }
       await fn();
-      if (key === 'destroy') { navigate({ view: 'vps-hosting' }); return; }
-      load();
+      load(false); // silent refresh after other actions
     } catch (err) {
       setError(err.message || `${key} failed.`);
-    } finally { setBusy(''); setConfirm(''); }
+    } finally {
+      setBusy('');
+      setConfirm('');
+    }
   };
 
-  if (loading) return (
-    <div className="card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>
-  );
+  // Render page shell immediately — fill with skeletons while loading
+  const isActive  = server?.status === 'active';
+  const isStopped = ['stopped', 'halted'].includes(server?.status ?? '');
+  const isProvisioning = ['pending', 'provisioning'].includes(server?.status ?? '');
 
-  if (!server) return (
+  if (!loading && !server) return (
     <Empty icon="Server" title="Server not found"
       body={error || 'This server may have been destroyed.'}
       action={<button className="btn btn-outline" onClick={() => navigate({ view: 'vps-hosting' })}>← Back to servers</button>}
     />
   );
-
-  const isActive  = server.status === 'active';
-  const isStopped = ['stopped', 'halted'].includes(server.status);
 
   return (
     <>
@@ -870,14 +958,23 @@ export function VpsDetail({ id, navigate }) {
         <div>
           <div className="page-eyebrow">Cloud Servers</div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {server.label}
-            <StatusBadge value={server.status} />
+            {loading ? <Skel w="180px" h={28} /> : server.label}
+            {!loading && <StatusBadge value={server.status} />}
+            {isProvisioning && !loading && (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>
+                Auto-refreshing…
+              </span>
+            )}
           </h1>
-          <p className="sub">{server.hostname} · {server.region} · {server.plan}</p>
+          <p className="sub">
+            {loading
+              ? <Skel w="260px" h={13} />
+              : `${server.hostname} · ${server.region} · ${server.plan}`}
+          </p>
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => navigate({ view: 'vps-hosting' })}>← All servers</button>
-          <button className="btn btn-outline" onClick={load} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => load(false)} disabled={loading}>
             <ICN.RefreshCw size={14} /> Refresh
           </button>
         </div>
@@ -897,20 +994,20 @@ export function VpsDetail({ id, navigate }) {
             <table className="tbl">
               <tbody>
                 <tr><td className="label">IP address</td>
-                  <td><span className="mono">{server.mainIp || 'Pending…'}</span></td></tr>
-                <tr><td className="label">Region</td><td>{server.region}</td></tr>
-                <tr><td className="label">Plan</td><td className="mono">{server.plan}</td></tr>
-                {server.vcpuCount && <tr><td className="label">vCPU</td><td>{server.vcpuCount} cores</td></tr>}
-                {server.ramMb     && <tr><td className="label">RAM</td><td>{(server.ramMb / 1024).toFixed(0)} GB</td></tr>}
-                {server.diskGb    && <tr><td className="label">Storage</td><td>{server.diskGb} GB SSD</td></tr>}
-                <tr><td className="label">OS</td><td className="mono">{server.osName || `ID ${server.osId}`}</td></tr>
+                  <td><span className="mono">{loading ? <Skel w="110px" /> : (server.mainIp || 'Pending…')}</span></td></tr>
+                <tr><td className="label">Region</td><td>{loading ? <Skel w="60px" /> : server.region}</td></tr>
+                <tr><td className="label">Plan</td><td className="mono">{loading ? <Skel w="100px" /> : server.plan}</td></tr>
+                <tr><td className="label">vCPU</td><td>{loading ? <Skel w="50px" /> : (server.vcpuCount ? `${server.vcpuCount} cores` : '—')}</td></tr>
+                <tr><td className="label">RAM</td><td>{loading ? <Skel w="50px" /> : (server.ramMb ? `${(server.ramMb / 1024).toFixed(0)} GB` : '—')}</td></tr>
+                <tr><td className="label">Storage</td><td>{loading ? <Skel w="60px" /> : (server.diskGb ? `${server.diskGb} GB SSD` : '—')}</td></tr>
+                <tr><td className="label">OS</td><td className="mono">{loading ? <Skel w="80px" /> : (server.osName || `ID ${server.osId}`)}</td></tr>
                 <tr><td className="label">Created</td>
-                  <td>{new Date(server.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td></tr>
+                  <td>{loading ? <Skel w="100px" /> : new Date(server.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td></tr>
               </tbody>
             </table>
           </div>
 
-          {server.mainIp && server.mainIp !== 'Pending…' && (
+          {!loading && server.mainIp && server.mainIp !== 'Pending…' && (
             <div className="card">
               <div className="card-head"><h2>Connect via SSH</h2></div>
               <div style={{ padding: '10px 16px 16px' }}>
@@ -939,17 +1036,17 @@ export function VpsDetail({ id, navigate }) {
             <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                 <span style={{ color: 'var(--text-muted)' }}>Server cost</span>
-                <span className="mono">${fmtCents(server.monthlyCostCents)}/mo</span>
+                <span className="mono">{loading ? <Skel w="60px" /> : `$${fmtCents(server.monthlyCostCents)}/mo`}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Platform fee ({server.markupPercent ?? 0}%)</span>
-                <span className="mono">${fmtCents(server.markupAmountCents)}/mo</span>
+                <span style={{ color: 'var(--text-muted)' }}>Platform fee ({loading ? '…' : `${server.markupPercent ?? 0}%`})</span>
+                <span className="mono">{loading ? <Skel w="55px" /> : `$${fmtCents(server.markupAmountCents)}/mo`}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700,
                 borderTop: '1px solid var(--border)', paddingTop: 10, fontSize: 15 }}>
                 <span>Total / month</span>
                 <span className="mono" style={{ color: 'var(--accent)' }}>
-                  ${fmtCents(server.totalPriceCents)}
+                  {loading ? <Skel w="65px" h={18} /> : `$${fmtCents(server.totalPriceCents)}`}
                 </span>
               </div>
             </div>
@@ -958,15 +1055,15 @@ export function VpsDetail({ id, navigate }) {
           <div className="card">
             <div className="card-head"><h2>Power controls</h2></div>
             <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button className="btn btn-outline" disabled={!!busy || isActive}
+              <button className="btn btn-outline" disabled={loading || !!busy || isActive}
                 onClick={() => act('start', () => startVpsService(id))}>
                 {busy === 'start' ? 'Starting…' : <><ICN.Play size={13} /> Power on</>}
               </button>
-              <button className="btn btn-outline" disabled={!!busy || isStopped}
+              <button className="btn btn-outline" disabled={loading || !!busy || isStopped}
                 onClick={() => act('halt', () => haltVpsService(id))}>
                 {busy === 'halt' ? 'Halting…' : <><ICN.Square size={13} /> Power off</>}
               </button>
-              <button className="btn btn-outline" disabled={!!busy}
+              <button className="btn btn-outline" disabled={loading || !!busy}
                 onClick={() => act('reboot', () => rebootVpsService(id))}>
                 {busy === 'reboot' ? 'Rebooting…' : <><ICN.RefreshCw size={13} /> Reboot</>}
               </button>
@@ -988,7 +1085,7 @@ export function VpsDetail({ id, navigate }) {
                 </div>
               ) : (
                 <button className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                  disabled={!!busy} onClick={() => setConfirm('destroy')}>
+                  disabled={loading || !!busy} onClick={() => setConfirm('destroy')}>
                   <ICN.Trash2 size={13} /> Destroy server
                 </button>
               )}
