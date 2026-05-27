@@ -56,23 +56,12 @@ export class VpsHostingController {
     return this.vpsHosting.getQuote(dto);
   }
 
-  @Post('paypal/create-order')
-  @ApiCreatedResponse({ description: 'Creates a PayPal order for the VPS. Customer must approve via approvalUrl.' })
-  createPayPalOrder(@Body() dto: CreateVpsDto, @Req() req: RequestWithContext) {
-    return this.vpsHosting.createPayPalOrder(dto, actor(req));
-  }
+  // ─── Services (deploy / list / manage) ──────────────────────────────────────
 
-  @Post('paypal/capture')
-  @ApiCreatedResponse({ description: 'Captures the PayPal order and provisions the Vultr VPS. Idempotent.' })
-  capturePayPalOrder(
-    @Body() body: { orderId: string; provisionDetails: CreateVpsDto },
-    @Req() req: RequestWithContext,
-  ) {
-    return this.vpsHosting.capturePayPalOrder(
-      { orderId: body.orderId },
-      body.provisionDetails,
-      actor(req),
-    );
+  @Post('services')
+  @ApiCreatedResponse({ description: 'Deploys a new VPS immediately. Billed monthly based on usage.' })
+  deployVps(@Body() dto: CreateVpsDto, @Req() req: RequestWithContext) {
+    return this.vpsHosting.deployVps(dto, actor(req));
   }
 
   @Get('services')

@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ICN } from './icons';
 import { Badge, Empty, StatusBadge, Tabs } from './components';
 import {
-  captureVpsPayPalOrder,
-  createVpsPayPalOrder,
+  deployVpsService,
   destroyVpsService,
   getVpsService,
   getVpsQuote,
@@ -102,7 +101,7 @@ function OsIcon({ name, size = 32 }) {
 
 // ─── Step progress bar ─────────────────────────────────────────────────────────
 
-const STEPS = ['Type', 'Region', 'Plan', 'OS', 'Configure', 'Review', 'Pay'];
+const STEPS = ['Type', 'Region', 'Plan', 'OS', 'Configure', 'Review', 'Deploying'];
 
 function StepBar({ step }) {
   return (
@@ -269,11 +268,10 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
   const [osList, setOsList]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
-  const [quote, setQuote]       = useState(null);
-  const [quoteLoading, setQL]   = useState(false);
-  const [payLoading, setPL]     = useState(false);
-  const [pendingOrder, setOrder]= useState(null);
-  const pollRef = useRef(null);
+  const [quote, setQuote]         = useState(null);
+  const [quoteLoading, setQL]     = useState(false);
+  const [deployLoading, setDL]    = useState(false);
+  const [deployedVps, setDeployed]= useState(null);
 
   const [form, setForm] = useState({
     planType: initialPlanType || '',
@@ -302,10 +300,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
       })
       .catch((err) => setError(err.message))
       .finally(() => { if (alive) setLoading(false); });
-    return () => {
-      alive = false;
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    };
+    return () => { alive = false; };
   }, []);
 
   // Fetch quote when reaching review step; re-fetch if config changed after going back
@@ -318,11 +313,12 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
       .finally(() => setQL(false));
   }, [step, form.region, form.plan, form.osId]);
 
-  const handlePay = async () => {
+  const handleDeploy = async () => {
     setError('');
-    setPL(true);
+    setDL(true);
+    setStep(6);
     try {
-      const order = await createVpsPayPalOrder({
+      const vps = await deployVpsService({
         region: form.region, plan: form.plan, osId: form.osId,
         label: form.label, hostname: form.hostname || form.label,
         sshKeyId:    form.sshMode === 'existing' ? form.sshKeyId    : undefined,
@@ -333,29 +329,14 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
         backups:     form.backups     || undefined,
         ddosProtection: form.ddosProtection || undefined,
       });
-      setOrder(order);
-      if (order.approvalUrl) {
-        window.open(order.approvalUrl, '_blank', 'width=600,height=700');
-        pollRef.current = setInterval(async () => {
-          try {
-            const vps = await captureVpsPayPalOrder({
-              orderId: order.orderId,
-              provisionDetails: {
-                region: form.region, plan: form.plan, osId: form.osId,
-                label: form.label, hostname: form.hostname || form.label,
-              },
-            });
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-            navigate({ view: 'vps-detail', params: { id: vps.id } });
-          } catch { /* not captured yet */ }
-        }, 3000);
-        setStep(6);
-      }
+      setDeployed(vps);
+      // Navigate to detail after a short delay so the user sees the success state
+      setTimeout(() => navigate({ view: 'vps-detail', params: { id: vps.id } }), 1800);
     } catch (err) {
-      setError(err.message || 'Failed to create PayPal order.');
+      setError(err.message || 'Deployment failed. Please try again.');
+      setStep(5); // go back to review so user can retry
     } finally {
-      setPL(false);
+      setDL(false);
     }
   };
 
@@ -389,7 +370,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
         <div>
           <div className="page-eyebrow">Cloud Servers</div>
           <h1>Deploy a server</h1>
-          <p className="sub">Choose your plan type, region, OS, and options — then pay securely with PayPal.</p>
+          <p className="sub">Choose your plan type, region, OS, and options — deploy instantly, billed monthly by usage.</p>
         </div>
         <div className="actions">
           <button className="btn btn-ghost" onClick={() => navigate({ view: 'vps-hosting' })}>Cancel</button>
@@ -708,7 +689,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
           {/* ── Step 5: Review ── */}
           {step === 5 && (
             <div style={{ maxWidth: 520 }}>
-              <h3 style={{ marginTop: 0, marginBottom: 20 }}>Review your order</h3>
+              <h3 style={{ marginTop: 0, marginBottom: 20 }}>Review your server</h3>
 
               <div className="card" style={{ marginBottom: 16, padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -740,44 +721,73 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
                   background: 'var(--accent-soft)', border: '1px solid var(--accent)',
                   borderRadius: 'var(--r)', padding: '16px 20px',
                 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>Monthly billing</div>
+                  <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>Usage-based billing</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
                     <span style={{ color: 'var(--text-muted)' }}>Server cost</span>
-                    <span className="mono">{quote.breakdown?.vpsPrice}</span>
+                    <span className="mono">{quote.breakdown?.vpsPrice}/mo</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 12, color: 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, color: 'var(--text-muted)' }}>
                     <span>Platform fee ({quote.markupPercent}%)</span>
-                    <span className="mono">{quote.breakdown?.platformFee}</span>
+                    <span className="mono">{quote.breakdown?.platformFee}/mo</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800,
-                    fontSize: 16, borderTop: '1px solid var(--accent)', paddingTop: 12 }}>
-                    <span>Total per month</span>
+                    fontSize: 16, borderTop: '1px solid var(--accent)', paddingTop: 12, marginTop: 6 }}>
+                    <span>Total / month</span>
                     <span className="mono" style={{ color: 'var(--accent)' }}>{quote.breakdown?.total}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-                    First month charged upfront via PayPal. Recurring billing managed separately.
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12,
+                    color: 'var(--text-muted)', marginTop: 6 }}>
+                    <span>Hourly rate</span>
+                    <span className="mono">${(quote.totalMonthlyCostCents / 100 / 730).toFixed(4)}/hr</span>
+                  </div>
+                  <div style={{
+                    marginTop: 14, padding: '10px 12px', background: 'var(--bg-card)',
+                    borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--text-muted)',
+                    display: 'flex', gap: 8, alignItems: 'flex-start',
+                  }}>
+                    <ICN.Info size={14} style={{ flexShrink: 0, marginTop: 1, color: 'var(--accent)' }} />
+                    <span>
+                      No charge today. Usage accrues hourly from the moment you deploy.
+                      You'll be invoiced at the end of your billing period.
+                    </span>
                   </div>
                 </div>
               ) : null}
             </div>
           )}
 
-          {/* ── Step 6: Paying ── */}
+          {/* ── Step 6: Deploying ── */}
           {step === 6 && (
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{
-                width: 64, height: 64, borderRadius: '50%',
-                background: 'var(--accent-soft)', margin: '0 auto 20px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <ICN.CreditCard size={28} style={{ color: 'var(--accent)' }} />
-              </div>
-              <h3 style={{ marginTop: 0 }}>Complete payment in the PayPal window</h3>
-              <p style={{ color: 'var(--text-muted)', maxWidth: 380, margin: '0 auto 16px' }}>
-                A PayPal window has opened. After you approve the payment, your server will start provisioning automatically — usually within 60 seconds.
-              </p>
-              {pendingOrder?.orderId && (
-                <div className="mono faint" style={{ fontSize: 11 }}>Order: {pendingOrder.orderId}</div>
+              {deployedVps ? (
+                <>
+                  <div style={{
+                    width: 64, height: 64, borderRadius: '50%',
+                    background: 'var(--accent-soft)', margin: '0 auto 20px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <ICN.CheckCircle size={30} style={{ color: 'var(--accent)' }} />
+                  </div>
+                  <h3 style={{ marginTop: 0 }}>Server deploying</h3>
+                  <p style={{ color: 'var(--text-muted)', maxWidth: 380, margin: '0 auto 16px' }}>
+                    <strong>{deployedVps.label}</strong> is provisioning in <strong>{deployedVps.region}</strong>.
+                    Your IP address will appear within 60 seconds. Taking you to the server dashboard…
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    width: 64, height: 64, borderRadius: '50%',
+                    background: 'var(--accent-soft)', margin: '0 auto 20px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <ICN.Server size={28} style={{ color: 'var(--accent)' }} />
+                  </div>
+                  <h3 style={{ marginTop: 0 }}>Deploying your server…</h3>
+                  <p style={{ color: 'var(--text-muted)', maxWidth: 380, margin: '0 auto 16px' }}>
+                    Sending the request to the datacenter. This usually takes a few seconds.
+                  </p>
+                </>
               )}
             </div>
           )}
@@ -797,9 +807,10 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
                 Continue →
               </button>
             ) : (
-              <button className="btn btn-primary" style={{ minWidth: 160 }}
-                disabled={payLoading || quoteLoading} onClick={handlePay}>
-                {payLoading ? 'Creating order…' : `Pay with PayPal →`}
+              <button className="btn btn-primary" style={{ minWidth: 180 }}
+                disabled={deployLoading || quoteLoading} onClick={handleDeploy}>
+                <ICN.Server size={14} />
+                {deployLoading ? 'Deploying…' : 'Deploy server →'}
               </button>
             )}
           </div>

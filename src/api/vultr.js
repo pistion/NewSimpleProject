@@ -51,19 +51,12 @@ export function getVpsQuote({ region, plan, osId }) {
   });
 }
 
-// ─── PayPal payment flow ───────────────────────────────────────────────────────
+// ─── Deploy (usage-billed) ─────────────────────────────────────────────────────
 
-export function createVpsPayPalOrder(provisionDetails) {
-  return vpsRequest('/v1/vps-hosting/paypal/create-order', {
+export function deployVpsService(provisionDetails) {
+  return vpsRequest('/v1/vps-hosting/services', {
     method: 'POST',
     body: provisionDetails,
-  });
-}
-
-export function captureVpsPayPalOrder({ orderId, provisionDetails }) {
-  return vpsRequest('/v1/vps-hosting/paypal/capture', {
-    method: 'POST',
-    body: { orderId, provisionDetails },
   });
 }
 

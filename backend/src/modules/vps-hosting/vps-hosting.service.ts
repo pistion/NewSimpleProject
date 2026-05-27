@@ -108,7 +108,66 @@ export class VpsHostingService {
     };
   }
 
-  // ─── PayPal order ─────────────────────────────────────────────────────────────
+  // ─── Direct deploy (usage-billed) ────────────────────────────────────────────
+  // Provisions a VPS immediately. No upfront payment — usage is tracked and
+  // billed at the end of the billing period (monthly).
+
+  async deployVps(dto: CreateVpsDto, actor: ActorContext) {
+    const plans = await this.vultr.listPlans();
+    const plan = plans.find((p: { id: string }) => p.id === dto.plan);
+    if (!plan) throw new NotFoundException(`Plan "${dto.plan}" not found.`);
+
+    const markup        = this.pricing.getVpsMarkup();
+    const baseCostCents = Math.round(plan.monthly_cost * 100);
+    const markupCents   = Math.round(baseCostCents * (markup / 100));
+    const totalCents    = baseCostCents + markupCents;
+
+    const vpsRecord = await this.prisma.vpsService.create({
+      data: {
+        organizationId:    actor.organizationId,
+        createdByUserId:   actor.userId,
+        providerInstanceId: 'pending',
+        label:             dto.label,
+        hostname:          dto.hostname ?? dto.label,
+        region:            dto.region,
+        plan:              dto.plan,
+        osId:              dto.osId,
+        status:            'pending',
+        monthlyCostCents:  baseCostCents,
+        markupPercent:     markup,
+        markupAmountCents: markupCents,
+        totalPriceCents:   totalCents,
+        paymentStatus:     'active',
+        metadata:          { billingModel: 'usage' }
+      }
+    });
+
+    await this.vpsQueue.enqueueProvision({
+      version: 1,
+      vpsServiceId: vpsRecord.id,
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      provisionDetails: {
+        region:         dto.region,
+        plan:           dto.plan,
+        osId:           dto.osId,
+        label:          dto.label,
+        hostname:       dto.hostname ?? dto.label,
+        sshKeyId:       dto.sshKeyId,
+        sshPublicKey:   dto.sshPublicKey,
+        sshKeyName:     dto.sshKeyName,
+        userData:       dto.userData,
+        enableIpv6:     dto.enableIpv6,
+        backups:        dto.backups,
+        ddosProtection: dto.ddosProtection
+      }
+    });
+
+    this.logger.log(`VPS ${vpsRecord.id} deployed for org ${actor.organizationId} — usage billing active`);
+    return this.serializeVps(vpsRecord);
+  }
+
+  // ─── PayPal order (legacy — kept for prepay/invoice workflows) ────────────────
 
   async createPayPalOrder(dto: CreateVpsDto, actor: ActorContext) {
     if (!this.paypalEnabled) throw new BadRequestException('PayPal is not configured.');
