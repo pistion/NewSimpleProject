@@ -60,6 +60,7 @@ export const ICN = {
   HelpCircle: I(<><circle cx="12" cy="12" r="9" /><path d="M9.5 9a3 3 0 0 1 5.5 1.5c0 1.5-2 2-2.5 3.5M12 17h.01" /></>),
   AlertCircle: I(<><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></>),
   CheckCircle: I(<><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>),
+  Info: I(<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>),
   Tag: I(<><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10z" /><circle cx="8" cy="8" r="1.5" /></>),
   Power: I(<><path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></>),
   Code: I(<><path d="m16 18 6-6-6-6M8 6l-6 6 6 6" /></>),

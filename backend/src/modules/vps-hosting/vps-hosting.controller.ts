@@ -3,7 +3,6 @@ import { ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { RequestWithContext } from '../../common/types/request-with-context';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CaptureVpsPayPalDto } from './dto/capture-paypal.dto';
 import { CreateVpsDto } from './dto/create-vps.dto';
 import { VpsQuoteDto } from './dto/vps-quote.dto';
 import { VpsHostingService } from './vps-hosting.service';
