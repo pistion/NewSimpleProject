@@ -106,11 +106,11 @@ async function logAction(vpsServiceId, organizationId, actorUserId, action, stat
       data: {
         vpsServiceId,
         organizationId,
-        actorUserId:  actorUserId || null,
+        actorUserId: actorUserId || null,
         action,
         status,
-        request,
-        response:     {},
+        request:  JSON.stringify(request),
+        response: '{}',
       },
     });
   } catch (err) {
@@ -223,7 +223,7 @@ router.post('/services', wrap(async (req, res) => {
     return res.status(502).json({ error: { message: `Server provisioning failed: ${err.message}` } });
   }
 
-  // Persist in PostgreSQL
+  // Persist in SQLite via Prisma
   const record = await prisma.vpsService.create({
     data: {
       organizationId:     actor.organizationId,
@@ -246,7 +246,7 @@ router.post('/services', wrap(async (req, res) => {
       totalPriceCents:    totalCents,
       currency:           'USD',
       paymentStatus:      'active',
-      metadata:           { billingModel: 'usage', vultrId: instance.id },
+      metadata:           JSON.stringify({ billingModel: 'usage', vultrId: instance.id }),
     },
   });
 
@@ -399,7 +399,7 @@ router.post('/paypal/capture', wrap(async (req, res) => {
         monthlyCostCents: baseCents, markupPercent: markup,
         markupAmountCents: mkupCents, totalPriceCents: totalCents, currency: 'USD',
         paypalOrderId: orderId, paypalCaptureId: captureRecord.id, paymentStatus: 'completed',
-        metadata: { error: err.message },
+        metadata: JSON.stringify({ error: err.message }),
       },
     });
     await logAction(failRecord.id, actor.organizationId, actor.userId, 'create', 'error', { error: err.message });
@@ -425,7 +425,7 @@ router.post('/paypal/capture', wrap(async (req, res) => {
       monthlyCostCents: baseCents, markupPercent: markup,
       markupAmountCents: mkupCents, totalPriceCents: totalCents, currency: 'USD',
       paypalOrderId: orderId, paypalCaptureId: captureRecord.id, paymentStatus: 'completed',
-      metadata: { vultrId: instance.id },
+      metadata: JSON.stringify({ vultrId: instance.id }),
     },
   });
 

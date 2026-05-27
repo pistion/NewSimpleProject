@@ -1,6 +1,8 @@
 # Render Blueprint — Glondia Sites
-# Web service: Express server serves the Vite SPA and API routes.
-# Database:    Render-managed PostgreSQL (persistent, survives deploys).
+# Express server + Vite SPA.
+# Persistent disk mounted at /var/glondia (already provisioned).
+# SQLite database: /var/glondia/data/glondia.db (set via DATABASE_URL env var).
+# All secrets are already set in the Render dashboard — listed here as sync: false.
 
 services:
   - type: web
@@ -8,10 +10,19 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    # Build: install deps, build Vite SPA, generate Prisma client, apply DB migrations
-    buildCommand: npm ci && npm run build && npx prisma generate && npx prisma migrate deploy
-    startCommand: npm start
+
+    # Build: install deps, build Vite SPA, generate Prisma client
+    buildCommand: npm ci && npm run build && npx prisma generate
+
+    # Start: apply any schema changes to SQLite on disk, then serve
+    startCommand: npx prisma db push --accept-data-loss && node server/src/server.js
+
     healthCheckPath: /healthz
+
+    disk:
+      name: glondia-disk
+      mountPath: /var/glondia
+      sizeGB: 10
 
     envVars:
       - key: NODE_ENV
@@ -20,58 +31,62 @@ services:
         value: live
       - key: VITE_API_BASE_URL
         value: /api
-      - key: DATA_DIR
-        value: /var/glondia/data
+      - key: PLATFORM_MARKUP_PERCENT
+        value: "30"
+      - key: PAYPAL_SANDBOX
+        value: "true"
 
-      # Database — auto-wired from the Render PostgreSQL instance below
+      # All secrets below are already set in the Render dashboard.
+      # sync: false means Render will NOT override them from this file.
       - key: DATABASE_URL
-        fromDatabase:
-          name: glondiasites-db
-          property: connectionString
-
-      # Vultr API — set in Render dashboard
+        sync: false
+      - key: DATA_DIR
+        sync: false
       - key: VULTR_API_KEY
         sync: false
-
-      # PayPal
+      - key: VULTR_API_BASE_URL
+        sync: false
       - key: PAYPAL_CLIENT_ID
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
       - key: PAYPAL_WEBHOOK_ID
         sync: false
-      - key: PAYPAL_SANDBOX
-        value: "true"
-
-      # Platform config
-      - key: PLATFORM_MARKUP_PERCENT
-        value: "30"
       - key: PLATFORM_PAYPAL_EMAIL
         sync: false
-
-      # Render integration
       - key: RENDER_API_KEY
         sync: false
       - key: RENDER_OWNER_ID
         sync: false
       - key: RENDER_SERVICE_ID
         sync: false
-
-      # Domain registrar (Spaceship)
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
       - key: SPACESHIP_API_KEY
         sync: false
       - key: SPACESHIP_API_SECRET
         sync: false
-
-      # Misc
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STORAGE_DRIVER
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
       - key: DOMAIN_REGISTRAR_COST_ACCOUNT
         sync: false
       - key: HOSTING_COST_ACCOUNT
         sync: false
-
-databases:
-  - name: glondiasites-db
-    plan: starter
-    region: oregon
-    databaseName: glondiasites
-    user: glondiasites
