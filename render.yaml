@@ -14,8 +14,8 @@ services:
     # Build: install deps, build Vite SPA, generate Prisma client
     buildCommand: npm ci && npm run build && npx prisma generate
 
-    # Start: apply any schema changes to SQLite on disk, then serve
-    startCommand: npx prisma db push --accept-data-loss && node server/src/server.js
+    # Start: ensure the data directory exists on the mounted disk, push schema, then serve
+    startCommand: mkdir -p /var/glondia/data && npx prisma db push --accept-data-loss && node server/src/server.js
 
     healthCheckPath: /healthz
 
