@@ -3,6 +3,7 @@ import { templateAiController } from '../controllers/template-ai.controller.js';
 
 const router = express.Router();
 
+router.get('/settings',                 templateAiController.getSettings);
 router.post('/intake/start',            templateAiController.startIntake);
 router.post('/intake/message',          templateAiController.sendMessage);
 router.post('/generate',                templateAiController.generateTailored);
