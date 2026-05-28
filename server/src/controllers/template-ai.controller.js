@@ -18,6 +18,29 @@ function maybeCleanSessions() {
   for (const [id, s] of sessions) if (new Date(s.createdAt).getTime() < cutoff) sessions.delete(id);
 }
 
+async function getSettings(req, res, next) {
+  try {
+    const sourceRepoConfigured = Boolean(process.env.RENDER_GENERATED_SITES_REPO_URL);
+    const githubTokenConfigured = Boolean(process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN);
+    const renderConfigured = renderApiService.configured();
+    const openAiConfigured = Boolean(process.env.OPENAI_API_KEY);
+    res.json({
+      openAiConfigured,
+      githubPublisherConfigured: sourceRepoConfigured && githubTokenConfigured,
+      renderConfigured,
+      sourceRepoConfigured,
+      sourceRepo: process.env.RENDER_GENERATED_SITES_REPO_URL || null,
+      defaultRootDirectory: process.env.RENDER_GENERATED_SITES_ROOT_DIR || null,
+      missing: [
+        !openAiConfigured ? 'OPENAI_API_KEY' : null,
+        !githubTokenConfigured ? 'GITHUB_GENERATED_SITES_TOKEN' : null,
+        !sourceRepoConfigured ? 'RENDER_GENERATED_SITES_REPO_URL' : null,
+        !renderConfigured ? 'RENDER_API_KEY / RENDER_OWNER_ID' : null,
+      ].filter(Boolean),
+    });
+  } catch (err) { next(err); }
+}
+
 async function startIntake(req, res, next) {
   try {
     const { templateId } = req.body || {};
@@ -110,22 +133,15 @@ async function deploySite(req, res, next) {
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found. Complete the AI intake to create it.` });
     if (!Array.isArray(site.pages) || site.pages.length === 0) return res.status(409).json({ error: 'This tailored site has no generated pages. Run RoxanneAI generation first.' });
 
-    const {
-      siteName = '', slug = '', serviceType = 'static_site', plan = 'starter', environment = 'production',
-      buildCommand = 'npm run build', publishDirectory = 'dist', sourceReference = 'roxanne-ai-tailored-template',
-      repoUrl = '', repositoryUrl = '', branch = 'main', rootDirectory = '',
-    } = req.body || {};
-
+    const { siteName = '', slug = '', serviceType = 'static_site', plan = 'starter', environment = 'production', buildCommand = 'npm run build', publishDirectory = 'dist', sourceReference = 'roxanne-ai-tailored-template', repoUrl = '', repositoryUrl = '', branch = 'main', rootDirectory = '' } = req.body || {};
     const deploymentId = makeId('dep');
     const now = nowIso();
     const finalSiteName = siteName || site.answers?.businessName || site.templateId;
     const finalSlug = slugify(slug || finalSiteName || siteId);
     const generatedSite = await generateViteStaticSiteFromTemplateSite(site, { siteName: finalSiteName, slug: finalSlug, buildCommand, publishDirectory });
-
     const sourceRepo = repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || '';
     const targetRoot = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `generated-sites/${finalSlug}`;
     const githubPublish = await publishGeneratedSiteToGitHub({ siteDir: generatedSite.siteDir, repoUrl: sourceRepo, branch, targetRoot, commitMessage: `Publish RoxanneAI generated site ${finalSlug}` });
-
     const renderSourceRepo = sourceRepo;
     const renderRootDirectory = githubPublish.attempted && !githubPublish.errors?.length ? targetRoot : (rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '');
     let renderServiceId = makeId('render_svc_pending');
@@ -157,11 +173,7 @@ async function deploySite(req, res, next) {
         render.serviceResponse = serviceResponse;
         render.deployResponse = deployResponse;
       } catch (error) {
-        providerStatus = 'handoff_failed';
-        status = 'deployed_unverified';
-        buildStatus = 'generated';
-        currentStep = 'Generated and published; Render handoff failed';
-        errorMessage = error.message || 'Render handoff failed.';
+        providerStatus = 'handoff_failed'; status = 'deployed_unverified'; buildStatus = 'generated'; currentStep = 'Generated and published; Render handoff failed'; errorMessage = error.message || 'Render handoff failed.';
         render.error = { message: error.message, status: error.status, details: error.details || null };
       }
     }
@@ -177,7 +189,6 @@ async function deploySite(req, res, next) {
       if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
       store.logs[deploymentId] = logs;
     });
-
     await updateTemplateSite(siteId, { status, deploymentId, generatedSite, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: renderSourceRepo || null, rootDirectory: renderRootDirectory || null } });
     res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site, published to GitHub, and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for GitHub/Render configuration status.' });
   } catch (err) { next(err); }
@@ -194,4 +205,4 @@ async function getTemplatePreview(req, res, next) {
 function makeLog(message, level = 'info') { return { id: makeId('log'), level, message, timestamp: nowIso(), createdAt: nowIso() }; }
 function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }
 
-export const templateAiController = { startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, deploySite, getTemplatePreview };
+export const templateAiController = { getSettings, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, deploySite, getTemplatePreview };
