@@ -834,14 +834,6 @@ export function BuilderTemplates({ navigate }) {
             Start with a live e-commerce design or a general-purpose starter. Fill in your content and publish to your domain in minutes.
           </p>
         </div>
-        <div className="actions">
-          {TEMPLATES_REPO && (
-            <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer" className="btn btn-outline">
-              <ICN.Git size={14} /> Template source
-            </a>
-          )}
-          <button className="btn btn-outline" onClick={() => navigate({ view: "builder-import", params: { mode: "github" } })}><ICN.Git size={14} /> Import from Git</button>
-        </div>
       </div>
 
       {/* ── Storefront templates ─────────────────────────────────────────────── */}
@@ -928,50 +920,31 @@ export function BuilderTemplates({ navigate }) {
         </div>
       </div>
 
-      {/* ── General website templates ────────────────────────────────────────── */}
+      {/* ── HTML templates ───────────────────────────────────────────────────── */}
       <div style={{ marginTop: 48 }}>
         <div className="row between" style={{ marginBottom: 14 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20 }}>General templates</h2>
+            <h2 style={{ margin: 0, fontSize: 20 }}>HTML templates</h2>
             <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
-              Portfolio, restaurant, blog, agency and more — with Home, About, and Contact built in.
-              {TEMPLATES_REPO && (
-                <> Source in{' '}
-                  <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer"
-                     style={{ color: "var(--accent)" }}>templates repo <ICN.ExternalLink size={11} /></a>.
-                </>
-              )}
+              Multi-page HTML sites — AI-ready and fully tailored to your brand before you go live.
             </p>
           </div>
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            {cats.map(c => (
-              <button key={c} onClick={() => setCat(c)} className="btn btn-sm"
-                style={{
-                  border: `1px solid ${cat === c ? "var(--accent)" : "var(--border)"}`,
-                  background: cat === c ? "var(--accent-soft)" : "var(--bg-elev)",
-                  color: cat === c ? "var(--accent-ink)" : "var(--text)",
-                  fontWeight: 500,
-                }}>
-                {c}
-              </button>
-            ))}
-            <div className="muted" style={{ fontSize: 13, paddingLeft: 4, alignSelf: "center" }}>
-              {loading ? "Loading…" : `${filtered.length} of ${templates.length}`}
+          {cats.length > 2 && (
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {cats.map(c => (
+                <button key={c} onClick={() => setCat(c)} className="btn btn-sm"
+                  style={{
+                    border: `1px solid ${cat === c ? "var(--accent)" : "var(--border)"}`,
+                    background: cat === c ? "var(--accent-soft)" : "var(--bg-elev)",
+                    color: cat === c ? "var(--accent-ink)" : "var(--text)",
+                    fontWeight: 500,
+                  }}>
+                  {c}
+                </button>
+              ))}
             </div>
-          </div>
+          )}
         </div>
-
-        {/* Source / error badge */}
-        {source === "api" && (
-          <div className="card" style={{ padding: "10px 14px", fontSize: 13, marginBottom: 14 }}>
-            <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Templates loaded from backend</span>
-          </div>
-        )}
-        {error && (
-          <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-            Backend unavailable — showing local template catalogue.
-          </div>
-        )}
 
         {loading ? (
           <div className="tpl-grid">
@@ -1036,18 +1009,6 @@ export function BuilderTemplates({ navigate }) {
                     >
                       <ICN.Eye size={14} />
                     </button>
-                    {TEMPLATES_REPO && (
-                      <a
-                        href={`${TEMPLATES_REPO}/tree/main/${t.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-sm btn-ghost"
-                        title="View source on GitHub"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ICN.Git size={14} />
-                      </a>
-                    )}
                   </div>
                 </div>
               </div>
@@ -2058,6 +2019,207 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
         )}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUILDER DEPLOYMENT SETTINGS
+// Final step for the customer template flow: site name, Render config, deploy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function BuilderDeploymentSettings({ templateId, templateType, navigate }) {
+  const { templates } = useTemplates();
+
+  // Look up template from either HTML templates (GD) or storefront list
+  const htmlTpl = templates.find(t => t.id === templateId) || null;
+  const sfTpl   = STOREFRONT_TEMPLATES.find(t => t.id === templateId) || null;
+  const template = htmlTpl || sfTpl;
+
+  const [siteName,     setSiteName]     = useStateB('');
+  const [serviceType,  setServiceType]  = useStateB('static_site');
+  const [plan,         setPlan]         = useStateB('starter');
+  const [deploying,    setDeploying]    = useStateB(false);
+  const [deployError,  setDeployError]  = useStateB(null);
+  const [deployMsg,    setDeployMsg]    = useStateB(null);
+
+  const siteSlug = siteName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'my-site';
+
+  const handleDeploy = async () => {
+    if (!siteName.trim()) { setDeployError('Please enter a site name.'); return; }
+    const { accessToken } = getStoredAuth();
+    if (!accessToken) { setDeployError('Sign in to deploy.'); return; }
+    setDeploying(true); setDeployError(null);
+    try {
+      // 1. Create site record
+      const site = await createBuilderSite({ name: siteName.trim(), templateId: templateId || null });
+      // 2. Publish and create Render deployment
+      const published = await publishBuilderSite(site.id);
+      const deployment = await createRenderDeployment({
+        siteId:          site.id,
+        projectId:       published?.projectId || site.id,
+        name:            siteName.trim(),
+        slug:            siteSlug,
+        serviceType,
+        sourceReference: 'builder',
+        environment:     'production',
+      });
+      setDeployMsg('Deployment started!');
+      navigate({ view: 'hosting-detail', params: { id: deployment.deploymentId } });
+    } catch (err) {
+      setDeployError(err.message || 'Deployment failed. Please try again.');
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <a
+            className="page-eyebrow"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate({ view: 'builder-ai-intake', params: { templateId, templateType } });
+            }}
+          >
+            Site builder / Template setup
+          </a>
+          <h1>Deployment settings</h1>
+          <p className="sub">
+            Give your site a name and configure hosting, then click Deploy to go live.
+          </p>
+        </div>
+        <div className="actions">
+          <button className="btn btn-outline" onClick={() => navigate({ view: 'builder-templates' })}>
+            ← Back to templates
+          </button>
+        </div>
+      </div>
+
+      <div className="deploy-settings-layout">
+        {/* ── Left: settings form ───────────────────────────────────── */}
+        <div className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Template info */}
+          <div>
+            <div className="label">Template</div>
+            <div style={{ fontWeight: 600, fontSize: 15, marginTop: 4 }}>
+              {template?.name || templateId || 'Selected template'}
+            </div>
+            {template?.tagline && (
+              <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>{template.tagline}</div>
+            )}
+          </div>
+
+          {/* Site name */}
+          <div>
+            <div className="label">Site name *</div>
+            <input
+              className="input"
+              value={siteName}
+              onChange={(e) => setSiteName(e.target.value)}
+              placeholder="My awesome store"
+              autoFocus
+            />
+            {siteName.trim() && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Will be available at <span className="mono">{siteSlug}.glondia.app</span>
+              </div>
+            )}
+          </div>
+
+          {/* Service type */}
+          <div>
+            <div className="label">Service type</div>
+            <select className="select" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
+              <option value="static_site">Static site (recommended for HTML templates)</option>
+              <option value="web_service">Web service</option>
+            </select>
+          </div>
+
+          {/* Plan */}
+          <div>
+            <div className="label">Plan</div>
+            <select className="select" value={plan} onChange={(e) => setPlan(e.target.value)}>
+              <option value="starter">Starter (free tier)</option>
+              <option value="standard">Standard</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+
+          {deployError && (
+            <div style={{
+              color: 'var(--danger)', fontSize: 13,
+              padding: '10px 12px',
+              background: 'var(--danger-soft, #fff0f0)',
+              border: '1px solid var(--danger)',
+              borderRadius: 'var(--r-sm)',
+            }}>
+              {deployError}
+            </div>
+          )}
+          {deployMsg && (
+            <div style={{ color: 'var(--accent)', fontSize: 13 }}>{deployMsg}</div>
+          )}
+
+          <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+            <button
+              className="btn btn-outline"
+              onClick={() => navigate({ view: 'builder-ai-intake', params: { templateId, templateType } })}
+            >
+              ← Back to customization
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleDeploy}
+              disabled={deploying || !siteName.trim()}
+            >
+              <ICN.Rocket size={14} /> {deploying ? 'Deploying…' : 'Deploy site'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Right: what happens next ──────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>What happens when you click Deploy</div>
+            {[
+              'A site record is created in your workspace',
+              'Glondia triggers a Render deployment',
+              'SSL certificate is issued automatically',
+              'Site goes live at your Glondia subdomain',
+              'Attach a custom domain from Domains at any time',
+            ].map((step, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10, fontSize: 13 }}>
+                <div style={{
+                  width: 22, height: 22, borderRadius: 999, flexShrink: 0,
+                  background: 'var(--accent-soft)', color: 'var(--accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 700,
+                }}>
+                  {i + 1}
+                </div>
+                <span style={{ paddingTop: 2 }}>{step}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: 16, fontSize: 13 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Need to re-tailor first?</div>
+            <div className="muted" style={{ marginBottom: 12 }}>
+              Go back to the AI setup to regenerate your template with different answers.
+            </div>
+            <button
+              className="btn btn-sm btn-outline"
+              onClick={() => navigate({ view: 'builder-ai-intake', params: { templateId, templateType } })}
+            >
+              ← Back to AI customization
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 

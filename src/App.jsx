@@ -20,7 +20,7 @@ import {
 import { Overview } from './overview';
 import { HostingList, HostingDetail } from './hosting-control';
 import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
-import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor } from './builder';
+import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor, BuilderDeploymentSettings } from './builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
@@ -145,7 +145,7 @@ export default function App() {
 
   const DASHBOARD_VIEWS = new Set([
     "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
-    "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake",
+    "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings",
     "analytics","activity","billing","settings","vps-hosting","vps-create","vps-detail",
   ]);
 
@@ -168,8 +168,9 @@ export default function App() {
       case "builder-templates": return <BuilderTemplates navigate={navigate} />;
       case "builder-roxanne":   return <BuilderRoxanne navigate={navigate} />;
       case "builder-import":    return <BuilderImport mode={route.params?.mode || "github"} navigate={navigate} />;
-      case "builder-ai-intake": return <BuilderAiIntake templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "html"} navigate={navigate} />;
-      case "builder-editor":    return <BuilderEditor id={route.params?.id} siteId={route.params?.siteId} navigate={navigate} />;
+      case "builder-ai-intake":              return <BuilderAiIntake templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "html"} navigate={navigate} />;
+      case "builder-deployment-settings":    return <BuilderDeploymentSettings templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "html"} navigate={navigate} />;
+      case "builder-editor":                 return <BuilderEditor id={route.params?.id} siteId={route.params?.siteId} navigate={navigate} />;
       case "analytics":         return <SimplePage title="Analytics" body="Cross-project analytics — coming up next." />;
       case "activity":          return <ActivityPage />;
       case "billing":           return <BillingPageIntegrated />;
@@ -203,7 +204,8 @@ export default function App() {
       case "domains-buy":     return [{ label: "Domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: "Buy a domain" }];
       case "dns":             return [{ label: "Domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: route.params?.domain || "DNS" }, { label: "DNS records" }];
       case "builder-gallery":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Site builder" }];
-      case "builder-ai-intake": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Template setup" }];
+      case "builder-ai-intake":           return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Template setup" }];
+      case "builder-deployment-settings": return [{ label: "Template setup", onClick: () => navigate({ view: "builder-ai-intake" }) }, { label: "Deploy" }];
       case "builder-templates": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Templates" }];
       case "builder-roxanne": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "RoxanneAI" }];
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];

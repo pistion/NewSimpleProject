@@ -123,8 +123,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
       : {
           role: 'ai',
           text: minRequired || REQUIRED_KEYS.every(k => newAnswers[k]?.trim())
-            ? `Great — I have everything I need to tailor the template for **${newAnswers.businessName || 'your business'}**.\n\nClick "Preview tailored site" when you're ready, or "Continue to editor" to jump straight in.`
-            : `Almost there. I still need your business name, industry, and what you offer before I can tailor the template.\n\nFeel free to add any missing details above, or click "Continue to editor" to customize manually.`,
+            ? `Great — I have everything I need to tailor the template for **${newAnswers.businessName || 'your business'}**.\n\nClick "Preview tailored site" when you're ready, or "Continue to deployment settings" to skip straight to hosting.`
+            : `Almost there. I still need your business name, industry, and what you offer before I can tailor the template.\n\nFeel free to add any missing details above, or click "Continue to deployment settings" to set up hosting manually.`,
         };
 
     setMessages(prev => [
@@ -145,8 +145,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
   // ── Generate tailored HTML ──────────────────────────────────────────────────
   const handlePreview = async () => {
     if (!isHtml || tplPages.length === 0) {
-      // Storefront or non-HTML template — go directly to editor
-      navigate({ view: 'builder-editor', params: { id: templateId } });
+      // Storefront or non-HTML template — go directly to deployment settings
+      navigate({ view: 'builder-deployment-settings', params: { templateId, templateType } });
       return;
     }
 
@@ -180,8 +180,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
     }
   };
 
-  const handleContinueToEditor = () => {
-    navigate({ view: 'builder-editor', params: { id: templateId } });
+  const handleContinueToDeployment = () => {
+    navigate({ view: 'builder-deployment-settings', params: { templateId, templateType } });
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -255,8 +255,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
               </button>
             )}
 
-            <button className="btn btn-outline" onClick={handleContinueToEditor}>
-              <ICN.Edit size={14} /> Continue to editor
+            <button className="btn btn-outline" onClick={handleContinueToDeployment}>
+              <ICN.Rocket size={14} /> Continue to deployment settings
             </button>
 
             {genError && (
@@ -324,8 +324,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
                     : <><ICN.Sparkles size={14} /> Preview tailored site</>}
                 </button>
               )}
-              <button className="btn btn-outline" onClick={handleContinueToEditor}>
-                <ICN.Edit size={14} /> Continue to editor
+              <button className="btn btn-outline" onClick={handleContinueToDeployment}>
+                <ICN.Rocket size={14} /> Continue to deployment settings
               </button>
             </div>
           )}
@@ -336,8 +336,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
           <div className="ai-intake-preview-column">
             <div className="ai-intake-preview-header">
               <div style={{ fontWeight: 600, fontSize: 14 }}>Tailored preview</div>
-              <button className="btn btn-sm btn-primary" onClick={handleContinueToEditor}>
-                <ICN.Edit size={13} /> Open in editor
+              <button className="btn btn-sm btn-primary" onClick={handleContinueToDeployment}>
+                <ICN.Rocket size={13} /> Deploy this site
               </button>
             </div>
             <TailoredPreviewPane pages={tailoredPages} />
