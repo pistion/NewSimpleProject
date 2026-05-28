@@ -1,0 +1,245 @@
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import AdmZip from 'adm-zip';
+import { makeId, mutateHostingStore, nowIso } from './hostingStore.js';
+import renderApiService from './renderApiService.js';
+import { publishGeneratedSiteToGitHub } from './githubGeneratedSitePublisher.service.js';
+
+const rootDir = resolve(process.cwd());
+const dataDir = resolve(process.env.DATA_DIR || join(rootDir, '.glondia-data'));
+const uploadedRoot = join(dataDir, 'uploaded-sites');
+const MAX_ZIP_BYTES = Number(process.env.ZIP_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
+const MAX_EXTRACTED_FILES = Number(process.env.ZIP_UPLOAD_MAX_FILES || 800);
+const MAX_ENTRY_BYTES = Number(process.env.ZIP_UPLOAD_MAX_ENTRY_BYTES || 8 * 1024 * 1024);
+
+export async function deployZipSite(input = {}) {
+  const fileName = sanitizeFileName(input.fileName || 'uploaded-site.zip');
+  const base64 = String(input.fileBase64 || '').replace(/^data:.*?;base64,/, '');
+  if (!base64) throw badRequest('fileBase64 is required.');
+
+  const zipBuffer = Buffer.from(base64, 'base64');
+  if (!zipBuffer.length) throw badRequest('Uploaded ZIP is empty.');
+  if (zipBuffer.length > MAX_ZIP_BYTES) throw badRequest(`ZIP is too large. Max size is ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB.`);
+
+  const siteName = String(input.siteName || fileName.replace(/\.zip$/i, '') || 'uploaded-site').trim();
+  const finalSlug = slugify(input.slug || siteName);
+  const branch = input.branch || 'main';
+  const serviceType = input.serviceType || 'static_site';
+  const plan = input.plan || 'starter';
+  const environment = input.environment || 'production';
+  const buildCommand = input.buildCommand || 'npm run build';
+  const publishDirectory = input.publishDirectory || 'dist';
+  const deploymentId = makeId('dep');
+  const uploadId = makeId('zip');
+  const siteDir = join(uploadedRoot, uploadId);
+  const now = nowIso();
+
+  await rm(siteDir, { recursive: true, force: true });
+  await mkdir(siteDir, { recursive: true });
+
+  const extracted = await extractZipSafely(zipBuffer, siteDir);
+  const detected = detectProject(extracted.files);
+
+  const sourceRepo = input.repoUrl || input.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || '';
+  const targetRoot = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `uploaded-sites/${finalSlug}`;
+  const githubPublish = await publishGeneratedSiteToGitHub({
+    siteDir,
+    repoUrl: sourceRepo,
+    branch,
+    targetRoot,
+    commitMessage: `Publish uploaded ZIP site ${finalSlug}`,
+  });
+
+  const renderRootDirectory = githubPublish.attempted && !githubPublish.errors?.length ? targetRoot : (input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '');
+  let renderServiceId = makeId('render_svc_pending');
+  let renderDeployId = makeId('render_deploy_pending');
+  let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, githubPublish };
+  let providerStatus = 'prepared';
+  let status = 'prepared';
+  let buildStatus = 'uploaded';
+  let currentStep = githubPublish.attempted ? 'ZIP uploaded and published to GitHub' : 'ZIP uploaded and extracted';
+  let liveUrl = `https://${finalSlug}.onrender.com`;
+  let errorMessage = null;
+
+  if (!sourceRepo) render.skippedReason = 'No GitHub/Render source repository configured. Set RENDER_GENERATED_SITES_REPO_URL or send repoUrl.';
+  else if (!githubPublish.attempted) render.skippedReason = githubPublish.skippedReason || 'Uploaded ZIP files were not published to GitHub.';
+  else if (githubPublish.errors?.length) render.skippedReason = `GitHub publish completed with ${githubPublish.errors.length} errors.`;
+  else if (!renderApiService.configured()) render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';
+  else {
+    try {
+      render.attempted = true;
+      const serviceResponse = await renderApiService.createService({
+        serviceName: finalSlug,
+        serviceType,
+        plan,
+        repoUrl: sourceRepo,
+        branch,
+        rootDirectory: renderRootDirectory,
+        buildCommand,
+        outputDirectory: publishDirectory,
+        sourceReference: sourceRepo,
+      });
+      renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || renderServiceId;
+      const deployResponse = await renderApiService.triggerDeploy(renderServiceId, { deployMode: 'build_and_deploy' });
+      renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || renderDeployId;
+      providerStatus = deployResponse?.deploy?.status || deployResponse?.status || 'accepted';
+      status = renderDeployId ? 'building' : 'preparing';
+      buildStatus = renderDeployId ? 'queued' : 'accepted';
+      currentStep = renderDeployId ? 'Queued in Render' : 'Sent to Render';
+      liveUrl = serviceResponse?.service?.serviceDetails?.url || serviceResponse?.service?.url || serviceResponse?.url || liveUrl;
+      render.serviceResponse = serviceResponse;
+      render.deployResponse = deployResponse;
+    } catch (error) {
+      providerStatus = 'handoff_failed';
+      status = 'deployed_unverified';
+      buildStatus = 'uploaded';
+      currentStep = 'ZIP uploaded; Render handoff failed';
+      errorMessage = error.message || 'Render handoff failed.';
+      render.error = { message: error.message, status: error.status, details: error.details || null };
+    }
+  }
+
+  const generatedSite = {
+    siteDir,
+    sourceType: 'uploaded-zip-site',
+    framework: detected.framework,
+    packageManager: detected.packageManager,
+    buildCommand,
+    publishDirectory,
+    files: extracted.files,
+    uploadedFileName: fileName,
+    uploadedAt: now,
+  };
+
+  await mutateHostingStore((store) => {
+    store.deployments.unshift({
+      id: deploymentId,
+      deploymentId,
+      siteId: uploadId,
+      serviceName: finalSlug,
+      siteName,
+      serviceType,
+      plan,
+      provider: 'render',
+      providerStatus,
+      status,
+      buildStatus,
+      currentStep,
+      source: 'zip-upload',
+      sourceReference: fileName,
+      renderServiceId,
+      renderDeployId,
+      liveUrl,
+      verifiedUrl: null,
+      urlReachable: false,
+      errorMessage,
+      deploymentLogsReference: deploymentId,
+      generatedSite,
+      render,
+      environmentConfiguration: {
+        environment,
+        branch,
+        rootDirectory: renderRootDirectory || siteDir,
+        buildCommand,
+        outputDirectory: publishDirectory,
+        framework: detected.framework,
+        sourceRepository: sourceRepo || null,
+      },
+      environmentVariablesMetadata: [],
+      diskMetadata: [],
+      domainMetadata: [],
+      createdAt: now,
+      updatedAt: now,
+      lastDeployedAt: null,
+    });
+
+    const logs = [
+      makeLog(`ZIP upload received: ${fileName}.`, 'info'),
+      makeLog(`Extracted ${extracted.files.length} files into ${siteDir}.`, 'ok'),
+      makeLog(`Detected project: ${detected.framework}.`, 'info'),
+      makeLog(`Build command prepared: ${buildCommand}.`, 'info'),
+      makeLog(`Publish directory prepared: ${publishDirectory}.`, 'info'),
+    ];
+    if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} files to GitHub repo ${githubPublish.repository} at ${githubPublish.targetRoot || '(root)'}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
+    if (!githubPublish.attempted) logs.push(makeLog(githubPublish.skippedReason || 'GitHub publish skipped.', 'warn'));
+    if (githubPublish.errors?.length) logs.push(makeLog(`GitHub publish errors: ${githubPublish.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, 'warn'));
+    if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
+    if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
+    if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
+    store.logs[deploymentId] = logs;
+  });
+
+  return {
+    status,
+    deploymentId,
+    siteId: uploadId,
+    generatedSite,
+    render,
+    liveUrl,
+    message: render.attempted && !errorMessage ? 'ZIP uploaded, published to GitHub, and Render deployment started.' : 'ZIP uploaded and Hosting record created. Check Hosting logs for GitHub/Render configuration status.',
+  };
+}
+
+async function extractZipSafely(zipBuffer, destination) {
+  const zip = new AdmZip(zipBuffer);
+  const entries = zip.getEntries().filter(entry => !entry.isDirectory);
+  if (entries.length === 0) throw badRequest('ZIP does not contain deployable files.');
+  if (entries.length > MAX_EXTRACTED_FILES) throw badRequest(`ZIP contains too many files. Max is ${MAX_EXTRACTED_FILES}.`);
+
+  const rootPrefix = detectRootPrefix(entries.map(entry => entry.entryName));
+  const files = [];
+  for (const entry of entries) {
+    if (entry.header.size > MAX_ENTRY_BYTES) throw badRequest(`ZIP entry is too large: ${entry.entryName}`);
+    const relativeName = cleanZipPath(rootPrefix ? entry.entryName.slice(rootPrefix.length) : entry.entryName);
+    if (!relativeName || relativeName.endsWith('/')) continue;
+    if (relativeName.includes('node_modules/') || relativeName.includes('.git/')) continue;
+    const outputPath = resolve(destination, relativeName);
+    if (!outputPath.startsWith(destination)) throw badRequest(`Unsafe ZIP path detected: ${entry.entryName}`);
+    await mkdir(join(outputPath, '..'), { recursive: true });
+    await writeFile(outputPath, entry.getData());
+    files.push(relativeName);
+  }
+  if (!files.some(name => /(^|\/)package\.json$/i.test(name) || /(^|\/)index\.html$/i.test(name))) {
+    throw badRequest('ZIP must include package.json or index.html at the project root.');
+  }
+  return { files };
+}
+
+function detectRootPrefix(names) {
+  const firstParts = names.map(name => cleanZipPath(name).split('/')[0]).filter(Boolean);
+  if (!firstParts.length) return '';
+  const first = firstParts[0];
+  return firstParts.every(part => part === first) ? `${first}/` : '';
+}
+
+function detectProject(files) {
+  const hasPackage = files.some(name => name === 'package.json');
+  const hasVite = files.some(name => /^vite\.config\./i.test(name));
+  const hasIndex = files.some(name => name === 'index.html');
+  return {
+    framework: hasVite ? 'Vite' : hasPackage ? 'Node static app' : hasIndex ? 'Static HTML' : 'Unknown static site',
+    packageManager: hasPackage ? 'npm' : 'none',
+  };
+}
+
+function cleanZipPath(value = '') {
+  return String(value || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+}
+
+function sanitizeFileName(value = '') {
+  return String(value || 'upload.zip').replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 120) || 'upload.zip';
+}
+
+function slugify(value) {
+  return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site';
+}
+
+function makeLog(message, level = 'info') {
+  return { id: makeId('log'), level, message, timestamp: nowIso(), createdAt: nowIso() };
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
