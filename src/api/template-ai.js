@@ -72,6 +72,16 @@ export async function getTailoredTemplateSite(siteId) {
 }
 
 /**
+ * Build a browser-openable preview URL for a tailored site.
+ * This returns the Express preview endpoint, not a temporary blob URL.
+ */
+export function getTailoredTemplatePreviewUrl(siteId, page = 0) {
+  const path = `/template-ai/sites/${encodeURIComponent(siteId)}/preview?page=${encodeURIComponent(page)}`;
+  const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+  return base ? `${base}${path}` : `/api${path}`;
+}
+
+/**
  * Trigger a deployment for a tailored site.
  * @param {string} siteId
  * @param {object} deploymentSettings — { siteName, serviceType, plan }
