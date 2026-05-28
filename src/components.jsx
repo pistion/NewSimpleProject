@@ -70,7 +70,7 @@ export const DASH_NAV = [
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true },
       { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true },
-      { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-templates" } },
+      { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
   {
@@ -165,12 +165,7 @@ function AuthMenu({ navigate }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState("login");
   const [auth, setAuth] = React.useState(() => getStoredAuth());
-  const [form, setForm] = React.useState({
-    name: "",
-    organizationName: "",
-    email: "",
-    password: "",
-  });
+  const [form, setForm] = React.useState({ name: "", organizationName: "", email: "", password: "" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState(null);
 
@@ -187,18 +182,9 @@ function AuthMenu({ navigate }) {
     event.preventDefault();
     setBusy(true);
     setError(null);
-
     try {
-      if (mode === "login") {
-        await login(form.email, form.password);
-      } else {
-        await register({
-          name: form.name,
-          email: form.email,
-          password: form.password,
-          organizationName: form.organizationName,
-        });
-      }
+      if (mode === "login") await login(form.email, form.password);
+      else await register({ name: form.name, email: form.email, password: form.password, organizationName: form.organizationName });
       setOpen(false);
       setAuth(getStoredAuth());
     } catch (err) {
@@ -210,79 +196,25 @@ function AuthMenu({ navigate }) {
 
   return (
     <div style={{ position: "relative" }}>
-      <button className="btn btn-ghost"
-        onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })}
-        style={{ height: 36, padding: "0 8px" }}>
+      <button className="btn btn-ghost" onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })} style={{ height: 36, padding: "0 8px" }}>
         <Avatar name={displayName} size={28} />
-        <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {signedIn ? displayName : "Sign in"}
-        </span>
+        <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signedIn ? displayName : "Sign in"}</span>
       </button>
-
       {open && (
-        <div className="card" style={{
-          position: "absolute",
-          right: 0,
-          top: 44,
-          width: 320,
-          zIndex: 80,
-          boxShadow: "var(--shadow)",
-        }}>
+        <div className="card" style={{ position: "absolute", right: 0, top: 44, width: 320, zIndex: 80, boxShadow: "var(--shadow)" }}>
           {signedIn ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <div className="label">Signed in</div>
-                <div style={{ fontWeight: 600 }}>{displayName}</div>
-                <div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div>
-              </div>
-              <button className="btn btn-outline" onClick={() => {
-                clearAuthSession();
-                setAuth(getStoredAuth());
-                setOpen(false);
-                window.location.href = "/";
-              }}>
-                Sign out
-              </button>
+              <div><div className="label">Signed in</div><div style={{ fontWeight: 600 }}>{displayName}</div><div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div></div>
+              <button className="btn btn-outline" onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}>Sign out</button>
             </div>
           ) : (
             <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="row between">
-                <h2 style={{ margin: 0 }}>{mode === "login" ? "Sign in" : "Create account"}</h2>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}
-                >
-                  {mode === "login" ? "Register" : "Login"}
-                </button>
-              </div>
-
-              {mode === "register" && (
-                <>
-                  <div>
-                    <label className="label">Name</label>
-                    <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-                  </div>
-                  <div>
-                    <label className="label">Organization</label>
-                    <input className="input" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required />
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="label">Email</label>
-                <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-              </div>
-              <div>
-                <label className="label">Password</label>
-                <input className="input" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-              </div>
-
+              <div className="row between"><h2 style={{ margin: 0 }}>{mode === "login" ? "Sign in" : "Create account"}</h2><button type="button" className="btn btn-sm btn-ghost" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>{mode === "login" ? "Register" : "Login"}</button></div>
+              {mode === "register" && <><div><label className="label">Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div><div><label className="label">Organization</label><input className="input" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required /></div></>}
+              <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
+              <div><label className="label">Password</label><input className="input" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
               {error && <div style={{ color: "var(--danger)", fontSize: 13 }}>{error}</div>}
-              <button className="btn btn-primary" type="submit" disabled={busy}>
-                {busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}
-              </button>
+              <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}</button>
             </form>
           )}
         </div>
@@ -291,7 +223,6 @@ function AuthMenu({ navigate }) {
   );
 }
 
-// Public navbar
 export function PubNavbar({ navigate }) {
   return (
     <nav className="pub-nav">
@@ -304,21 +235,16 @@ export function PubNavbar({ navigate }) {
       <a className="navlink" href="#">Docs</a>
       <div style={{ width: 10 }} />
       <button className="btn btn-ghost" onClick={() => navigate({ view: "login" })}>Sign in</button>
-      <button className="btn btn-primary" onClick={() => navigate({ view: "signup" })}>
-        Start free <ICN.ArrowRight size={14} />
-      </button>
+      <button className="btn btn-primary" onClick={() => navigate({ view: "signup" })}>Start free <ICN.ArrowRight size={14} /></button>
     </nav>
   );
 }
 
-// Empty state
 export function Empty({ icon = "Box", title, body, action }) {
   const Icon = ICN[icon];
   return (
     <div className="empty">
-      <div style={{ width: 44, height: 44, borderRadius: 999, background: "var(--bg-deep)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
-        <Icon size={20} />
-      </div>
+      <div style={{ width: 44, height: 44, borderRadius: 999, background: "var(--bg-deep)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}><Icon size={20} /></div>
       <div style={{ fontWeight: 600, color: "var(--text)" }}>{title}</div>
       {body && <div style={{ maxWidth: 40 + "ch" }}>{body}</div>}
       {action}
@@ -326,51 +252,19 @@ export function Empty({ icon = "Box", title, body, action }) {
   );
 }
 
-// Tabs
 export function Tabs({ value, onChange, options }) {
-  return (
-    <div className="tabs">
-      {options.map((opt) => {
-        const v = typeof opt === "string" ? opt : opt.value;
-        const label = typeof opt === "string" ? opt : opt.label;
-        return (
-          <button key={v} className={v === value ? "active" : ""} onClick={() => onChange(v)}>{label}</button>
-        );
-      })}
-    </div>
-  );
+  return <div className="tabs">{options.map((opt) => { const v = typeof opt === "string" ? opt : opt.value; const label = typeof opt === "string" ? opt : opt.label; return <button key={v} className={v === value ? "active" : ""} onClick={() => onChange(v)}>{label}</button>; })}</div>;
 }
 
-export function Stat({ k, v, d }) {
-  return (
-    <div className="card stat-card">
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
-      <div className="d">{d}</div>
-    </div>
-  );
-}
+export function Stat({ k, v, d }) { return <div className="card stat-card"><div className="k">{k}</div><div className="v">{v}</div><div className="d">{d}</div></div>; }
 
 export function ToggleRow({ label, sub, defaultOn }) {
   const [on, setOn] = React.useState(!!defaultOn);
   return (
     <div className="row between" style={{ padding: "12px 0", borderBottom: "1px solid var(--border)", alignItems: "flex-start" }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 500 }}>{label}</div>
-        <div className="muted" style={{ fontSize: 13 }}>{sub}</div>
-      </div>
-      <button onClick={() => setOn(!on)}
-        style={{
-          width: 38, height: 22, borderRadius: 999,
-          background: on ? "var(--accent)" : "var(--border-strong)",
-          position: "relative", transition: "background .2s",
-        }}>
-        <span style={{
-          position: "absolute", top: 2, left: on ? 18 : 2,
-          width: 18, height: 18, borderRadius: 999,
-          background: "#fff", transition: "left .2s",
-          boxShadow: "0 1px 3px rgba(0,0,0,.18)",
-        }} />
+      <div style={{ flex: 1 }}><div style={{ fontWeight: 500 }}>{label}</div><div className="muted" style={{ fontSize: 13 }}>{sub}</div></div>
+      <button onClick={() => setOn(!on)} style={{ width: 38, height: 22, borderRadius: 999, background: on ? "var(--accent)" : "var(--border-strong)", position: "relative", transition: "background .2s" }}>
+        <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: 999, background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.18)" }} />
       </button>
     </div>
   );
