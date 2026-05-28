@@ -70,7 +70,7 @@ export const DASH_NAV = [
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true },
       { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true },
-      { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
+      { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-templates" } },
     ],
   },
   {
