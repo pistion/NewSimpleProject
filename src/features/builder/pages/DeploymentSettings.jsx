@@ -3,7 +3,7 @@ import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { useTemplates } from '../../../use-templates';
 import { createBuilderSite, publishBuilderSite, createRenderDeployment, getStoredAuth } from '../../../api';
-import { getTailoredTemplateSite, deployTailoredTemplate } from '../../../api/template-ai.js';
+import { getTailoredTemplateSite, deployTailoredTemplate, getTailoredTemplatePreviewUrl } from '../../../api/template-ai.js';
 
 const PLAN_COPY = {
   starter: { label: 'Starter', estimate: '$0/mo while available on free/static hosting', note: 'Best for early preview sites and simple static launches.' },
@@ -70,13 +70,14 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
   const hasSourceRepo = Boolean(repoUrl.trim());
 
   const handleOpenPreview = () => {
-    const html = previewPage?.html || tailoredPages[0]?.html;
-    if (!html) { setDeployError('Preview is not ready yet. Regenerate the site with RoxanneAI first.'); return; }
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
+    if (!siteId || tailoredPages.length === 0) {
+      setDeployError('Preview is not ready yet. Regenerate the site with RoxanneAI first.');
+      return;
+    }
+    const pageIndex = Math.max(0, tailoredPages.findIndex((page) => page === previewPage));
+    const url = getTailoredTemplatePreviewUrl(siteId, pageIndex);
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (!opened) setDeployError('Browser blocked the preview popup. Allow popups and try again.');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const handleDeploy = async () => {
@@ -154,7 +155,7 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card" style={{ padding: 20 }}><div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>What happens when you click Deploy</div>{['Backend saves the generated Vite React site files', hasSourceRepo ? 'Frontend sends your selected Render source repo to the backend' : 'Backend uses env Render source repo if configured', 'Render API handoff starts when credentials and source repo are present', 'You are redirected to Hosting settings either way', 'Hosting logs show whether Render started or what configuration is missing'].map((step, i) => <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10, fontSize: 13 }}><div style={{ width: 22, height: 22, borderRadius: 999, flexShrink: 0, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{i + 1}</div><span style={{ paddingTop: 2 }}>{step}</span></div>)}</div>
-          <div className="card" style={{ padding: 16, fontSize: 13 }}><div style={{ fontWeight: 600, marginBottom: 6 }}>Preview before deploying</div><div className="muted" style={{ marginBottom: 12 }}>Open the generated customized site in a new browser tab before creating the Render deployment record.</div><button className="btn btn-sm btn-outline" onClick={handleOpenPreview} disabled={tailoredPages.length === 0}><ICN.ExternalLink size={14} /> Preview site</button></div>
+          <div className="card" style={{ padding: 16, fontSize: 13 }}><div style={{ fontWeight: 600, marginBottom: 6 }}>Preview before deploying</div><div className="muted" style={{ marginBottom: 12 }}>Open the generated customized site through the backend preview route before creating the Render deployment record.</div><button className="btn btn-sm btn-outline" onClick={handleOpenPreview} disabled={tailoredPages.length === 0}><ICN.ExternalLink size={14} /> Preview site</button></div>
           {loadingPreview && <div className="card" style={{ padding: 16, fontSize: 13 }}>Loading generated site...</div>}
         </div>
       </div>
