@@ -20,7 +20,10 @@ import {
 import { Overview } from './overview';
 import { HostingList, HostingDetail } from './hosting-control';
 import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
-import { BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport, BuilderEditor, BuilderDeploymentSettings } from './builder';
+import {
+  BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport,
+  BuilderEditor, BuilderAiIntake, BuilderDeploymentSettings,
+} from './features/builder';
 import { ActivityPage } from './activity';
 import { useBilling } from './use-billing';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
@@ -28,7 +31,6 @@ import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
 import LoginPage from './features/auth/LoginPage.jsx';
 import SignupPage from './features/auth/SignupPage.jsx';
-import { BuilderAiIntake } from './builder-ai-intake.jsx';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",

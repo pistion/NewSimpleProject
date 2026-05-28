@@ -1,9 +1,9 @@
-// builder-ai-intake.jsx — AI-guided website setup chat before deployment.
-// Flow: Template gallery → preview modal → "Host this template" → here → editor/deploy.
+// AiTemplateSetup.jsx — AI-guided website setup chat before deployment.
+// Flow: Template gallery → preview modal → "Use AI to customize" → here → deployment settings.
 import React, { useState, useEffect, useRef } from 'react'; // useRef kept for chatEndRef / inputRef
-import { ICN } from './icons';
-import { GD } from './data';
-import { generateTailoredTemplate, createSiteFromTailoredTemplate } from './api/template-ai.js';
+import { ICN } from '../../../icons';
+import { GD } from '../../../data';
+import { generateTailoredTemplate, createSiteFromTailoredTemplate } from '../../../api/template-ai.js';
 
 // ─── Intake question sequence (client-side; mirrors the backend list) ─────────
 const QUESTIONS = [

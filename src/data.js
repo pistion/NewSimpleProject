@@ -2,8 +2,8 @@
 // All dynamic content (projects, deployments, domains, etc.) is loaded from the API.
 // Shells are kept here so hooks have a safe initial/fallback value of [].
 
-import { pulseWorksTemplate } from './templates/html/pulse-works';
-import { forgeTemplate } from './templates/html/forge';
+import { pulseWorksTemplate } from './features/builder/templates/html/pulse-works';
+import { forgeTemplate } from './features/builder/templates/html/forge';
 
 // Set TEMPLATES_REPO to the GitHub (or GitLab) repository where your template
 // source files live. Each template's folder must match its id (e.g. /linen, /harbor).
