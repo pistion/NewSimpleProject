@@ -71,7 +71,7 @@ export async function generateViteStaticSiteFromTemplateSite(site, options = {})
     sourceType: 'generated-vite-react-static-site',
     framework: 'vite-react',
     packageManager: 'npm',
-    buildCommand: options.buildCommand || 'npm install && npm run build',
+    buildCommand: options.buildCommand || 'npm run build',
     publishDirectory: options.publishDirectory || 'dist',
     files: Object.keys(files),
     pages: safePages.map(({ title, path }) => ({ title, path })),
