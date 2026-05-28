@@ -87,6 +87,21 @@ async function getSite(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function previewSite(req, res, next) {
+  try {
+    const { siteId } = req.params;
+    const site = await getTemplateSite(siteId);
+    if (!site) return res.status(404).send('<!doctype html><html><body><h1>Preview not found</h1></body></html>');
+    const pages = Array.isArray(site.pages) ? site.pages : [];
+    const pageIndex = Math.max(0, Number(req.query.page || 0) || 0);
+    const activePage = pages[pageIndex] || pages[0];
+    if (!activePage?.html) return res.status(404).send('<!doctype html><html><body><h1>No generated preview available</h1></body></html>');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(activePage.html);
+  } catch (err) { next(err); }
+}
+
 async function deploySite(req, res, next) {
   try {
     const { siteId } = req.params;
@@ -109,13 +124,7 @@ async function deploySite(req, res, next) {
 
     const sourceRepo = repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || '';
     const targetRoot = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `generated-sites/${finalSlug}`;
-    const githubPublish = await publishGeneratedSiteToGitHub({
-      siteDir: generatedSite.siteDir,
-      repoUrl: sourceRepo,
-      branch,
-      targetRoot,
-      commitMessage: `Publish RoxanneAI generated site ${finalSlug}`,
-    });
+    const githubPublish = await publishGeneratedSiteToGitHub({ siteDir: generatedSite.siteDir, repoUrl: sourceRepo, branch, targetRoot, commitMessage: `Publish RoxanneAI generated site ${finalSlug}` });
 
     const renderSourceRepo = sourceRepo;
     const renderRootDirectory = githubPublish.attempted && !githubPublish.errors?.length ? targetRoot : (rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '');
@@ -158,20 +167,8 @@ async function deploySite(req, res, next) {
     }
 
     await mutateHostingStore((store) => {
-      store.deployments.unshift({
-        id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName,
-        serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template',
-        sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage,
-        deploymentLogsReference: deploymentId, generatedSite, render,
-        environmentConfiguration: { environment, branch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: renderSourceRepo || null },
-        environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null,
-      });
-      const logs = [
-        makeLog('Deployment session created from RoxanneAI tailored template.', 'info'),
-        makeLog(`Generated Vite React static site files in ${generatedSite.siteDir}.`, 'ok'),
-        makeLog(`Build command prepared: ${generatedSite.buildCommand}.`, 'info'),
-        makeLog(`Publish directory prepared: ${generatedSite.publishDirectory}.`, 'info'),
-      ];
+      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite, render, environmentConfiguration: { environment, branch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: renderSourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
+      const logs = [makeLog('Deployment session created from RoxanneAI tailored template.', 'info'), makeLog(`Generated Vite React static site files in ${generatedSite.siteDir}.`, 'ok'), makeLog(`Build command prepared: ${generatedSite.buildCommand}.`, 'info'), makeLog(`Publish directory prepared: ${generatedSite.publishDirectory}.`, 'info')];
       if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} generated files to GitHub repo ${githubPublish.repository} at ${githubPublish.targetRoot || '(root)'}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
       if (!githubPublish.attempted) logs.push(makeLog(githubPublish.skippedReason || 'GitHub publish skipped.', 'warn'));
       if (githubPublish.errors?.length) logs.push(makeLog(`GitHub publish errors: ${githubPublish.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, 'warn'));
@@ -197,4 +194,4 @@ async function getTemplatePreview(req, res, next) {
 function makeLog(message, level = 'info') { return { id: makeId('log'), level, message, timestamp: nowIso(), createdAt: nowIso() }; }
 function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }
 
-export const templateAiController = { startIntake, sendMessage, generateTailored, createSite, getSite, deploySite, getTemplatePreview };
+export const templateAiController = { startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, deploySite, getTemplatePreview };
