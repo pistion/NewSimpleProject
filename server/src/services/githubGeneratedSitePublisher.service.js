@@ -20,7 +20,7 @@ export function parseGitHubRepoUrl(repoUrl = '') {
 }
 
 export function githubPublisherConfigured(repoUrl = '') {
-  return Boolean(parseGitHubRepoUrl(repoUrl) && process.env.GITHUB_GENERATED_SITES_TOKEN);
+  return Boolean(parseGitHubRepoUrl(repoUrl) && (process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN));
 }
 
 export async function publishGeneratedSiteToGitHub({
@@ -31,23 +31,14 @@ export async function publishGeneratedSiteToGitHub({
   commitMessage = 'Publish generated RoxanneAI site',
 }) {
   const parsed = parseGitHubRepoUrl(repoUrl);
-  if (!parsed) {
-    return { attempted: false, skippedReason: 'No valid GitHub repository URL was provided for generated site publishing.' };
-  }
+  if (!parsed) return { attempted: false, skippedReason: 'No valid GitHub repository URL was provided for generated site publishing.' };
 
   const token = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '';
-  if (!token) {
-    return { attempted: false, skippedReason: 'Missing GITHUB_GENERATED_SITES_TOKEN. Generated files were not pushed to GitHub.' };
-  }
-
-  if (!siteDir) {
-    return { attempted: false, skippedReason: 'Generated site directory is missing.' };
-  }
+  if (!token) return { attempted: false, skippedReason: 'Missing GITHUB_GENERATED_SITES_TOKEN. Generated files were not pushed to GitHub.' };
+  if (!siteDir) return { attempted: false, skippedReason: 'Generated site directory is missing.' };
 
   const files = await listFiles(siteDir);
-  if (files.length === 0) {
-    return { attempted: false, skippedReason: 'Generated site directory contains no files to publish.' };
-  }
+  if (files.length === 0) return { attempted: false, skippedReason: 'Generated site directory contains no files to publish.' };
 
   const published = [];
   const errors = [];
@@ -56,16 +47,16 @@ export async function publishGeneratedSiteToGitHub({
   for (const filePath of files) {
     const relativePath = relative(siteDir, filePath).replace(/\\/g, '/');
     const repoPath = cleanPath([safeRoot, relativePath].filter(Boolean).join('/'));
-    const content = await readFile(filePath, 'utf8');
 
     try {
+      const fileBuffer = await readFile(filePath);
       const existingSha = await getExistingFileSha({ ...parsed, path: repoPath, branch, token });
       await putFile({
         ...parsed,
         path: repoPath,
         branch,
         token,
-        content,
+        contentBase64: fileBuffer.toString('base64'),
         sha: existingSha,
         message: `${commitMessage}: ${repoPath}`,
       });
@@ -106,11 +97,11 @@ async function getExistingFileSha({ owner, repo, path, branch, token }) {
   return result?.sha || null;
 }
 
-async function putFile({ owner, repo, path, branch, token, content, sha, message }) {
+async function putFile({ owner, repo, path, branch, token, contentBase64, sha, message }) {
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path}`;
   const body = {
     message,
-    content: Buffer.from(content, 'utf8').toString('base64'),
+    content: contentBase64,
     branch,
     ...(sha ? { sha } : {}),
   };
@@ -135,8 +126,5 @@ function githubHeaders(token) {
 }
 
 function cleanPath(value = '') {
-  return String(value || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\/+/g, '/');
+  return String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
