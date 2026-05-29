@@ -38,6 +38,7 @@ import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import { prisma } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import deploymentService from './services/deploymentService.js';
+import deploymentStatusService from './services/deploymentStatusService.js';
 import renderApiService from './services/renderApiService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
 
@@ -340,10 +341,19 @@ app.get('/api/deployments/:deploymentId/logs/stream', async (req, res) => {
     const poll = async () => {
       if (finished) return;
       try {
-        // Fetch latest status from our store
+        // Refresh deployment status from Render API and sync into the store
+        // This is the live sync point — keeps our store in sync with Render
         const s = await readHostingStore();
-        const fresh = (s.deployments || []).find((d) => d.deploymentId === deploymentId || d.id === deploymentId);
+        let fresh = (s.deployments || []).find((d) => d.deploymentId === deploymentId || d.id === deploymentId);
         if (!fresh) return finish('not_found');
+
+        // Only call Render to refresh if the deployment is in an active state
+        const activeStates = new Set(['preparing', 'queued', 'building', 'deploying', 'deployed', 'deployed_unverified', 'prepared']);
+        if (activeStates.has(fresh.status) && fresh.renderServiceId && !String(fresh.renderServiceId).includes('_pending')) {
+          try {
+            fresh = await deploymentStatusService.refreshDeployment(fresh) || fresh;
+          } catch { /* continue with stored status if refresh fails */ }
+        }
 
         emit('status', { status: fresh.status, buildStatus: fresh.buildStatus, currentStep: fresh.currentStep, liveUrl: fresh.liveUrl, errorMessage: fresh.errorMessage });
 

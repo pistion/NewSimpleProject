@@ -6,8 +6,13 @@ const REMOVED = ['de', 'leted'].join('');
 const REMOVED_STEP = ['De', 'leted'].join('');
 
 class HostingService {
+  /**
+   * List all hosting deployments from the local store.
+   * Does NOT call Render API for every deployment — avoids N+1 calls.
+   * Individual deployment sync happens when viewing detail or polling status.
+   */
   async listHosting(userId) {
-    const store = await this.syncRenderStates(await readHostingStore());
+    const store = await readHostingStore();
     return store.deployments
       .filter((item) => isManagedRenderDeployment(item))
       .filter((item) => !userId || item.userId === userId)
@@ -15,6 +20,11 @@ class HostingService {
       .map((item) => this.toHostingSummary(item));
   }
 
+  /**
+   * Get a single hosting deployment, syncing its current state from Render.
+   * This is the single-deployment sync point — keeps the local store in sync
+   * with Render without calling the API for every deployment.
+   */
   async getService(deploymentId) {
     const store = await readHostingStore();
     const deployment = store.deployments.find((item) => item.renderServiceId === deploymentId || item.deploymentId === deploymentId || item.id === deploymentId);
@@ -71,17 +81,40 @@ class HostingService {
     }
   }
 
+  /**
+   * Update deployment settings and push changes to Render.
+   * Transforms local form fields into Render API format.
+   */
   async updateSettings(deploymentId, settings = {}) {
     const current = await this.getService(deploymentId);
-    if (!current.renderServiceId) throw conflict('Render deployment has not started. A real Render service ID is required.');
-    const renderSettings = await renderApiService.updateService(current.renderServiceId, settings.render || settings);
+    const hasReal = current.renderServiceId && !String(current.renderServiceId).includes('_pending');
+    if (!hasReal) throw conflict('Render deployment has not started. A real Render service ID is required.');
+
+    // Extract the settings payload (may be nested under .render from frontend)
+    const incoming = settings.render || settings;
+
+    // Build Render-compatible PATCH body
+    const renderPatch = buildRenderPatchPayload(incoming, current);
+
+    let renderSettings = null;
+    if (Object.keys(renderPatch).length > 0) {
+      renderSettings = await renderApiService.updateService(current.renderServiceId, renderPatch);
+    }
+
     return mutateHostingStore((store) => {
       const deployment = store.deployments.find((item) => item.deploymentId === current.deploymentId);
-      deployment.environmentConfiguration = {
-        ...deployment.environmentConfiguration,
-        ...settings,
-      };
-      deployment.renderSettings = renderSettings;
+      if (!deployment) return current;
+      const ec = deployment.environmentConfiguration || {};
+      if (incoming.branch) ec.branch = incoming.branch;
+      if (incoming.rootDirectory !== undefined) ec.rootDirectory = incoming.rootDirectory;
+      if (incoming.buildCommand !== undefined) ec.buildCommand = incoming.buildCommand;
+      if (incoming.outputDirectory !== undefined) ec.outputDirectory = incoming.outputDirectory;
+      if (incoming.startCommand !== undefined) ec.startCommand = incoming.startCommand;
+      if (incoming.sourceRepository !== undefined) ec.sourceRepository = incoming.sourceRepository;
+      deployment.environmentConfiguration = ec;
+      if (incoming.serviceType) deployment.serviceType = incoming.serviceType;
+      if (incoming.plan) deployment.plan = incoming.plan;
+      if (renderSettings) deployment.renderSettings = renderSettings;
       deployment.lastRenderSyncedAt = nowIso();
       deployment.updatedAt = nowIso();
       addLog(store, deployment.deploymentId, 'Render service settings updated from Glondiasites.', 'ok');
@@ -207,5 +240,34 @@ function addLog(store, deploymentId, message, level = 'info') {
 function notFound(message) { const error = new Error(message); error.status = 404; return error; }
 function conflict(message) { const error = new Error(message); error.status = 409; return error; }
 function isRenderGone(error) { return error?.status === 404 || error?.status === 410; }
+
+/**
+ * Transform local settings form fields into Render API PATCH format.
+ * Render's PATCH /services/:id expects specific field names and nested serviceDetails.
+ */
+function buildRenderPatchPayload(incoming = {}, current = {}) {
+  const patch = {};
+  const isStatic = (incoming.serviceType || current.serviceType) === 'static_site';
+
+  if (incoming.branch) patch.branch = incoming.branch;
+  if (incoming.rootDirectory !== undefined) patch.rootDir = incoming.rootDirectory || undefined;
+  if (incoming.sourceRepository) patch.repo = incoming.sourceRepository;
+
+  // Service details depend on type
+  const details = {};
+  if (isStatic) {
+    if (incoming.buildCommand !== undefined) details.buildCommand = incoming.buildCommand;
+    if (incoming.outputDirectory !== undefined) details.publishPath = incoming.outputDirectory;
+  } else {
+    if (incoming.plan) details.plan = incoming.plan;
+    const envDetails = {};
+    if (incoming.buildCommand !== undefined) envDetails.buildCommand = incoming.buildCommand;
+    if (incoming.startCommand !== undefined) envDetails.startCommand = incoming.startCommand;
+    if (Object.keys(envDetails).length > 0) details.envSpecificDetails = envDetails;
+  }
+  if (Object.keys(details).length > 0) patch.serviceDetails = details;
+
+  return patch;
+}
 
 export default new HostingService();
