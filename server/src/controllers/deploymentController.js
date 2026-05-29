@@ -47,6 +47,18 @@ const deploymentController = {
     }
   },
 
+  redeployClearCache: async (req, res, next) => {
+    try {
+      res.status(202).json({
+        data: await deploymentService.redeploy(req.params.deploymentId, { ...req.body, clearCache: 'clear' }),
+        message: 'Redeploy with cache clear started.',
+        requestId: req.id,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   verifyUrl: async (req, res, next) => {
     try {
       res.ok(await deploymentService.verifyUrl(req.params.deploymentId));

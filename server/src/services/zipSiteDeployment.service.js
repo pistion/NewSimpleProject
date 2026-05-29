@@ -262,6 +262,7 @@ export async function deployZipSite(input = {}) {
     console.log(`[zip-deploy] Render handoff skipped: ${render.skippedReason}`);
   }
 
+  const targetRoot = renderRootDirectory || `uploaded-sites/${finalSlug}`;
   const generatedSite = {
     siteDir,
     sourceType: 'uploaded-zip-source-artifact',
@@ -276,6 +277,8 @@ export async function deployZipSite(input = {}) {
     uploadedFileName: fileName,
     uploadedAt: now,
     sourceArtifact,
+    githubTargetRoot: targetRoot,
+    sourceRepository: sourceRepo || null,
   };
 
   // 7. Persist deployment record + logs
@@ -324,7 +327,7 @@ export async function deployZipSite(input = {}) {
       environmentConfiguration: {
         environment,
         branch,
-        rootDirectory: renderRootDirectory || siteDir,
+        rootDirectory: renderRootDirectory || targetRoot,
         buildCommand,
         outputDirectory: publishDirectory,
         framework: detected.framework,

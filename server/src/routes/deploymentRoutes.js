@@ -13,6 +13,7 @@ router.get('/:deploymentId', deploymentSessionMiddleware, deploymentController.g
 router.get('/:deploymentId/status', deploymentSessionMiddleware, deploymentController.getStatus);
 router.post('/:deploymentId/verify-url', deploymentSessionMiddleware, deploymentController.verifyUrl);
 router.post('/:deploymentId/redeploy', deploymentSessionMiddleware, deploymentController.redeploy);
+router.post('/:deploymentId/redeploy-clear-cache', deploymentSessionMiddleware, deploymentController.redeployClearCache);
 router.get('/:deploymentId/logs', deploymentSessionMiddleware, deploymentController.getLogs);
 
 export default router;
