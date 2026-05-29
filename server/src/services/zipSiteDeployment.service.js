@@ -12,27 +12,48 @@ const HOSTING_PROVIDER = 'render';   // ZIP uploads are website/app hosting → 
 const rootDir = resolve(process.cwd());
 const dataDir = resolve(process.env.DATA_DIR || join(rootDir, '.glondia-data'));
 const uploadedRoot = join(dataDir, 'uploaded-sites');
-const MAX_ZIP_BYTES = Number(process.env.ZIP_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
-const MAX_EXTRACTED_FILES = Number(process.env.ZIP_UPLOAD_MAX_FILES || 800);
-const MAX_ENTRY_BYTES = Number(process.env.ZIP_UPLOAD_MAX_ENTRY_BYTES || 8 * 1024 * 1024);
 
-// ── SAFE ignore list — never strip dist/, build/, public/, assets/ ──────────
-const DANGEROUS_PATTERNS = [
+// ── Limits (applied AFTER cleanup, not before) ─────────────────────────────
+const MAX_ZIP_BYTES       = Number(process.env.ZIP_UPLOAD_MAX_BYTES       || 100 * 1024 * 1024); // 100 MB
+const MAX_EXTRACTED_FILES = Number(process.env.ZIP_UPLOAD_MAX_FILES       || 5000);               // 5000 deployable files
+const MAX_ENTRY_BYTES     = Number(process.env.ZIP_UPLOAD_MAX_ENTRY_BYTES || 25 * 1024 * 1024);  // 25 MB per entry
+
+// ── Folders/files to ALWAYS ignore (dangerous, heavy, or non-deployable) ────
+const IGNORED_FOLDER_PREFIXES = [
   'node_modules/',
   '.git/',
   '.next/cache/',
+  '.next/server/cache/',
   '.vercel/',
   '.netlify/',
   'coverage/',
-  '.DS_Store',
-  'npm-debug.log',
-  'yarn-error.log',
-  'Thumbs.db',
+  '.cache/',
+  '.parcel-cache/',
+  '.turbo/',
+  '.vite/',
+  'dist/.vite/',
   '__MACOSX/',
+  '.idea/',
+  '.vscode/',
+  '.pnpm-store/',
+  '.yarn/cache/',
 ];
 
-// Shell / batch / powershell scripts uploaded by users are never trusted
+const IGNORED_EXACT_FILES = [
+  '.DS_Store',
+  'Thumbs.db',
+  'npm-debug.log',
+  'yarn-error.log',
+  '.env',
+  '.env.local',
+  '.env.production',
+  '.env.development',
+];
+
+// Untrusted user-uploaded executable scripts — never deploy these
 const UNTRUSTED_SCRIPT_EXTENSIONS = ['.sh', '.bat', '.cmd', '.ps1'];
+// Exception: the generated backend shell file is always kept
+const GENERATED_SHELL_FILE = 'glondia-render-build.sh';
 
 // ── Project type enum ───────────────────────────────────────────────────────
 const PROJECT_TYPE = {
@@ -43,6 +64,60 @@ const PROJECT_TYPE = {
   PREBUILT_BUILD:  'prebuilt-build',     // D: has build/index.html, no package.json
   UNKNOWN:         'unknown',
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper functions: ignore / safety checks
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check whether a ZIP entry should be ignored during extraction.
+ * Returns { ignore: boolean, reason: string }.
+ */
+function shouldIgnoreZipEntry(relativeName) {
+  const normalized = cleanZipPath(relativeName);
+  const lower = normalized.toLowerCase();
+
+  // Check dangerous folder prefixes (node_modules/, .git/, etc.)
+  for (const prefix of IGNORED_FOLDER_PREFIXES) {
+    if (lower.startsWith(prefix) || lower.includes(`/${prefix}`)) {
+      return { ignore: true, reason: `ignored-folder: ${prefix}` };
+    }
+  }
+
+  // Check exact file name matches (.DS_Store, .env, etc.)
+  const baseName = lower.split('/').pop();
+  for (const exact of IGNORED_EXACT_FILES) {
+    if (baseName === exact.toLowerCase()) {
+      return { ignore: true, reason: `ignored-file: ${exact}` };
+    }
+  }
+
+  // Check untrusted executable scripts (except our generated shell file)
+  if (isUnsafeExecutable(relativeName)) {
+    return { ignore: true, reason: 'untrusted-script' };
+  }
+
+  return { ignore: false, reason: '' };
+}
+
+/**
+ * Returns true for .sh, .bat, .cmd, .ps1 files EXCEPT glondia-render-build.sh.
+ */
+function isUnsafeExecutable(relativeName) {
+  const normalized = cleanZipPath(relativeName);
+  const baseName = normalized.split('/').pop().toLowerCase();
+  if (baseName === GENERATED_SHELL_FILE) return false; // always keep the generated file
+  const ext = baseName.substring(baseName.lastIndexOf('.')).toLowerCase();
+  return UNTRUSTED_SCRIPT_EXTENSIONS.includes(ext);
+}
+
+/**
+ * Returns true if a file is a deployable candidate (i.e., not ignored).
+ */
+function isDeployableCandidate(relativeName) {
+  const { ignore } = shouldIgnoreZipEntry(relativeName);
+  return !ignore;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main entry point
@@ -68,14 +143,17 @@ export async function deployZipSite(input = {}) {
   const siteDir = join(uploadedRoot, uploadId);
   const now = nowIso();
 
-  console.log(`[zip-deploy] ZIP received: ${fileName}, size=${zipBuffer.length} bytes`);
+  console.log(`[zip-deploy] ZIP received: ${fileName}, size=${formatBytes(zipBuffer.length)}`);
 
   await rm(siteDir, { recursive: true, force: true });
   await mkdir(siteDir, { recursive: true });
 
-  // 1. Extract safely (keeps dist/, build/, public/)
+  // 1. Extract safely — filter FIRST, count AFTER
   const extracted = await extractZipSafely(zipBuffer, siteDir);
-  console.log(`[zip-deploy] Extracted ${extracted.files.length} files, ignored ${extracted.ignoredFiles.length}`);
+  console.log(`[zip-deploy] Raw entries: ${extracted.rawEntryCount}, ignored: ${extracted.ignoredFiles.length}, deployable: ${extracted.files.length}`);
+  if (extracted.ignoredFolderExamples.length > 0) {
+    console.log(`[zip-deploy] Ignored folder examples: ${extracted.ignoredFolderExamples.join(', ')}`);
+  }
 
   // 2. Detect project type
   const detected = detectProject(extracted.files);
@@ -206,6 +284,7 @@ export async function deployZipSite(input = {}) {
       originalFileName: fileName,
       originalZipBytes: zipBuffer.length,
       extractedPath: siteDir,
+      rawEntryCount: extracted.rawEntryCount,
       deployableFiles: extracted.files,
       ignoredFiles: extracted.ignoredFiles,
       detectedProjectType: detected.type,
@@ -259,8 +338,11 @@ export async function deployZipSite(input = {}) {
 
     const logs = [
       makeLog(`ZIP upload received: ${fileName} (${formatBytes(zipBuffer.length)}).`, 'info'),
+      makeLog(`Raw ZIP entries: ${extracted.rawEntryCount}. Ignored: ${extracted.ignoredFiles.length}. Deployable: ${extracted.files.length}.`, 'info'),
+      ...(extracted.ignoredFolderExamples.length > 0
+        ? [makeLog(`Ignored folder examples: ${extracted.ignoredFolderExamples.join(', ')}.`, 'info')]
+        : []),
       makeLog(`Extracted ${extracted.files.length} deployable files into ${siteDir}.`, 'ok'),
-      makeLog(`Ignored ${extracted.ignoredFiles.length} non-deployable artifacts.`, 'info'),
       makeLog(`Detected project type: ${detected.type} (${detected.framework}).`, 'info'),
       makeLog(`Publish directory: ${publishDirectory}.`, 'info'),
       makeLog(`Render build command: ${buildCommand}.`, 'info'),
@@ -314,6 +396,7 @@ export async function validateZipSite(input = {}) {
       valid: true,
       fileName,
       zipBytes: zipBuffer.length,
+      rawEntryCount: extracted.rawEntryCount,
       fileCount: extracted.files.length,
       ignoredFileCount: extracted.ignoredFiles.length,
       detectedProjectType: detected.type,
@@ -322,6 +405,7 @@ export async function validateZipSite(input = {}) {
       publishDirectory,
       deployableFiles: extracted.files,
       ignoredFiles: extracted.ignoredFiles,
+      ignoredFolderExamples: extracted.ignoredFolderExamples,
     };
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -329,52 +413,93 @@ export async function validateZipSite(input = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ZIP extraction — keeps dist/, build/, public/, assets/
+// ZIP extraction — filter FIRST, count AFTER, keeps dist/build/public/assets
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function extractZipSafely(zipBuffer, destination) {
   const zip = new AdmZip(zipBuffer);
-  const entries = zip.getEntries().filter(entry => !entry.isDirectory);
-  if (entries.length === 0) throw badRequest('ZIP does not contain any files.', 'ZIP_NO_FILES');
-  if (entries.length > MAX_EXTRACTED_FILES) throw badRequest(`ZIP contains too many files (${entries.length}). Max is ${MAX_EXTRACTED_FILES}.`, 'ZIP_TOO_MANY_FILES');
+  const allEntries = zip.getEntries().filter(entry => !entry.isDirectory);
+  const rawEntryCount = allEntries.length;
 
-  const rootPrefix = detectRootPrefix(entries.map(entry => entry.entryName));
+  if (rawEntryCount === 0) throw badRequest('ZIP does not contain any files.', 'ZIP_NO_FILES');
+
+  console.log(`[zip-extract] Raw ZIP file entries (before filtering): ${rawEntryCount}`);
+
+  const rootPrefix = detectRootPrefix(allEntries.map(entry => entry.entryName));
   const files = [];
   const ignoredFiles = [];
+  const ignoredFolderSet = new Set();
 
-  for (const entry of entries) {
-    if (entry.header.size > MAX_ENTRY_BYTES) throw badRequest(`ZIP entry is too large: ${entry.entryName} (${formatBytes(entry.header.size)}).`, 'ZIP_ENTRY_TOO_LARGE');
+  // Process each entry: filter out ignored files FIRST, then extract deployable ones
+  for (const entry of allEntries) {
     const relativeName = cleanZipPath(rootPrefix ? entry.entryName.slice(rootPrefix.length) : entry.entryName);
     if (!relativeName || relativeName.endsWith('/')) continue;
 
-    const ignoreReason = getIgnoredReason(relativeName);
-    if (ignoreReason) {
-      ignoredFiles.push({ path: relativeName, reason: ignoreReason });
+    // 1. Check if this entry should be ignored
+    const ignoreCheck = shouldIgnoreZipEntry(relativeName);
+    if (ignoreCheck.ignore) {
+      ignoredFiles.push({ path: relativeName, reason: ignoreCheck.reason });
+      // Track which ignored folders are represented for logging
+      const folderMatch = ignoreCheck.reason.match(/^ignored-folder: (.+)/);
+      if (folderMatch) ignoredFolderSet.add(folderMatch[1]);
       continue;
     }
 
+    // 2. Check individual file size on deployable files only
+    if (entry.header.size > MAX_ENTRY_BYTES) {
+      throw badRequest(
+        `ZIP entry is too large: ${entry.entryName} (${formatBytes(entry.header.size)}). Max per file is ${formatBytes(MAX_ENTRY_BYTES)}.`,
+        'ZIP_ENTRY_TOO_LARGE',
+      );
+    }
+
+    // 3. Check path traversal safety
     const outputPath = resolve(destination, relativeName);
-    if (!outputPath.startsWith(destination)) throw badRequest(`Unsafe ZIP path detected: ${entry.entryName}`, 'ZIP_PATH_TRAVERSAL');
+    if (!outputPath.startsWith(destination)) {
+      throw badRequest(`Unsafe ZIP path detected: ${entry.entryName}`, 'ZIP_PATH_TRAVERSAL');
+    }
+
+    // 4. Write deployable file
     await mkdir(join(outputPath, '..'), { recursive: true });
     await writeFile(outputPath, entry.getData());
     files.push(relativeName);
   }
 
-  // Validate: at least one deployable entry point exists
+  console.log(`[zip-extract] After filtering: ${files.length} deployable, ${ignoredFiles.length} ignored`);
+
+  // 5. Check deployable file count limit AFTER cleanup
+  if (files.length > MAX_EXTRACTED_FILES) {
+    const err = badRequest(
+      `ZIP has too many deployable files after cleanup. Deployable files: ${files.length}. Max: ${MAX_EXTRACTED_FILES}.`,
+      'ZIP_TOO_MANY_DEPLOYABLE_FILES',
+    );
+    err.details = {
+      rawEntries: rawEntryCount,
+      ignoredFiles: ignoredFiles.length,
+      deployableFiles: files.length,
+      maxDeployableFiles: MAX_EXTRACTED_FILES,
+    };
+    throw err;
+  }
+
+  // 6. Validate: at least one deployable entry point exists
   const hasDeployableEntry = files.some(name =>
     name === 'package.json' ||
     name === 'index.html' ||
     name === 'dist/index.html' ||
-    name === 'build/index.html'
+    name === 'build/index.html' ||
+    name === 'public/index.html'
   );
   if (!hasDeployableEntry) {
     throw badRequest(
-      'ZIP must contain package.json, index.html, dist/index.html, or build/index.html.',
+      'ZIP must contain package.json, index.html, dist/index.html, build/index.html, or public/index.html.',
       'ZIP_NO_DEPLOYABLE_ENTRY',
     );
   }
 
-  return { files, ignoredFiles };
+  const ignoredFolderExamples = Array.from(ignoredFolderSet).slice(0, 10);
+
+  return { files, ignoredFiles, rawEntryCount, ignoredFolderExamples };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,7 +559,6 @@ async function writeRenderShellFile(siteDir, { detected, publishDirectory, reque
   switch (detected.type) {
     case PROJECT_TYPE.VITE_SOURCE:
     case PROJECT_TYPE.NODE_SOURCE:
-      // Source project: install deps, then build
       scriptBody = `
 echo "Source project detected (${detected.framework})"
 if [ -f package.json ]; then
@@ -450,7 +574,6 @@ fi
       break;
 
     case PROJECT_TYPE.STATIC_ROOT:
-      // Static HTML at root: copy files into publish directory
       scriptBody = `
 echo "Static HTML site detected (no package.json)"
 mkdir -p "${publishDirectory}"
@@ -462,7 +585,6 @@ echo "Static files copied to ${publishDirectory}/"
       break;
 
     case PROJECT_TYPE.PREBUILT_DIST:
-      // Already built inside dist/
       scriptBody = `
 echo "Prebuilt site detected in dist/"
 if [ ! -f dist/index.html ]; then
@@ -474,7 +596,6 @@ echo "dist/index.html confirmed — nothing to build"
       break;
 
     case PROJECT_TYPE.PREBUILT_BUILD:
-      // Already built inside build/
       scriptBody = `
 echo "Prebuilt site detected in build/"
 if [ ! -f build/index.html ]; then
@@ -532,10 +653,12 @@ async function createSourceArtifactRecord({
     storageMode: 'database-artifact-record',
     extractedRoot: siteDir,
     originalZipBytes: zipBuffer.length,
+    rawEntryCount: extracted.rawEntryCount,
     deployableFileCount: extracted.files.length,
     ignoredFileCount: extracted.ignoredFiles.length,
     deployableFiles: extracted.files,
     ignoredFiles: extracted.ignoredFiles,
+    ignoredFolderExamples: extracted.ignoredFolderExamples,
     projectType: detected.type,
     framework: detected.framework,
     packageManager: detected.packageManager,
@@ -547,31 +670,6 @@ async function createSourceArtifactRecord({
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
   const shellContent = await readFile(join(siteDir, shellFile.relativePath), 'utf8');
   return { ...manifest, manifestPath, shellContent };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Ignore rules — SAFE: keeps dist/, build/, public/, assets/, css/, js/, src/
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getIgnoredReason(relativeName) {
-  const normalized = cleanZipPath(relativeName);
-  const lower = normalized.toLowerCase();
-
-  // Dangerous/heavy artifacts
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.endsWith('/')) {
-      if (lower.startsWith(pattern) || lower.includes(`/${pattern}`)) return 'dangerous-artifact';
-    } else {
-      const base = lower.split('/').pop();
-      if (base === pattern.toLowerCase()) return 'dangerous-artifact';
-    }
-  }
-
-  // Untrusted user-uploaded shell scripts
-  const ext = lower.substring(lower.lastIndexOf('.')).toLowerCase();
-  if (UNTRUSTED_SCRIPT_EXTENSIONS.includes(ext)) return 'untrusted-script';
-
-  return '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
