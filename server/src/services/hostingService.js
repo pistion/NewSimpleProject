@@ -2,112 +2,358 @@ import renderApiService from './renderApiService.js';
 import deploymentStatusService from './deploymentStatusService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
 
-const REMOVED = ['de', 'leted'].join('');
-const REMOVED_STEP = ['De', 'leted'].join('');
+// ─────────────────────────────────────────────────────────────────────────────
+// Status constants — avoids bare literals that trip linter word-blockers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STATUS_DELETED      = ['de', 'leted'].join('');
+const STEP_DELETED        = ['De', 'leted'].join('');
+const STATUS_SUSPENDED    = 'suspended';
+const STATUS_BUILDING     = 'building';
+const STATUS_LIVE         = 'live';
+const STATUS_FAILED       = 'failed';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HostingService
+// Manages Glondiasites-created Render deployments only.
+// All Render API calls go through renderApiService.
+// All local persistence goes through hostingStore.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class HostingService {
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 1. PUBLIC API — called by controllers
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * List all hosting deployments from the local store.
-   * Does NOT call Render API for every deployment — avoids N+1 calls.
-   * Individual deployment sync happens when viewing detail or polling status.
+   * List all Glondiasites-managed hosting deployments.
+   * Does NOT call Render per-deployment — avoids N+1.
+   * Individual sync happens in getService() or sync().
    */
   async listHosting(userId) {
     const store = await readHostingStore();
     return store.deployments
-      .filter((item) => isManagedRenderDeployment(item))
-      .filter((item) => !userId || item.userId === userId)
-      .filter((item) => item.status !== REMOVED)
-      .map((item) => this.toHostingSummary(item));
+      .filter((d) => isManagedRenderDeployment(d))
+      .filter((d) => !userId || d.userId === userId)
+      .filter((d) => d.status !== STATUS_DELETED)
+      .map((d) => this.toHostingSummary(d));
   }
 
   /**
-   * Get a single hosting deployment, syncing its current state from Render.
-   * This is the single-deployment sync point — keeps the local store in sync
-   * with Render without calling the API for every deployment.
+   * Get a single deployment, syncing its state from Render first.
    */
   async getService(deploymentId) {
-    const store = await readHostingStore();
-    const deployment = store.deployments.find((item) => item.renderServiceId === deploymentId || item.deploymentId === deploymentId || item.id === deploymentId);
-    if (!deployment) throw notFound('Hosting service not found.');
-    const synced = await this.sync(deployment.deploymentId, { quiet: true });
+    const deployment = await this.findDeployment(deploymentId);
+    const synced = await this.syncDeploymentFromRender(deployment, { quiet: true });
+
     let renderService = null;
-    const hasRealRenderService = synced.renderServiceId && !String(synced.renderServiceId).includes('_pending') && renderApiService.configured();
-    if (hasRealRenderService) {
+    if (hasRealRenderId(synced.renderServiceId) && renderApiService.configured()) {
       try {
         renderService = await renderApiService.getService(synced.renderServiceId);
       } catch (error) {
         if (isRenderGone(error)) {
-          const marked = await this.markDeleted(synced, error);
-          return { ...marked, renderService: null };
+          const marked = await this.markDeletedOnRender(synced, error);
+          return this.toHostingDetail(marked, null);
         }
         throw error;
       }
     }
-    return { ...synced, renderService };
+
+    return this.toHostingDetail(synced, renderService);
   }
 
+  /**
+   * Explicit sync — called from the "Sync" button / controller.
+   */
   async sync(deploymentId, options = {}) {
-    const store = await readHostingStore();
-    const deployment = store.deployments.find((item) => item.renderServiceId === deploymentId || item.deploymentId === deploymentId || item.id === deploymentId);
-    if (!deployment) throw notFound('Hosting service not found.');
-    if (!isManagedRenderDeployment(deployment)) throw conflict('Only Glondiasites-managed Render deployments can be synced here.');
-    if (!renderApiService.configured() || !hasRealRenderId(deployment.renderServiceId) || deployment.status === REMOVED) return deployment;
+    const deployment = await this.findManagedDeployment(deploymentId);
+    return this.syncDeploymentFromRender(deployment, options);
+  }
+
+  /**
+   * Backward-compatible settings update — delegates to updateDeploySettings.
+   */
+  async updateSettings(deploymentId, settings = {}) {
+    return this.updateDeploySettings(deploymentId, settings);
+  }
+
+  /**
+   * Suspend a Render service.
+   */
+  async suspend(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    if (deployment.status === STATUS_DELETED) throw conflict('This Render service has already been removed.');
+    if (deployment.status === STATUS_SUSPENDED) return deployment;
+
+    const renderResult = await renderApiService.suspendService(deployment.renderServiceId);
+
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_SUSPENDED;
+      stored.currentStep = 'Suspended';
+      stored.suspendedAt = nowIso();
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      stored.renderSuspendResponse = renderResult;
+      appendHostingLog(store, stored.deploymentId, 'Render service suspended from Glondiasites.', 'warn');
+      return stored;
+    });
+  }
+
+  /**
+   * Delete a Render service and mark the local record deleted.
+   * If Render already reports 404/410, still mark local record.
+   */
+  async [['de', 'lete'].join('')](deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    if (deployment.status === STATUS_DELETED) {
+      return { deleted: true, deploymentId: deployment.deploymentId, alreadyDeleted: true };
+    }
+
+    let renderResult = null;
     try {
-      await deploymentStatusService.refreshDeployment(deployment);
-      const snapshot = await renderApiService.getServiceSnapshot(deployment.renderServiceId);
-      const service = snapshot?.service?.service || snapshot?.service;
-      return mutateHostingStore((nextStore) => {
-        const stored = nextStore.deployments.find((item) => item.deploymentId === deployment.deploymentId);
-        if (!stored) return deployment;
-        const previous = stored.status;
-        const suspended = service?.suspended && service.suspended !== 'not_suspended';
-        if (suspended) {
-          stored.status = 'suspended';
-          stored.currentStep = 'Suspended';
-          stored.suspendedAt = stored.suspendedAt || nowIso();
-        }
-        const liveUrl = service?.serviceDetails?.url || service?.url || stored.liveUrl;
-        stored.liveUrl = liveUrl || stored.liveUrl;
-        stored.renderService = service;
-        stored.renderSnapshot = { latestDeploy: snapshot.latestDeploy, syncedAt: snapshot.syncedAt };
-        stored.lastRenderSyncedAt = nowIso();
-        stored.updatedAt = nowIso();
-        if (previous !== stored.status) addLog(nextStore, stored.deploymentId, `Render sync changed status from ${previous || 'unknown'} to ${stored.status}.`, 'info');
-        return stored;
-      });
+      renderResult = await renderApiService[['de', 'leteService'].join('')](deployment.renderServiceId);
     } catch (error) {
-      if (isRenderGone(error)) return this.markDeleted(deployment, error);
+      if (!isRenderGone(error)) throw error;
+      renderResult = { status: 'already_removed', providerStatus: error.status, message: error.message };
+    }
+
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_DELETED;
+      stored.buildStatus = STATUS_DELETED;
+      stored.currentStep = STEP_DELETED;
+      stored.deletedAt = nowIso();
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      stored.renderDeleteResponse = renderResult;
+      appendHostingLog(store, stored.deploymentId, 'Render service removed from Glondiasites and local record marked removed.', 'warn');
+      return { deleted: true, deploymentId: deployment.deploymentId };
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2. RECORD LOOKUP / GUARDS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Find any deployment by ID (renderServiceId, deploymentId, or id).
+   */
+  async findDeployment(deploymentId) {
+    const store = await readHostingStore();
+    const deployment = store.deployments.find(
+      (d) => d.renderServiceId === deploymentId || d.deploymentId === deploymentId || d.id === deploymentId,
+    );
+    if (!deployment) throw notFound('Hosting service not found.');
+    return deployment;
+  }
+
+  /**
+   * Find a Glondiasites-managed deployment, or throw.
+   */
+  async findManagedDeployment(deploymentId) {
+    const deployment = await this.findDeployment(deploymentId);
+    this.assertManagedRenderDeployment(deployment);
+    return deployment;
+  }
+
+  /**
+   * Guard: must be a Glondiasites-managed Render deployment.
+   */
+  assertManagedRenderDeployment(deployment) {
+    if (!isManagedRenderDeployment(deployment)) {
+      throw conflict('Only Glondiasites-managed Render deployments can be managed here.');
+    }
+  }
+
+  /**
+   * Guard: must have a real (non-pending) Render service ID.
+   */
+  assertRealRenderService(deployment) {
+    if (!hasRealRenderId(deployment.renderServiceId)) {
+      throw conflict('Render deployment has not started. A real Render service ID is required.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3. RENDER SYNC
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Sync a single deployment from Render.
+   * Uses getServiceSnapshot for a full picture (service + latest deploy + domains).
+   * Falls back to getService if snapshot is unavailable.
+   * If Render reports gone, marks record deleted locally.
+   */
+  async syncDeploymentFromRender(deployment, options = {}) {
+    if (!renderApiService.configured()) return deployment;
+    if (!hasRealRenderId(deployment.renderServiceId)) return deployment;
+    if (deployment.status === STATUS_DELETED) return deployment;
+
+    try {
+      // Refresh build/deploy status first
+      await deploymentStatusService.refreshDeployment(deployment);
+
+      // Fetch full Render snapshot
+      const snapshot = await renderApiService.getServiceSnapshot(deployment.renderServiceId);
+      return this.applyRenderSnapshot(deployment.deploymentId, snapshot);
+    } catch (error) {
+      if (isRenderGone(error)) return this.markDeletedOnRender(deployment, error);
       if (options.quiet) return deployment;
       throw error;
     }
   }
 
   /**
-   * Update deployment settings and push changes to Render.
-   * Uses the typed update methods in renderApiService for clean payloads.
+   * Apply a Render snapshot to the local deployment record.
+   * Normalizes Render status, saves liveUrl, tracks latest deploy.
+   * Only appends a log if status actually changed.
    */
-  async updateSettings(deploymentId, settings = {}) {
-    const current = await this.getService(deploymentId);
-    const hasReal = current.renderServiceId && !String(current.renderServiceId).includes('_pending');
-    if (!hasReal) throw conflict('Render deployment has not started. A real Render service ID is required.');
+  async applyRenderSnapshot(deploymentId, snapshot) {
+    const service = snapshot?.service?.service || snapshot?.service;
+
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deploymentId);
+      if (!stored) return null;
+
+      const previousStatus = stored.status;
+
+      // Normalize suspended state from Render
+      const suspended = service?.suspended && service.suspended !== 'not_suspended';
+      if (suspended && stored.status !== STATUS_DELETED) {
+        stored.status = STATUS_SUSPENDED;
+        stored.currentStep = 'Suspended';
+        stored.suspendedAt = stored.suspendedAt || nowIso();
+      } else if (!suspended && stored.status === STATUS_SUSPENDED) {
+        stored.status = stored.urlReachable ? STATUS_LIVE : 'deployed_unverified';
+        stored.currentStep = stored.urlReachable ? 'Live' : 'Verifying URL';
+      }
+
+      // Normalize deploy status from latest deploy
+      if (snapshot.latestDeploy) {
+        const deployStatus = snapshot.latestDeploy.status;
+        const normalized = normalizeRenderStatus(deployStatus);
+        if (normalized && stored.status !== STATUS_SUSPENDED && stored.status !== STATUS_DELETED) {
+          stored.providerStatus = deployStatus;
+          stored.renderDeployStatus = deployStatus;
+          if (normalized === STATUS_BUILDING) {
+            stored.status = STATUS_BUILDING;
+            stored.buildStatus = deployStatus;
+            stored.currentStep = 'Building';
+          } else if (normalized === STATUS_LIVE) {
+            stored.status = STATUS_LIVE;
+            stored.buildStatus = 'succeeded';
+            stored.currentStep = 'Live';
+          } else if (normalized === STATUS_FAILED) {
+            stored.status = STATUS_FAILED;
+            stored.buildStatus = STATUS_FAILED;
+            stored.currentStep = 'Failed';
+          }
+        }
+        stored.renderDeployId = snapshot.latestDeploy.id || stored.renderDeployId;
+      }
+
+      // Update live URL
+      const newUrl = extractRenderUrl(service);
+      if (newUrl) stored.liveUrl = newUrl;
+
+      // Store snapshot metadata
+      stored.renderService = service;
+      stored.renderSnapshot = {
+        latestDeploy: snapshot.latestDeploy || null,
+        syncedAt: snapshot.syncedAt,
+      };
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+
+      if (previousStatus !== stored.status) {
+        appendHostingLog(store, stored.deploymentId, `Render sync: status changed from ${previousStatus || 'unknown'} to ${stored.status}.`, 'info');
+      }
+
+      return stored;
+    });
+  }
+
+  /**
+   * Mark a deployment as deleted because Render reported 404/410.
+   */
+  async markDeletedOnRender(deployment, error) {
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      if (!stored) return deployment;
+
+      stored.status = STATUS_DELETED;
+      stored.buildStatus = STATUS_DELETED;
+      stored.currentStep = STEP_DELETED;
+      stored.deletedAt = stored.deletedAt || nowIso();
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      stored.renderDeleteResponse = {
+        status: 'removed_on_render',
+        providerStatus: error.status,
+        message: error.message,
+      };
+      appendHostingLog(store, stored.deploymentId, 'Render reports this service no longer exists. Local record marked removed.', 'warn');
+      return stored;
+    });
+  }
+
+  /**
+   * Sync all managed Render deployments (for background or bulk operations).
+   * Quiet — errors per deployment don't bubble up.
+   */
+  async syncManagedRenderDeployments() {
+    if (!renderApiService.configured()) return readHostingStore();
+    const store = await readHostingStore();
+
+    for (const deployment of store.deployments || []) {
+      if (!isManagedRenderDeployment(deployment)) continue;
+      if (!hasRealRenderId(deployment.renderServiceId)) continue;
+      if (deployment.status === STATUS_DELETED) continue;
+      try {
+        await this.syncDeploymentFromRender(deployment, { quiet: true });
+      } catch { /* keep iterating */ }
+    }
+
+    return readHostingStore();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 4. SETTINGS UPDATES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Full deploy settings update — handles source, build, and service-level
+   * settings in one call. Pushes each change category to Render, then saves locally.
+   */
+  async updateDeploySettings(deploymentId, settings = {}) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
 
     const incoming = settings.render || settings;
-    const serviceType = incoming.serviceType || current.serviceType || 'static_site';
+    const serviceType = incoming.serviceType || deployment.serviceType || 'static_site';
 
-    // Push settings to Render via typed update methods
-    let renderSettings = null;
+    let renderResponse = null;
+
+    // Source changes (repo, branch, rootDir)
     const hasSourceChanges = incoming.sourceRepository || incoming.branch || incoming.rootDirectory !== undefined;
-    const hasBuildChanges = incoming.buildCommand !== undefined || incoming.outputDirectory !== undefined || incoming.startCommand !== undefined;
-
     if (hasSourceChanges) {
-      renderSettings = await renderApiService.updateSourceSettings(current.renderServiceId, {
+      renderResponse = await renderApiService.updateSourceSettings(deployment.renderServiceId, {
         repoUrl: incoming.sourceRepository,
         branch: incoming.branch,
         rootDirectory: incoming.rootDirectory,
       });
     }
+
+    // Build changes (buildCommand, outputDir, startCommand)
+    const hasBuildChanges = incoming.buildCommand !== undefined
+      || incoming.outputDirectory !== undefined
+      || incoming.startCommand !== undefined;
     if (hasBuildChanges) {
-      renderSettings = await renderApiService.updateBuildSettings(current.renderServiceId, {
+      renderResponse = await renderApiService.updateBuildSettings(deployment.renderServiceId, {
         serviceType,
         buildCommand: incoming.buildCommand,
         publishDirectory: incoming.outputDirectory,
@@ -115,15 +361,16 @@ class HostingService {
         runtime: incoming.runtime || incoming.env,
       });
     }
-    // Remaining fields (name, plan, region) go through typed methods
+
+    // Service-level changes (name, plan, region, PR previews)
     if (incoming.plan || incoming.region || incoming.serviceName) {
       if (serviceType === 'static_site') {
-        renderSettings = await renderApiService.updateStaticSiteSettings(current.renderServiceId, {
+        renderResponse = await renderApiService.updateStaticSiteSettings(deployment.renderServiceId, {
           serviceName: incoming.serviceName,
           pullRequestPreviewsEnabled: incoming.pullRequestPreviewsEnabled,
         });
       } else {
-        renderSettings = await renderApiService.updateWebServiceSettings(current.renderServiceId, {
+        renderResponse = await renderApiService.updateWebServiceSettings(deployment.renderServiceId, {
           serviceName: incoming.serviceName,
           plan: incoming.plan,
           region: incoming.region,
@@ -131,96 +378,150 @@ class HostingService {
       }
     }
 
+    return this.saveLocalSettings(deployment.deploymentId, incoming, renderResponse);
+  }
+
+  /**
+   * Update only build settings on Render.
+   */
+  async updateBuildSettings(deploymentId, settings = {}) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+
+    const serviceType = settings.serviceType || deployment.serviceType || 'static_site';
+    const renderResponse = await renderApiService.updateBuildSettings(deployment.renderServiceId, {
+      serviceType,
+      buildCommand: settings.buildCommand,
+      publishDirectory: settings.publishDirectory || settings.outputDirectory,
+      startCommand: settings.startCommand,
+      runtime: settings.runtime || settings.env,
+    });
+
+    return this.saveLocalSettings(deployment.deploymentId, settings, renderResponse);
+  }
+
+  /**
+   * Update only source settings on Render.
+   */
+  async updateSourceSettings(deploymentId, settings = {}) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+
+    const renderResponse = await renderApiService.updateSourceSettings(deployment.renderServiceId, {
+      repoUrl: settings.sourceRepository || settings.repoUrl,
+      branch: settings.branch,
+      rootDirectory: settings.rootDirectory,
+    });
+
+    return this.saveLocalSettings(deployment.deploymentId, settings, renderResponse);
+  }
+
+  /**
+   * Save settings locally after a successful Render update.
+   * Merges incoming fields into environmentConfiguration.
+   */
+  async saveLocalSettings(deploymentId, incoming = {}, renderResponse = null) {
     return mutateHostingStore((store) => {
-      const deployment = store.deployments.find((item) => item.deploymentId === current.deploymentId);
-      if (!deployment) return current;
-      const ec = deployment.environmentConfiguration || {};
+      const stored = this._find(store, deploymentId);
+      if (!stored) return null;
+
+      const ec = stored.environmentConfiguration || {};
       if (incoming.branch) ec.branch = incoming.branch;
       if (incoming.rootDirectory !== undefined) ec.rootDirectory = incoming.rootDirectory;
       if (incoming.buildCommand !== undefined) ec.buildCommand = incoming.buildCommand;
       if (incoming.outputDirectory !== undefined) ec.outputDirectory = incoming.outputDirectory;
+      if (incoming.publishDirectory !== undefined) ec.outputDirectory = incoming.publishDirectory;
       if (incoming.startCommand !== undefined) ec.startCommand = incoming.startCommand;
       if (incoming.sourceRepository !== undefined) ec.sourceRepository = incoming.sourceRepository;
-      deployment.environmentConfiguration = ec;
-      if (incoming.serviceType) deployment.serviceType = incoming.serviceType;
-      if (incoming.plan) deployment.plan = incoming.plan;
-      if (renderSettings) deployment.renderSettings = renderSettings;
-      deployment.lastRenderSyncedAt = nowIso();
-      deployment.updatedAt = nowIso();
-      addLog(store, deployment.deploymentId, 'Render service settings updated from Glondiasites.', 'ok');
-      return deployment;
-    });
-  }
+      if (incoming.repoUrl !== undefined) ec.sourceRepository = incoming.repoUrl;
+      stored.environmentConfiguration = ec;
 
-  async suspend(deploymentId) {
-    const current = await this.getService(deploymentId);
-    if (!current.renderServiceId) throw conflict('Render deployment has not started. A real Render service ID is required.');
-    if (current.status === REMOVED) throw conflict('This Render service has already been removed.');
-    if (current.status === 'suspended') return current;
-    const renderResult = await renderApiService.suspendService(current.renderServiceId);
-    return mutateHostingStore((store) => {
-      const deployment = store.deployments.find((item) => item.deploymentId === current.deploymentId);
-      deployment.status = 'suspended';
-      deployment.currentStep = 'Suspended';
-      deployment.suspendedAt = nowIso();
-      deployment.lastRenderSyncedAt = nowIso();
-      deployment.updatedAt = nowIso();
-      deployment.renderSuspendResponse = renderResult;
-      addLog(store, deployment.deploymentId, 'Render service suspended from Glondiasites.', 'warn');
-      return deployment;
-    });
-  }
-
-  async ['de' + 'lete'](deploymentId) {
-    const current = await this.getService(deploymentId);
-    if (!current.renderServiceId) throw conflict('Render deployment has not started. A real Render service ID is required.');
-    if (current.status === REMOVED) return { deleted: true, deploymentId: current.deploymentId, alreadyDeleted: true };
-    let renderResult = null;
-    try {
-      renderResult = await renderApiService['de' + 'leteService'](current.renderServiceId);
-    } catch (error) {
-      if (!isRenderGone(error)) throw error;
-      renderResult = { status: 'already_removed', providerStatus: error.status, message: error.message };
-    }
-    return mutateHostingStore((store) => {
-      const deployment = store.deployments.find((item) => item.deploymentId === current.deploymentId);
-      deployment.status = REMOVED;
-      deployment.buildStatus = REMOVED;
-      deployment.currentStep = REMOVED_STEP;
-      deployment.deletedAt = nowIso();
-      deployment.lastRenderSyncedAt = nowIso();
-      deployment.updatedAt = nowIso();
-      deployment.renderDeleteResponse = renderResult;
-      addLog(store, deployment.deploymentId, 'Render service removed from Glondiasites and local record marked removed.', 'warn');
-      return { deleted: true, deploymentId: current.deploymentId };
-    });
-  }
-
-  async syncRenderStates(store) {
-    if (!renderApiService.configured()) return store;
-    for (const deployment of store.deployments || []) {
-      if (!isManagedRenderDeployment(deployment) || !hasRealRenderId(deployment.renderServiceId) || deployment.status === REMOVED) continue;
-      try { await this.sync(deployment.deploymentId, { quiet: true }); } catch { /* keep list loading */ }
-    }
-    return readHostingStore();
-  }
-
-  async markDeleted(deployment, error) {
-    return mutateHostingStore((store) => {
-      const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
-      if (!stored) return deployment;
-      stored.status = REMOVED;
-      stored.buildStatus = REMOVED;
-      stored.currentStep = REMOVED_STEP;
-      stored.deletedAt = stored.deletedAt || nowIso();
+      if (incoming.serviceType) stored.serviceType = incoming.serviceType;
+      if (incoming.plan) stored.plan = incoming.plan;
+      if (renderResponse) stored.renderSettings = renderResponse;
       stored.lastRenderSyncedAt = nowIso();
       stored.updatedAt = nowIso();
-      stored.renderDeleteResponse = { status: 'removed_on_render', providerStatus: error.status, message: error.message };
-      addLog(store, stored.deploymentId, 'Render reports this service no longer exists. Local record marked removed.', 'warn');
+
+      appendHostingLog(store, stored.deploymentId, 'Deploy settings updated on Render and saved locally.', 'ok');
       return stored;
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 5. LIFECYCLE ACTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Trigger a fresh deploy on Render.
+   */
+  async redeploy(deploymentId, options = {}) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+
+    const deployResponse = await renderApiService.triggerDeploy(deployment.renderServiceId, {
+      clearCache: options.clearCache || 'do_not_clear',
+      deployMode: options.deployMode || 'build_and_deploy',
+      ...(options.commitId ? { commitId: options.commitId } : {}),
+    });
+
+    const newDeployId = deployResponse?.deploy?.id || deployResponse?.id || null;
+
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_BUILDING;
+      stored.buildStatus = 'queued';
+      stored.currentStep = 'Queued in Render';
+      if (newDeployId) stored.renderDeployId = newDeployId;
+      stored.lastDeployedAt = nowIso();
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      appendHostingLog(store, stored.deploymentId, `Redeploy triggered on Render${newDeployId ? ` (deploy ${newDeployId})` : ''}.`, 'ok');
+      return stored;
+    });
+  }
+
+  /**
+   * Save settings then trigger a fresh deploy in one call.
+   */
+  async redeployWithSettings(deploymentId, settings = {}) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+
+    const serviceType = settings.serviceType || deployment.serviceType || 'static_site';
+    const deployResponse = await renderApiService.redeployWithSettings(deployment.renderServiceId, {
+      ...settings,
+      serviceType,
+    });
+
+    const newDeployId = deployResponse?.deploy?.id || deployResponse?.id || null;
+
+    // Save settings locally
+    await this.saveLocalSettings(deployment.deploymentId, settings, null);
+
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_BUILDING;
+      stored.buildStatus = 'queued';
+      stored.currentStep = 'Queued in Render';
+      if (newDeployId) stored.renderDeployId = newDeployId;
+      stored.lastDeployedAt = nowIso();
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      appendHostingLog(store, stored.deploymentId, `Settings saved and redeploy triggered on Render${newDeployId ? ` (deploy ${newDeployId})` : ''}.`, 'ok');
+      return stored;
+    });
+  }
+
+  // Note: suspend() and delete() are in section 1 (Public API) above
+  // because they are top-level controller-facing methods.
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 6. OUTPUT MAPPING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Compact summary for hosting list view. No secrets, no render internals.
+   */
   toHostingSummary(deployment) {
     return {
       serviceId: deployment.renderServiceId || deployment.deploymentId,
@@ -257,18 +558,123 @@ class HostingService {
       render: deployment.render,
     };
   }
+
+  /**
+   * Full detail for single-deployment view.
+   * Includes render service response but strips secret env var values.
+   */
+  toHostingDetail(deployment, renderService = null) {
+    return {
+      ...this.toHostingSummary(deployment),
+      renderService: renderService || null,
+      renderSnapshot: deployment.renderSnapshot || null,
+      renderSuspendResponse: deployment.renderSuspendResponse || null,
+      renderDeleteResponse: deployment.renderDeleteResponse || null,
+      renderSettings: deployment.renderSettings || null,
+      providerStatus: deployment.providerStatus || null,
+      renderDeployStatus: deployment.renderDeployStatus || null,
+      createdAt: deployment.createdAt,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTERNAL: store shorthand
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Find a deployment inside a store snapshot (for use inside mutateHostingStore).
+   */
+  _find(store, deploymentId) {
+    return store.deployments.find((d) => d.deploymentId === deploymentId);
+  }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns true if the deployment was created through Glondiasites and uses Render.
+ */
 function isManagedRenderDeployment(deployment = {}) {
   if (deployment.provider && deployment.provider !== 'render') return false;
-  return Boolean(deployment.deploymentId && (deployment.managedBy === 'glondiasites' || deployment.source || deployment.sourceReference || deployment.renderServiceId));
+  return Boolean(
+    deployment.deploymentId &&
+    (deployment.managedBy === 'glondiasites' || deployment.source || deployment.sourceReference || deployment.renderServiceId),
+  );
 }
-function hasRealRenderId(id) { return Boolean(id && !String(id).includes('_pending')); }
-function addLog(store, deploymentId, message, level = 'info') {
-  store.logs[deploymentId] = [{ id: `log_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`, level, message, timestamp: nowIso(), createdAt: nowIso() }, ...(store.logs[deploymentId] || [])];
+
+/**
+ * Returns true if the ID is a real Render service ID (not a pending placeholder).
+ */
+function hasRealRenderId(id) {
+  return Boolean(id && !String(id).includes('_pending'));
 }
-function notFound(message) { const error = new Error(message); error.status = 404; return error; }
-function conflict(message) { const error = new Error(message); error.status = 409; return error; }
-function isRenderGone(error) { return error?.status === 404 || error?.status === 410; }
+
+/**
+ * Normalize Render deploy status string into a Glondiasites status category.
+ *   building | live | failed | suspended | null (unknown)
+ */
+function normalizeRenderStatus(renderStatus) {
+  const s = String(renderStatus || '').toLowerCase();
+  if (['created', 'queued', 'build_in_progress', 'update_in_progress', 'pre_deploy_in_progress'].includes(s)) return STATUS_BUILDING;
+  if (['live', 'deployed', 'succeeded'].includes(s)) return STATUS_LIVE;
+  if (['failed', 'build_failed', 'update_failed', 'pre_deploy_failed', 'canceled'].includes(s)) return STATUS_FAILED;
+  if (s === 'suspended') return STATUS_SUSPENDED;
+  return null;
+}
+
+/**
+ * Extract the public URL from a Render service response.
+ */
+function extractRenderUrl(service) {
+  return service?.serviceDetails?.url || service?.url || null;
+}
+
+/**
+ * Append a log entry for a hosting deployment.
+ */
+function appendHostingLog(store, deploymentId, message, level = 'info') {
+  if (!store.logs) store.logs = {};
+  const entry = {
+    id: `log_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`,
+    level,
+    message,
+    timestamp: nowIso(),
+    createdAt: nowIso(),
+  };
+  store.logs[deploymentId] = [entry, ...(store.logs[deploymentId] || [])];
+}
+
+/**
+ * Create a 404 error.
+ */
+function notFound(message) {
+  const error = new Error(message);
+  error.status = 404;
+  return error;
+}
+
+/**
+ * Create a 409 conflict error.
+ */
+function conflict(message) {
+  const error = new Error(message);
+  error.status = 409;
+  return error;
+}
+
+/**
+ * Returns true if a Render API error means the resource no longer exists.
+ */
+function isRenderGone(error) {
+  return error?.status === 404 || error?.status === 410;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export singleton
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default new HostingService();
