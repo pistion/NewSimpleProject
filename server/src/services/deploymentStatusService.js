@@ -21,7 +21,8 @@ class DeploymentStatusService {
   }
 
   async refreshDeployment(deployment) {
-    if (deployment?.status === 'deleted') return deployment;
+    if (deployment?.recordStatus === 'deleted') return deployment;
+    if (deployment?.status === 'deleted' && !isProviderMissingRecord(deployment)) return deployment;
     if (deployment?.status === 'suspended') return deployment;
     if (!deployment?.renderServiceId || isPendingPlaceholder(deployment.renderServiceId)) {
       // No real Render service — return current state without marking as "failed".
@@ -30,6 +31,7 @@ class DeploymentStatusService {
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
         if (!stored) return deployment;
+        stored.recordStatus = stored.recordStatus || 'active';
         // Only overwrite status if it's not already in a meaningful state
         if (!['prepared', 'building', 'live', 'failed', 'deleted', 'suspended', 'deployed_unverified'].includes(stored.status)) {
           Object.assign(stored, {
@@ -58,12 +60,13 @@ class DeploymentStatusService {
       }
     } catch (error) {
       if (isRenderGone(error)) {
-        return this.markDeleted(deployment, error);
+        return this.markProviderMissing(deployment, error);
       }
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
         if (!stored) return deployment;
         Object.assign(stored, {
+          recordStatus: stored.recordStatus || 'active',
           status: 'failed',
           buildStatus: 'failed',
           currentStep: 'Failed',
@@ -93,7 +96,9 @@ class DeploymentStatusService {
     return mutateHostingStore((store) => {
       const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
       if (!stored) return deployment;
+      if (stored.recordStatus === 'deleted') return stored;
       Object.assign(stored, next, {
+        recordStatus: stored.recordStatus || 'active',
         renderDeployId: stored.renderDeployId || deploy.id,
         providerStatus: deploy.status || stored.providerStatus,
         renderDeployStatus: deploy.status || stored.renderDeployStatus,
@@ -108,27 +113,32 @@ class DeploymentStatusService {
     });
   }
 
-  async markDeleted(deployment, error) {
+  async markProviderMissing(deployment, error) {
     return mutateHostingStore((store) => {
       const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
       if (!stored) return deployment;
+      if (stored.recordStatus === 'deleted') return stored;
+      const alreadyMarked = isProviderMissingRecord(stored);
       Object.assign(stored, {
-        status: 'deleted',
-        buildStatus: 'deleted',
-        currentStep: 'Deleted',
-        deletedAt: stored.deletedAt || nowIso(),
-        errorMessage: null,
+        recordStatus: stored.recordStatus || 'active',
+        status: 'failed',
+        buildStatus: 'missing_on_render',
+        currentStep: 'Missing on Render',
+        renderMissingAt: stored.renderMissingAt || nowIso(),
+        errorMessage: 'Render reports this service no longer exists. Glondiasites kept this record for history, logs, and repair.',
         updatedAt: nowIso(),
-        renderDeleteResponse: {
-          status: 'deleted_on_render',
+        renderProviderState: {
+          status: 'missing_on_render',
           providerStatus: error.status,
           message: error.message,
         },
       });
-      store.logs[stored.deploymentId] = [
-        makeLog('Render reports this service has been deleted. The hosting app was removed from the active panel.', 'info'),
-        ...(store.logs[stored.deploymentId] || []),
-      ];
+      if (!alreadyMarked) {
+        store.logs[stored.deploymentId] = [
+          makeLog('Render reports this service no longer exists. The dashboard record remains visible until the user removes it from Glondiasites.', 'warn'),
+          ...(store.logs[stored.deploymentId] || []),
+        ];
+      }
       return stored;
     });
   }
@@ -171,6 +181,11 @@ function extractServiceUrl(response) {
 
 function isRenderGone(error) {
   return error?.status === 404 || error?.status === 410;
+}
+
+function isProviderMissingRecord(deployment = {}) {
+  const marker = String(deployment.providerStatus || deployment.renderProviderState?.status || deployment.renderDeleteResponse?.status || deployment.buildStatus || '').toLowerCase();
+  return marker.includes('missing_on_render') || marker.includes('deleted_on_render') || marker.includes('removed_on_render');
 }
 
 export default new DeploymentStatusService();
