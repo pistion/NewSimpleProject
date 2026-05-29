@@ -2,7 +2,7 @@
 import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { importBuilderSiteFromGithub, parseGithubRepo } from '../../../api';
-import { deployZipTemplate } from '../../../api/template-ai.js';
+import { deployZipTemplate, getZipDeploySettings } from '../../../api/template-ai.js';
 
 function formatFileSize(bytes = 0) {
   if (bytes < 1024) return `${bytes} B`;
@@ -64,6 +64,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
   const [dragging, setDragging] = useStateB(false);
   const [importPhase, setImportPhase] = useStateB(mode === 'zip' ? 'idle' : 'idle');
   const [renderConfig, setRenderConfig] = useStateB({ frontendRootDirectory: '', frontendBuildCommand: 'npm run build', frontendPublishDirectory: 'dist', backendRootDirectory: 'server', backendBuildCommand: 'npm install', backendStartCommand: 'npm start', serviceType: 'static_site', plan: 'starter', repoUrl: '' });
+  const [zipConfig, setZipConfig] = useStateB(null);
   const phaseTimer = React.useRef(null);
   const fileInputRef = React.useRef(null);
   const detectedRepo = parseGithubRepo(repoUrl);
@@ -77,6 +78,12 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   React.useEffect(() => () => clearTimeout(phaseTimer.current), []);
   React.useEffect(() => setActiveMode(mode === 'zip' ? 'zip' : 'github'), [mode]);
+
+  // Fetch ZIP deploy config status when ZIP tab is active
+  React.useEffect(() => {
+    if (activeMode !== 'zip') return;
+    getZipDeploySettings().then((cfg) => setZipConfig(cfg)).catch(() => {});
+  }, [activeMode]);
 
   const selectZip = (file) => {
     setZipNotice('');
@@ -130,6 +137,25 @@ export function BuilderImport({ mode = 'github', navigate }) {
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>{zipFile ? `${zipFile.name} • ${formatFileSize(zipFile.size)}` : 'ZIP must contain a deployable site with package.json or index.html. Node modules and .git folders are ignored.'}</p>
             </div>
             {zipFile && <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', border: '1px solid var(--accent)' }}><div className="row between" style={{ gap: 10 }}><div><div style={{ fontWeight: 700 }}>Selected file</div><div className="mono muted" style={{ fontSize: 12 }}>{zipFile.name} · {formatFileSize(zipFile.size)}</div></div><button className="btn btn-sm btn-outline" onClick={clearZip} disabled={zipBusy}>Remove</button></div></div>}
+            {zipConfig && (
+              <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Deploy config status</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? '✓' : '✗'}</span> Render API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
+                  <div><span style={{ color: (zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? 'var(--accent)' : 'var(--danger)' }}>{(zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? '✓' : '✗'}</span> Generated source repo: {zipConfig.renderSourceRepoConfigured ? 'configured' : renderConfig.repoUrl.trim() ? 'set below' : 'not configured'}</div>
+                  <div><span style={{ color: zipConfig.githubPublisherConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.githubPublisherConfigured ? '✓' : '✗'}</span> GitHub publisher token: {zipConfig.githubPublisherConfigured ? 'configured' : 'not configured'}</div>
+                </div>
+                {zipConfig.githubTokenError && <div style={{ marginTop: 6, color: 'var(--danger)', fontSize: 12 }}>{zipConfig.githubTokenError}</div>}
+                {zipConfig.missing?.length > 0 && <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>Missing: {zipConfig.missing.join(', ')}</div>}
+              </div>
+            )}
+            {zipConfig && !zipConfig.renderSourceRepoConfigured && !renderConfig.repoUrl.trim() && (
+              <div style={{ marginTop: 12, padding: 12, border: '2px solid var(--warning, #e6a817)', borderRadius: 'var(--r-md)', background: 'var(--bg-deep)' }}>
+                <div className="label" style={{ fontWeight: 600, color: 'var(--warning, #e6a817)' }}>Generated-sites GitHub repo URL *</div>
+                <input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" style={{ marginTop: 6 }} />
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Required for Render deployment. Render deploys from this repo, not from uploaded files directly.</div>
+              </div>
+            )}
             {zipNotice && <div style={{ marginTop: 10, color: 'var(--accent)', fontSize: 13 }}>{zipNotice}</div>}
             {zipError && <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{zipError}</div>}
             <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={handleZipDeploy} disabled={zipBusy || !zipFile}><ICN.Rocket size={14} /> {zipBusy ? 'Uploading...' : zipFile ? 'Deploy ZIP' : 'Choose ZIP first'}</button>

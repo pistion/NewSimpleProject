@@ -8,7 +8,7 @@ import { makeId, nowIso, mutateHostingStore } from '../services/hostingStore.js'
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../services/templateSiteStore.js';
 import { generateViteStaticSiteFromTemplateSite } from '../services/staticSiteGenerator.service.js';
 import renderApiService from '../services/renderApiService.js';
-import { publishGeneratedSiteToGitHub } from '../services/githubGeneratedSitePublisher.service.js';
+import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../services/githubGeneratedSitePublisher.service.js';
 
 const sessions = new Map();
 
@@ -20,8 +20,9 @@ function maybeCleanSessions() {
 
 async function getSettings(req, res, next) {
   try {
-    const sourceRepoConfigured = Boolean(process.env.RENDER_GENERATED_SITES_REPO_URL);
-    const githubTokenConfigured = Boolean(process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN);
+    const sourceRepoConfigured = Boolean((process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim());
+    const { token: ghToken, error: ghTokenError } = resolveGitHubPublisherToken();
+    const githubTokenConfigured = Boolean(ghToken && !ghTokenError);
     const renderConfigured = renderApiService.configured();
     const openAiConfigured = Boolean(process.env.OPENAI_API_KEY);
     res.json({
@@ -139,7 +140,7 @@ async function deploySite(req, res, next) {
     const finalSiteName = siteName || site.answers?.businessName || site.templateId;
     const finalSlug = slugify(slug || finalSiteName || siteId);
     const generatedSite = await generateViteStaticSiteFromTemplateSite(site, { siteName: finalSiteName, slug: finalSlug, buildCommand, publishDirectory });
-    const sourceRepo = repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || '';
+    const sourceRepo = (repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
     const targetRoot = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `generated-sites/${finalSlug}`;
     const githubPublish = await publishGeneratedSiteToGitHub({ siteDir: generatedSite.siteDir, repoUrl: sourceRepo, branch, targetRoot, commitMessage: `Publish RoxanneAI generated site ${finalSlug}` });
     const renderSourceRepo = sourceRepo;
@@ -154,7 +155,7 @@ async function deploySite(req, res, next) {
     let liveUrl = `https://${finalSlug}.onrender.com`;
     let errorMessage = null;
 
-    if (!renderSourceRepo) render.skippedReason = 'No GitHub/Render source repository configured. Set RENDER_GENERATED_SITES_REPO_URL or send repoUrl in the deploy request.';
+    if (!renderSourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites';
     else if (!githubPublish.attempted) render.skippedReason = githubPublish.skippedReason || 'Generated site files were not published to GitHub.';
     else if (githubPublish.errors?.length) render.skippedReason = `Generated site GitHub publish completed with ${githubPublish.errors.length} errors. Fix GitHub publishing before Render handoff.`;
     else if (!renderApiService.configured()) render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';

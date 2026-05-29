@@ -3,10 +3,14 @@ import { join, resolve } from 'node:path';
 import AdmZip from 'adm-zip';
 import { makeId, mutateHostingStore, nowIso } from './hostingStore.js';
 import renderApiService from './renderApiService.js';
-import { publishGeneratedSiteToGitHub } from './githubGeneratedSitePublisher.service.js';
+import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from './githubGeneratedSitePublisher.service.js';
 
 // ── Provider constants ──────────────────────────────────────────────────────
-const HOSTING_PROVIDER = 'render';   // ZIP uploads are website/app hosting → Render
+// ZIP uploads are website/app hosting → always Render.
+// Render cannot deploy from local DATA_DIR directly. ZIP files are extracted,
+// cleaned, stored as source artifacts, then published to a generated-sites
+// GitHub repo. Render deploys from that repo/root directory.
+const HOSTING_PROVIDER = 'render';
 // VPS_PROVIDER = 'vultr' — lives in vps routes/services only
 
 const rootDir = resolve(process.cwd());
@@ -120,6 +124,59 @@ function isDeployableCandidate(relativeName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Source repo resolution — single source of truth
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the GitHub generated-sites repo URL from input or environment.
+ * Checked in order: input.repoUrl → input.repositoryUrl →
+ * RENDER_GENERATED_SITES_REPO_URL → GENERATED_SITES_REPO_URL → ''.
+ */
+function resolveRenderSourceRepo(input = {}) {
+  return (
+    input.repoUrl ||
+    input.repositoryUrl ||
+    process.env.RENDER_GENERATED_SITES_REPO_URL ||
+    process.env.GENERATED_SITES_REPO_URL ||
+    ''
+  ).trim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config diagnostics — used by GET /api/template-ai/zip/settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getZipDeployConfigStatus() {
+  const { token: ghToken, error: ghError } = resolveGitHubPublisherToken();
+
+  const renderApiConfigured = renderApiService.configured();
+  const renderSourceRepoConfigured = Boolean(
+    (process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim()
+  );
+  const githubPublisherConfigured = Boolean(ghToken && !ghError);
+
+  const missing = [];
+  if (!renderApiConfigured) missing.push('RENDER_API_KEY and/or RENDER_OWNER_ID');
+  if (!renderSourceRepoConfigured) missing.push('RENDER_GENERATED_SITES_REPO_URL');
+  if (!githubPublisherConfigured) missing.push('GITHUB_GENERATED_SITES_TOKEN');
+
+  return {
+    provider: HOSTING_PROVIDER,
+    renderApiConfigured,
+    renderSourceRepoConfigured,
+    githubPublisherConfigured,
+    githubTokenError: ghError || null,
+    missing,
+    expectedEnv: [
+      'RENDER_API_KEY',
+      'RENDER_OWNER_ID',
+      'RENDER_GENERATED_SITES_REPO_URL',
+      'GITHUB_GENERATED_SITES_TOKEN',
+    ],
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -174,7 +231,9 @@ export async function deployZipSite(input = {}) {
   });
 
   // 6. Publish to GitHub generated-sites repo
-  const sourceRepo = input.repoUrl || input.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || '';
+  // Render cannot deploy from local DATA_DIR directly. ZIP files must be
+  // published to a generated-sites GitHub repo; Render deploys from that repo.
+  const sourceRepo = resolveRenderSourceRepo(input);
   const targetRoot = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `uploaded-sites/${finalSlug}`;
   const buildCommand = 'bash glondia-render-build.sh';
 
@@ -195,7 +254,10 @@ export async function deployZipSite(input = {}) {
     }
   } else {
     console.log(`[zip-deploy] GitHub publish skipped: no RENDER_GENERATED_SITES_REPO_URL configured`);
-    githubPublish = { attempted: false, skippedReason: 'No GitHub/Render source repository configured. Set RENDER_GENERATED_SITES_REPO_URL or send repoUrl.' };
+    githubPublish = {
+      attempted: false,
+      skippedReason: 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites',
+    };
   }
 
   // 7. Render handoff
@@ -211,7 +273,7 @@ export async function deployZipSite(input = {}) {
   let errorMessage = null;
 
   if (!sourceRepo) {
-    render.skippedReason = 'No GitHub/Render source repository configured. Set RENDER_GENERATED_SITES_REPO_URL or send repoUrl.';
+    render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites';
   } else if (!githubPublish.attempted) {
     render.skippedReason = githubPublish.skippedReason || 'Extracted ZIP source files were not published to GitHub.';
   } else if (githubPublish.errors?.length) {

@@ -3,6 +3,41 @@ import { join, relative } from 'node:path';
 
 const DEFAULT_BRANCH = 'main';
 
+// ── GitHub token resolution ────────────────────────────────────────────────
+// Prefers GITHUB_GENERATED_SITES_TOKEN (fine-grained PAT scoped to the
+// generated-sites repo). Falls back to GENERATED_SITES_GITHUB_TOKEN then
+// GITHUB_TOKEN.  Rejects tokens that look like SSH private keys.
+
+/**
+ * Resolve the best available GitHub publisher token from environment.
+ * Returns { token, error }.  If error is set, do NOT call GitHub API.
+ */
+export function resolveGitHubPublisherToken() {
+  const raw = (
+    process.env.GITHUB_GENERATED_SITES_TOKEN ||
+    process.env.GENERATED_SITES_GITHUB_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    ''
+  ).trim();
+
+  if (!raw) {
+    return {
+      token: '',
+      error: 'Missing or invalid GITHUB_GENERATED_SITES_TOKEN. Create a GitHub fine-grained token with contents read/write access to the generated-sites repo.',
+    };
+  }
+
+  // Reject SSH private keys accidentally placed in GITHUB_TOKEN
+  if (raw.startsWith('-----BEGIN')) {
+    return {
+      token: '',
+      error: 'GITHUB_TOKEN looks like a private key, not a GitHub API bearer token. Set GITHUB_GENERATED_SITES_TOKEN to a GitHub fine-grained PAT or installation token.',
+    };
+  }
+
+  return { token: raw, error: null };
+}
+
 export function parseGitHubRepoUrl(repoUrl = '') {
   const value = String(repoUrl || '').trim();
   if (!value) return null;
@@ -20,7 +55,8 @@ export function parseGitHubRepoUrl(repoUrl = '') {
 }
 
 export function githubPublisherConfigured(repoUrl = '') {
-  return Boolean(parseGitHubRepoUrl(repoUrl) && (process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN));
+  const { token, error } = resolveGitHubPublisherToken();
+  return Boolean(parseGitHubRepoUrl(repoUrl) && token && !error);
 }
 
 export async function publishGeneratedSiteToGitHub({
@@ -33,8 +69,8 @@ export async function publishGeneratedSiteToGitHub({
   const parsed = parseGitHubRepoUrl(repoUrl);
   if (!parsed) return { attempted: false, skippedReason: 'No valid GitHub repository URL was provided for generated site publishing.' };
 
-  const token = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '';
-  if (!token) return { attempted: false, skippedReason: 'Missing GITHUB_GENERATED_SITES_TOKEN. Generated files were not pushed to GitHub.' };
+  const { token, error: tokenError } = resolveGitHubPublisherToken();
+  if (tokenError) return { attempted: false, skippedReason: tokenError };
   if (!siteDir) return { attempted: false, skippedReason: 'Generated site directory is missing.' };
 
   const files = await listFiles(siteDir);

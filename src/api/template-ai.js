@@ -50,6 +50,10 @@ export function getTailoredTemplatePreviewUrl(siteId, page = 0) {
   return liveApiUrl(path);
 }
 
+export async function getZipDeploySettings() {
+  return liveApiRequest('/template-ai/zip/settings', { method: 'GET' });
+}
+
 export async function deployTailoredTemplate(siteId, deploymentSettings = {}) {
   return liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/deploy`, {
     method: 'POST',

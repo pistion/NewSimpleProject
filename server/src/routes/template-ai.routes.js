@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { templateAiController } from '../controllers/template-ai.controller.js';
-import { deployZipSite, validateZipSite } from '../services/zipSiteDeployment.service.js';
+import { deployZipSite, validateZipSite, getZipDeployConfigStatus } from '../services/zipSiteDeployment.service.js';
 
 const router = express.Router();
 const MAX_ZIP_BYTES = Number(process.env.ZIP_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
@@ -51,6 +51,15 @@ router.post('/sites',                   templateAiController.createSite);
 router.get('/sites/:siteId',            templateAiController.getSite);
 router.get('/sites/:siteId/preview',    templateAiController.previewSite);
 router.post('/sites/:siteId/deploy',    templateAiController.deploySite);
+
+// ── ZIP config diagnostics (no secrets returned) ───────────────────────────
+router.get('/zip/settings', (_req, res) => {
+  try {
+    res.json(getZipDeployConfigStatus());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read ZIP deploy config.', code: 'ZIP_SETTINGS_ERROR' });
+  }
+});
 
 // ── ZIP deploy endpoint ─────────────────────────────────────────────────────
 router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (req, res, next) => {
