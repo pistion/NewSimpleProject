@@ -262,6 +262,18 @@ export async function rollbackDeployment(deploymentId) { return projectApi.rollb
 export async function createEnvVar(projectId, input) { return projectApi.createEnvVar(projectId, input); }
 export async function updateEnvVar(projectId, envVarId, input) { return projectApi.updateEnvVar(projectId, envVarId, input); }
 export async function deleteEnvVar(projectId, envVarId) { return projectApi.deleteEnvVar(projectId, envVarId); }
+export async function exportEnvVars(projectId, environment) { return projectApi.exportEnvVars(projectId, environment); }
+export async function linkProjectRepo(projectId, input) { return projectApi.linkProjectRepo(projectId, input, updateProject); }
+export function parseGitHubRepository(value) { return parseGithubRepo(value); }
+export async function listRenderServices() { return projectApi.listRenderServices(); }
+export async function linkRenderService(projectId, renderServiceId) { return projectApi.linkRenderService(projectId, renderServiceId); }
+
+export async function createDomain(input) { return domainApi.createDomain(input); }
+export async function updateDomain(domainId, input) { return domainApi.updateDomain(domainId, input); }
+export async function deleteDomain(domainId) { return domainApi.deleteDomain(domainId); }
+export async function createDnsRecord(domainId, input) { return domainApi.createDnsRecord(domainId, input); }
+export async function updateDnsRecord(domainId, recordId, input) { return domainApi.updateDnsRecord(domainId, recordId, input); }
+export async function deleteDnsRecord(domainId, recordId) { return domainApi.deleteDnsRecord(domainId, recordId); }
 
 export const {
   createProject: createBuilderProject,
