@@ -356,8 +356,10 @@ app.get('/api/deployments/:deploymentId/logs/stream', async (req, res) => {
           stored.push(log);
         }
 
-        // Fetch Render deploy logs if we have the right IDs
-        if (fresh.renderServiceId && fresh.renderDeployId) {
+        // Fetch Render deploy logs if we have real (non-pending) IDs
+        if (fresh.renderServiceId && fresh.renderDeployId
+            && !String(fresh.renderServiceId).includes('_pending')
+            && !String(fresh.renderDeployId).includes('_pending')) {
           try {
             const resp = await renderApiService.getDeployLogs(fresh.renderServiceId, fresh.renderDeployId, cursor);
             const lines = Array.isArray(resp) ? resp : (resp?.logs || resp?.data || []);

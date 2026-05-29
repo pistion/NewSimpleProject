@@ -5,6 +5,12 @@ const BUILDING_STATUSES = new Set(['created', 'queued', 'build_in_progress', 'up
 const SUCCESS_STATUSES = new Set(['live', 'deployed', 'succeeded']);
 const FAILED_STATUSES = new Set(['build_failed', 'update_failed', 'pre_deploy_failed', 'canceled', 'failed']);
 
+// Placeholder IDs generated when Render handoff was skipped.
+// These must NEVER be sent to the Render API.
+function isPendingPlaceholder(id) {
+  return !id || String(id).includes('_pending');
+}
+
 class DeploymentStatusService {
   normalizeStatus(renderStatus) {
     const status = String(renderStatus || '').toLowerCase();
@@ -17,23 +23,31 @@ class DeploymentStatusService {
   async refreshDeployment(deployment) {
     if (deployment?.status === 'deleted') return deployment;
     if (deployment?.status === 'suspended') return deployment;
-    if (!deployment?.renderServiceId) {
+    if (!deployment?.renderServiceId || isPendingPlaceholder(deployment.renderServiceId)) {
+      // No real Render service — return current state without marking as "failed".
+      // ZIP uploads that skip Render handoff stay in "prepared" status.
+      const isZipPrepared = deployment?.source === 'zip-upload' || deployment?.generatedSite;
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
         if (!stored) return deployment;
-        Object.assign(stored, {
-          status: 'failed',
-          buildStatus: 'not_started',
-          currentStep: 'Render deployment not started',
-          errorMessage: stored.errorMessage || 'Render deployment has not started. A real Render service ID is required.',
-          updatedAt: nowIso(),
-        });
+        // Only overwrite status if it's not already in a meaningful state
+        if (!['prepared', 'building', 'live', 'failed', 'deleted', 'suspended', 'deployed_unverified'].includes(stored.status)) {
+          Object.assign(stored, {
+            status: isZipPrepared ? 'prepared' : 'failed',
+            buildStatus: isZipPrepared ? 'uploaded' : 'not_started',
+            currentStep: isZipPrepared ? 'Render handoff pending' : 'Render deployment not started',
+            errorMessage: stored.errorMessage || (isZipPrepared
+              ? stored.render?.skippedReason || 'Render handoff pending — check Hosting logs for configuration status.'
+              : 'Render deployment has not started. A real Render service ID is required.'),
+            updatedAt: nowIso(),
+          });
+        }
         return stored;
       });
     }
     let deploy = null;
     try {
-      if (deployment.renderDeployId) {
+      if (deployment.renderDeployId && !isPendingPlaceholder(deployment.renderDeployId)) {
         const renderDeploy = await renderApiService.getDeploy(deployment.renderServiceId, deployment.renderDeployId);
         deploy = renderDeploy.deploy || renderDeploy;
       } else {

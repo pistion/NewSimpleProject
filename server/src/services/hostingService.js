@@ -15,7 +15,11 @@ class HostingService {
     const deployment = store.deployments.find((item) => item.renderServiceId === deploymentId || item.deploymentId === deploymentId);
     if (!deployment) throw notFound('Hosting service not found.');
     let renderService = null;
-    if (deployment.renderServiceId && renderApiService.configured()) {
+    // Only call Render API for real service IDs — skip placeholders (render_svc_pending_*)
+    const hasRealRenderService = deployment.renderServiceId
+      && !String(deployment.renderServiceId).includes('_pending')
+      && renderApiService.configured();
+    if (hasRealRenderService) {
       try {
         renderService = await renderApiService.getService(deployment.renderServiceId);
       } catch (error) {
@@ -88,7 +92,7 @@ class HostingService {
     if (!renderApiService.configured()) return store;
     let changed = false;
     for (const deployment of store.deployments) {
-      if (!deployment.renderServiceId || deployment.status === 'deleted') continue;
+      if (!deployment.renderServiceId || deployment.status === 'deleted' || String(deployment.renderServiceId).includes('_pending')) continue;
       try {
         const renderService = await renderApiService.getService(deployment.renderServiceId);
         const service = renderService?.service || renderService;
