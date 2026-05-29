@@ -53,9 +53,9 @@ router.get('/sites/:siteId/preview',    templateAiController.previewSite);
 router.post('/sites/:siteId/deploy',    templateAiController.deploySite);
 
 // ── ZIP config diagnostics (no secrets returned) ───────────────────────────
-router.get('/zip/settings', async (_req, res) => {
+router.get('/zip/settings', (_req, res) => {
   try {
-    res.json(await getZipDeployConfigStatus());
+    res.json(getZipDeployConfigStatus());
   } catch (err) {
     res.status(500).json({ error: 'Failed to read ZIP deploy config.', code: 'ZIP_SETTINGS_ERROR' });
   }

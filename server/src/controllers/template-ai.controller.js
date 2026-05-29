@@ -1,6 +1,6 @@
 /*
  * template-ai.controller.js
- * Handles AI-assisted template intake, HTML tailoring, draft persistence, generated GitHub publishing, and Render deployment records.
+ * Handles AI-assisted template intake, HTML tailoring, draft persistence, and Render deployment records.
  */
 
 import { tailorHtmlTemplate, INTAKE_QUESTIONS, REQUIRED_KEYS } from '../services/openaiSiteAssistant.service.js';
@@ -8,7 +8,6 @@ import { makeId, nowIso, mutateHostingStore } from '../services/hostingStore.js'
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../services/templateSiteStore.js';
 import { generateViteStaticSiteFromTemplateSite } from '../services/staticSiteGenerator.service.js';
 import renderApiService from '../services/renderApiService.js';
-import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../services/githubGeneratedSitePublisher.service.js';
 
 const sessions = new Map();
 
@@ -21,20 +20,16 @@ function maybeCleanSessions() {
 async function getSettings(req, res, next) {
   try {
     const sourceRepoConfigured = Boolean((process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim());
-    const { token: ghToken, error: ghTokenError } = resolveGitHubPublisherToken();
-    const githubTokenConfigured = Boolean(ghToken && !ghTokenError);
     const renderConfigured = renderApiService.configured();
     const openAiConfigured = Boolean(process.env.OPENAI_API_KEY);
     res.json({
       openAiConfigured,
-      githubPublisherConfigured: sourceRepoConfigured && githubTokenConfigured,
       renderConfigured,
       sourceRepoConfigured,
       sourceRepo: process.env.RENDER_GENERATED_SITES_REPO_URL || null,
       defaultRootDirectory: process.env.RENDER_GENERATED_SITES_ROOT_DIR || null,
       missing: [
         !openAiConfigured ? 'OPENAI_API_KEY' : null,
-        !githubTokenConfigured ? 'GITHUB_GENERATED_SITES_TOKEN' : null,
         !sourceRepoConfigured ? 'RENDER_GENERATED_SITES_REPO_URL' : null,
         !renderConfigured ? 'RENDER_API_KEY / RENDER_OWNER_ID' : null,
       ].filter(Boolean),
@@ -141,28 +136,23 @@ async function deploySite(req, res, next) {
     const finalSlug = slugify(slug || finalSiteName || siteId);
     const generatedSite = await generateViteStaticSiteFromTemplateSite(site, { siteName: finalSiteName, slug: finalSlug, buildCommand, publishDirectory });
     const sourceRepo = (repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
-    const targetRoot = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `generated-sites/${finalSlug}`;
-    const githubPublish = await publishGeneratedSiteToGitHub({ siteDir: generatedSite.siteDir, repoUrl: sourceRepo, branch, targetRoot, commitMessage: `Publish RoxanneAI generated site ${finalSlug}` });
-    const renderSourceRepo = sourceRepo;
-    const renderRootDirectory = githubPublish.attempted && !githubPublish.errors?.length ? targetRoot : (rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '');
+    const renderRootDirectory = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '';
     let renderServiceId = makeId('render_svc_pending');
     let renderDeployId = makeId('render_deploy_pending');
-    let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, serviceResponse: null, deployResponse: null, githubPublish };
+    let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, serviceResponse: null, deployResponse: null };
     let providerStatus = 'prepared';
     let status = 'prepared';
     let buildStatus = 'generated';
-    let currentStep = githubPublish.attempted ? 'Generated site published to GitHub' : 'Generated Vite site prepared';
+    let currentStep = 'Generated Vite site prepared';
     let liveUrl = `https://${finalSlug}.onrender.com`;
     let errorMessage = null;
 
-    if (!renderSourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites';
-    else if (!githubPublish.attempted) render.skippedReason = githubPublish.skippedReason || 'Generated site files were not published to GitHub.';
-    else if (githubPublish.errors?.length) render.skippedReason = `Generated site GitHub publish completed with ${githubPublish.errors.length} errors. Fix GitHub publishing before Render handoff.`;
+    if (!sourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the deploy form.';
     else if (!renderApiService.configured()) render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';
     else {
       try {
         render.attempted = true;
-        const serviceResponse = await renderApiService.createService({ serviceName: finalSlug, serviceType, plan, repoUrl: renderSourceRepo, branch, rootDirectory: renderRootDirectory, buildCommand, outputDirectory: publishDirectory, sourceReference: renderSourceRepo });
+        const serviceResponse = await renderApiService.createService({ serviceName: finalSlug, serviceType, plan, repoUrl: sourceRepo, branch, rootDirectory: renderRootDirectory, buildCommand, outputDirectory: publishDirectory, sourceReference: sourceRepo });
         renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || renderServiceId;
         const deployResponse = await renderApiService.triggerDeploy(renderServiceId, { deployMode: 'build_and_deploy' });
         renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || renderDeployId;
@@ -180,18 +170,15 @@ async function deploySite(req, res, next) {
     }
 
     await mutateHostingStore((store) => {
-      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite, render, environmentConfiguration: { environment, branch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: renderSourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
+      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite, render, environmentConfiguration: { environment, branch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: sourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
       const logs = [makeLog('Deployment session created from RoxanneAI tailored template.', 'info'), makeLog(`Generated Vite React static site files in ${generatedSite.siteDir}.`, 'ok'), makeLog(`Build command prepared: ${generatedSite.buildCommand}.`, 'info'), makeLog(`Publish directory prepared: ${generatedSite.publishDirectory}.`, 'info')];
-      if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} generated files to GitHub repo ${githubPublish.repository} at ${githubPublish.targetRoot || '(root)'}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
-      if (!githubPublish.attempted) logs.push(makeLog(githubPublish.skippedReason || 'GitHub publish skipped.', 'warn'));
-      if (githubPublish.errors?.length) logs.push(makeLog(`GitHub publish errors: ${githubPublish.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, 'warn'));
       if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
       if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
       if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
       store.logs[deploymentId] = logs;
     });
-    await updateTemplateSite(siteId, { status, deploymentId, generatedSite, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: renderSourceRepo || null, rootDirectory: renderRootDirectory || null } });
-    res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site, published to GitHub, and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for GitHub/Render configuration status.' });
+    await updateTemplateSite(siteId, { status, deploymentId, generatedSite, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: sourceRepo || null, rootDirectory: renderRootDirectory || null } });
+    res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for Render configuration status.' });
   } catch (err) { next(err); }
 }
 

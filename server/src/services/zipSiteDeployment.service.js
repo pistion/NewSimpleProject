@@ -3,13 +3,12 @@ import { join, resolve } from 'node:path';
 import AdmZip from 'adm-zip';
 import { makeId, mutateHostingStore, nowIso } from './hostingStore.js';
 import renderApiService from './renderApiService.js';
-import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken, verifyGitHubAccess } from './githubGeneratedSitePublisher.service.js';
 
 // ── Provider constants ──────────────────────────────────────────────────────
 // ZIP uploads are website/app hosting → always Render.
-// Render cannot deploy from local DATA_DIR directly. ZIP files are extracted,
-// cleaned, stored as source artifacts, then published to a generated-sites
-// GitHub repo. Render deploys from that repo/root directory.
+// Flow: upload ZIP → extract → store on disk → hand off to Render API.
+// No GitHub intermediary — files are stored in DATA_DIR and Render deploys
+// from the repo URL the user provides (or RENDER_GENERATED_SITES_REPO_URL).
 const HOSTING_PROVIDER = 'render';
 // VPS_PROVIDER = 'vultr' — lives in vps routes/services only
 
@@ -61,11 +60,11 @@ const GENERATED_SHELL_FILE = 'glondia-render-build.sh';
 
 // ── Project type enum ───────────────────────────────────────────────────────
 const PROJECT_TYPE = {
-  VITE_SOURCE:     'vite-source',        // A: has package.json + vite.config.*
-  NODE_SOURCE:     'node-source',        // E: has package.json (generic)
-  STATIC_ROOT:     'static-root-html',   // B: has index.html at root, no package.json
-  PREBUILT_DIST:   'prebuilt-dist',      // C: has dist/index.html, no package.json
-  PREBUILT_BUILD:  'prebuilt-build',     // D: has build/index.html, no package.json
+  VITE_SOURCE:     'vite-source',
+  NODE_SOURCE:     'node-source',
+  STATIC_ROOT:     'static-root-html',
+  PREBUILT_DIST:   'prebuilt-dist',
+  PREBUILT_BUILD:  'prebuilt-build',
   UNKNOWN:         'unknown',
 };
 
@@ -73,22 +72,16 @@ const PROJECT_TYPE = {
 // Helper functions: ignore / safety checks
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Check whether a ZIP entry should be ignored during extraction.
- * Returns { ignore: boolean, reason: string }.
- */
 function shouldIgnoreZipEntry(relativeName) {
   const normalized = cleanZipPath(relativeName);
   const lower = normalized.toLowerCase();
 
-  // Check dangerous folder prefixes (node_modules/, .git/, etc.)
   for (const prefix of IGNORED_FOLDER_PREFIXES) {
     if (lower.startsWith(prefix) || lower.includes(`/${prefix}`)) {
       return { ignore: true, reason: `ignored-folder: ${prefix}` };
     }
   }
 
-  // Check exact file name matches (.DS_Store, .env, etc.)
   const baseName = lower.split('/').pop();
   for (const exact of IGNORED_EXACT_FILES) {
     if (baseName === exact.toLowerCase()) {
@@ -96,7 +89,6 @@ function shouldIgnoreZipEntry(relativeName) {
     }
   }
 
-  // Check untrusted executable scripts (except our generated shell file)
   if (isUnsafeExecutable(relativeName)) {
     return { ignore: true, reason: 'untrusted-script' };
   }
@@ -104,23 +96,12 @@ function shouldIgnoreZipEntry(relativeName) {
   return { ignore: false, reason: '' };
 }
 
-/**
- * Returns true for .sh, .bat, .cmd, .ps1 files EXCEPT glondia-render-build.sh.
- */
 function isUnsafeExecutable(relativeName) {
   const normalized = cleanZipPath(relativeName);
   const baseName = normalized.split('/').pop().toLowerCase();
-  if (baseName === GENERATED_SHELL_FILE) return false; // always keep the generated file
+  if (baseName === GENERATED_SHELL_FILE) return false;
   const ext = baseName.substring(baseName.lastIndexOf('.')).toLowerCase();
   return UNTRUSTED_SCRIPT_EXTENSIONS.includes(ext);
-}
-
-/**
- * Returns true if a file is a deployable candidate (i.e., not ignored).
- */
-function isDeployableCandidate(relativeName) {
-  const { ignore } = shouldIgnoreZipEntry(relativeName);
-  return !ignore;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,9 +109,8 @@ function isDeployableCandidate(relativeName) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Resolve the GitHub generated-sites repo URL from input or environment.
- * Checked in order: input.repoUrl → input.repositoryUrl →
- * RENDER_GENERATED_SITES_REPO_URL → GENERATED_SITES_REPO_URL → ''.
+ * Resolve the Render source repo URL from input or environment.
+ * This is the repo Render will deploy FROM — the user must configure it.
  */
 function resolveRenderSourceRepo(input = {}) {
   return (
@@ -146,43 +126,24 @@ function resolveRenderSourceRepo(input = {}) {
 // Config diagnostics — used by GET /api/template-ai/zip/settings
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getZipDeployConfigStatus() {
-  const { token: ghToken, error: ghError } = resolveGitHubPublisherToken();
-
+export function getZipDeployConfigStatus() {
   const renderApiConfigured = renderApiService.configured();
   const sourceRepo = (process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
   const renderSourceRepoConfigured = Boolean(sourceRepo);
-  const githubPublisherConfigured = Boolean(ghToken && !ghError);
-
-  // If both token and repo are set, verify actual access (catches permission issues)
-  let githubAccessOk = null;
-  let githubAccessError = null;
-  if (githubPublisherConfigured && renderSourceRepoConfigured) {
-    const check = await verifyGitHubAccess(sourceRepo);
-    githubAccessOk = check.ok;
-    githubAccessError = check.error || null;
-  }
 
   const missing = [];
   if (!renderApiConfigured) missing.push('RENDER_API_KEY and/or RENDER_OWNER_ID');
   if (!renderSourceRepoConfigured) missing.push('RENDER_GENERATED_SITES_REPO_URL');
-  if (!githubPublisherConfigured) missing.push('GITHUB_GENERATED_SITES_TOKEN');
-  if (githubAccessOk === false) missing.push('GitHub token permissions (Contents: Read and write)');
 
   return {
     provider: HOSTING_PROVIDER,
     renderApiConfigured,
     renderSourceRepoConfigured,
-    githubPublisherConfigured,
-    githubAccessOk,
-    githubAccessError,
-    githubTokenError: ghError || null,
     missing,
     expectedEnv: [
       'RENDER_API_KEY',
       'RENDER_OWNER_ID',
       'RENDER_GENERATED_SITES_REPO_URL',
-      'GITHUB_GENERATED_SITES_TOKEN',
     ],
   };
 }
@@ -241,56 +202,25 @@ export async function deployZipSite(input = {}) {
     siteName, finalSlug, publishDirectory, siteDir, now,
   });
 
-  // 6. Publish to GitHub generated-sites repo
-  // Render cannot deploy from local DATA_DIR directly. ZIP files must be
-  // published to a generated-sites GitHub repo; Render deploys from that repo.
+  // 6. Render handoff — direct, no GitHub intermediary
   const sourceRepo = resolveRenderSourceRepo(input);
-  const targetRoot = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || `uploaded-sites/${finalSlug}`;
+  const renderRootDirectory = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '';
   const buildCommand = 'bash glondia-render-build.sh';
 
-  let githubPublish;
-  if (sourceRepo) {
-    console.log(`[zip-deploy] Publishing extracted files to GitHub repo...`);
-    githubPublish = await publishGeneratedSiteToGitHub({
-      siteDir,
-      repoUrl: sourceRepo,
-      branch,
-      targetRoot,
-      commitMessage: `Publish uploaded ZIP site ${finalSlug}`,
-    });
-    if (githubPublish.attempted) {
-      console.log(`[zip-deploy] GitHub publish: ${githubPublish.publishedCount || 0} files, ${githubPublish.errors?.length || 0} errors`);
-    } else {
-      console.log(`[zip-deploy] GitHub publish skipped: ${githubPublish.skippedReason}`);
-    }
-  } else {
-    console.log(`[zip-deploy] GitHub publish skipped: no RENDER_GENERATED_SITES_REPO_URL configured`);
-    githubPublish = {
-      attempted: false,
-      skippedReason: 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites',
-    };
-  }
-
-  // 7. Render handoff
-  const renderRootDirectory = githubPublish.attempted && !githubPublish.errors?.length ? targetRoot : (input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '');
   let renderServiceId = makeId('render_svc_pending');
   let renderDeployId = makeId('render_deploy_pending');
-  let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, githubPublish };
+  let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null };
   let providerStatus = 'prepared';
   let status = 'prepared';
   let buildStatus = 'uploaded';
-  let currentStep = githubPublish.attempted ? 'ZIP extracted, stored, and published to GitHub' : 'ZIP extracted and stored as source artifact';
+  let currentStep = 'ZIP extracted and stored';
   let liveUrl = `https://${finalSlug}.onrender.com`;
   let errorMessage = null;
 
-  if (!sourceRepo) {
-    render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the ZIP deploy form. Example: RENDER_GENERATED_SITES_REPO_URL=https://github.com/OWNER/generated-sites';
-  } else if (!githubPublish.attempted) {
-    render.skippedReason = githubPublish.skippedReason || 'Extracted ZIP source files were not published to GitHub.';
-  } else if (githubPublish.errors?.length) {
-    render.skippedReason = `GitHub publish completed with ${githubPublish.errors.length} errors.`;
-  } else if (!renderApiService.configured()) {
+  if (!renderApiService.configured()) {
     render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';
+  } else if (!sourceRepo) {
+    render.skippedReason = 'Missing source repository URL. Set RENDER_GENERATED_SITES_REPO_URL in environment or enter a repository URL in the deploy form.';
   } else {
     try {
       console.log(`[zip-deploy] Starting Render handoff for ${finalSlug}...`);
@@ -348,7 +278,7 @@ export async function deployZipSite(input = {}) {
     sourceArtifact,
   };
 
-  // 8. Persist deployment record + logs
+  // 7. Persist deployment record + logs
   await mutateHostingStore((store) => {
     if (!store.uploadedSiteArtifacts) store.uploadedSiteArtifacts = [];
     store.uploadedSiteArtifacts.push({
@@ -422,9 +352,6 @@ export async function deployZipSite(input = {}) {
       makeLog(`Shell file written: ${shellFile.relativePath}.`, 'ok'),
       makeLog(`Source artifact manifest stored at ${sourceArtifact.manifestPath}.`, 'ok'),
     ];
-    if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} source files to GitHub repo ${githubPublish.repository} at ${githubPublish.targetRoot || '(root)'}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
-    if (!githubPublish.attempted) logs.push(makeLog(githubPublish.skippedReason || 'GitHub publish skipped.', 'warn'));
-    if (githubPublish.errors?.length) logs.push(makeLog(`GitHub publish errors: ${githubPublish.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`, 'warn'));
     if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
     if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
     if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
@@ -439,8 +366,8 @@ export async function deployZipSite(input = {}) {
     render,
     liveUrl,
     message: render.attempted && !errorMessage
-      ? 'ZIP extracted, stored, published to GitHub, and Render deployment started.'
-      : 'ZIP extracted and stored. Hosting record created. Check Hosting logs for GitHub/Render configuration status.',
+      ? 'ZIP extracted, stored, and Render deployment started.'
+      : 'ZIP extracted and stored. Hosting record created. Check Hosting logs for Render configuration status.',
   };
 }
 
@@ -503,22 +430,18 @@ async function extractZipSafely(zipBuffer, destination) {
   const ignoredFiles = [];
   const ignoredFolderSet = new Set();
 
-  // Process each entry: filter out ignored files FIRST, then extract deployable ones
   for (const entry of allEntries) {
     const relativeName = cleanZipPath(rootPrefix ? entry.entryName.slice(rootPrefix.length) : entry.entryName);
     if (!relativeName || relativeName.endsWith('/')) continue;
 
-    // 1. Check if this entry should be ignored
     const ignoreCheck = shouldIgnoreZipEntry(relativeName);
     if (ignoreCheck.ignore) {
       ignoredFiles.push({ path: relativeName, reason: ignoreCheck.reason });
-      // Track which ignored folders are represented for logging
       const folderMatch = ignoreCheck.reason.match(/^ignored-folder: (.+)/);
       if (folderMatch) ignoredFolderSet.add(folderMatch[1]);
       continue;
     }
 
-    // 2. Check individual file size on deployable files only
     if (entry.header.size > MAX_ENTRY_BYTES) {
       throw badRequest(
         `ZIP entry is too large: ${entry.entryName} (${formatBytes(entry.header.size)}). Max per file is ${formatBytes(MAX_ENTRY_BYTES)}.`,
@@ -526,13 +449,11 @@ async function extractZipSafely(zipBuffer, destination) {
       );
     }
 
-    // 3. Check path traversal safety
     const outputPath = resolve(destination, relativeName);
     if (!outputPath.startsWith(destination)) {
       throw badRequest(`Unsafe ZIP path detected: ${entry.entryName}`, 'ZIP_PATH_TRAVERSAL');
     }
 
-    // 4. Write deployable file
     await mkdir(join(outputPath, '..'), { recursive: true });
     await writeFile(outputPath, entry.getData());
     files.push(relativeName);
@@ -540,7 +461,6 @@ async function extractZipSafely(zipBuffer, destination) {
 
   console.log(`[zip-extract] After filtering: ${files.length} deployable, ${ignoredFiles.length} ignored`);
 
-  // 5. Check deployable file count limit AFTER cleanup
   if (files.length > MAX_EXTRACTED_FILES) {
     const err = badRequest(
       `ZIP has too many deployable files after cleanup. Deployable files: ${files.length}. Max: ${MAX_EXTRACTED_FILES}.`,
@@ -555,7 +475,6 @@ async function extractZipSafely(zipBuffer, destination) {
     throw err;
   }
 
-  // 6. Validate: at least one deployable entry point exists
   const hasDeployableEntry = files.some(name =>
     name === 'package.json' ||
     name === 'index.html' ||
@@ -587,27 +506,13 @@ function detectProject(files) {
   const hasBuildIndex  = files.some(n => n === 'build/index.html');
   const hasLockFile    = files.some(n => n === 'package-lock.json');
 
-  if (hasPackage && hasViteConfig) {
-    return { type: PROJECT_TYPE.VITE_SOURCE,    framework: 'Vite',              packageManager: 'npm', hasLockFile };
-  }
-  if (hasPackage) {
-    return { type: PROJECT_TYPE.NODE_SOURCE,    framework: 'Node static app',   packageManager: 'npm', hasLockFile };
-  }
-  if (hasDistIndex) {
-    return { type: PROJECT_TYPE.PREBUILT_DIST,  framework: 'Prebuilt (dist)',   packageManager: 'none', hasLockFile: false };
-  }
-  if (hasBuildIndex) {
-    return { type: PROJECT_TYPE.PREBUILT_BUILD, framework: 'Prebuilt (build)',  packageManager: 'none', hasLockFile: false };
-  }
-  if (hasRootIndex) {
-    return { type: PROJECT_TYPE.STATIC_ROOT,    framework: 'Static HTML',       packageManager: 'none', hasLockFile: false };
-  }
-  return { type: PROJECT_TYPE.UNKNOWN,          framework: 'Unknown',           packageManager: 'none', hasLockFile: false };
+  if (hasPackage && hasViteConfig) return { type: PROJECT_TYPE.VITE_SOURCE, framework: 'Vite', packageManager: 'npm', hasLockFile };
+  if (hasPackage) return { type: PROJECT_TYPE.NODE_SOURCE, framework: 'Node static app', packageManager: 'npm', hasLockFile };
+  if (hasDistIndex) return { type: PROJECT_TYPE.PREBUILT_DIST, framework: 'Prebuilt (dist)', packageManager: 'none', hasLockFile: false };
+  if (hasBuildIndex) return { type: PROJECT_TYPE.PREBUILT_BUILD, framework: 'Prebuilt (build)', packageManager: 'none', hasLockFile: false };
+  if (hasRootIndex) return { type: PROJECT_TYPE.STATIC_ROOT, framework: 'Static HTML', packageManager: 'none', hasLockFile: false };
+  return { type: PROJECT_TYPE.UNKNOWN, framework: 'Unknown', packageManager: 'none', hasLockFile: false };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Publish directory resolution
-// ─────────────────────────────────────────────────────────────────────────────
 
 function resolvePublishDirectory(detected, userOverride) {
   if (userOverride && String(userOverride).trim()) return String(userOverride).trim();

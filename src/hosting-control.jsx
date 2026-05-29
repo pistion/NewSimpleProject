@@ -243,7 +243,7 @@ function RenderNotStartedBlock({ app }) {
     <div style={{ marginTop: 18, padding: 14, border: '1px solid var(--warning)', borderRadius: 'var(--r-sm)', background: 'var(--bg-deep)' }}>
       <div className="row" style={{ gap: 8, color: 'var(--warning)', fontWeight: 700 }}><ICN.AlertCircle size={16} /> Render handoff pending</div>
       <div className="muted" style={{ marginTop: 8 }}>{reason}</div>
-      <div className="mono" style={{ marginTop: 8, fontSize: 12 }}>Required: RENDER_API_KEY, RENDER_OWNER_ID, and RENDER_GENERATED_SITES_REPO_URL or repoUrl.</div>
+      <div className="mono" style={{ marginTop: 8, fontSize: 12 }}>Required: RENDER_API_KEY and RENDER_OWNER_ID. For generated sites, also set RENDER_GENERATED_SITES_REPO_URL.</div>
     </div>
   );
 }
@@ -454,7 +454,7 @@ function HostingSettings() {
         <dt>Provider</dt><dd>{settings?.provider || 'render'}</dd>
         <dt>Missing</dt><dd className="mono">{settings?.required?.length ? settings.required.join(', ') : 'None reported'}</dd>
       </div>
-      <p className="muted" style={{ marginTop: 14 }}>Generated RoxanneAI sites also need a source repo configured through RENDER_GENERATED_SITES_REPO_URL or the deploy settings screen.</p>
+      <p className="muted" style={{ marginTop: 14 }}>Generated RoxanneAI sites also need RENDER_GENERATED_SITES_REPO_URL configured for Render to pull from.</p>
     </div>
   );
 }
