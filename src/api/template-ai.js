@@ -57,6 +57,11 @@ export async function deployTailoredTemplate(siteId, deploymentSettings = {}) {
   });
 }
 
+/**
+ * Deploy a ZIP file to the Render hosting pipeline.
+ * Parses all backend error shapes: { error }, { message }, { error: { message } },
+ * { code, error, details }, and non-JSON / HTML responses.
+ */
 export async function deployZipTemplate(file, settings = {}) {
   if (!file) throw new Error('Choose a ZIP file first.');
   const form = new FormData();
@@ -64,16 +69,50 @@ export async function deployZipTemplate(file, settings = {}) {
   for (const [key, value] of Object.entries(settings || {})) {
     if (value !== undefined && value !== null && String(value).trim() !== '') form.append(key, String(value));
   }
-  const response = await fetch(liveApiUrl('/template-ai/zip/deploy'), {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-    },
-    body: form,
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result?.error?.message || result?.message || result?.error || `ZIP deploy failed with ${response.status}.`);
+
+  let response;
+  try {
+    response = await fetch(liveApiUrl('/template-ai/zip/deploy'), {
+      method: 'POST',
+      headers: { ...authHeaders() },
+      body: form,
+    });
+  } catch (networkError) {
+    throw new Error(`Network error: ${networkError.message || 'Could not reach the server.'}`);
   }
+
+  // Try to parse JSON; fall back to raw text for HTML / unexpected responses
+  let result;
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      result = await response.json();
+    } catch {
+      result = null;
+    }
+  }
+  if (!result) {
+    const text = await response.text().catch(() => '');
+    if (!response.ok) {
+      throw new Error(text ? text.slice(0, 500) : `ZIP deploy failed with status ${response.status}.`);
+    }
+    // response.ok but not JSON — unlikely but handle gracefully
+    return {};
+  }
+
+  if (!response.ok) {
+    // Parse every error shape the backend might return
+    const msg =
+      (typeof result.error === 'string' ? result.error : null) ||
+      (typeof result.error === 'object' && result.error?.message ? result.error.message : null) ||
+      result.message ||
+      (result.code ? `${result.code}: ${JSON.stringify(result.details || '')}` : null) ||
+      `ZIP deploy failed with status ${response.status}.`;
+    const err = new Error(msg);
+    err.code = result.code || undefined;
+    err.details = result.details || undefined;
+    throw err;
+  }
+
   return result?.data ?? result;
 }
