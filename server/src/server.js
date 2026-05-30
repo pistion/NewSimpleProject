@@ -1942,10 +1942,12 @@ app.use((err, req, res, next) => {
 });
 
 // ── Payment enforcement job ───────────────────────────────────────────────────
-// Runs every 30 minutes. Suspends hosted sites whose payment window has expired.
+// Runs every 30 minutes. Only acts on deployments that were made through the
+// Glondia platform (platformDeployed: true). Never scans Render directly —
+// only reads from the local store. Never touches anything on startup.
 function startPaymentEnforcementJob() {
   const GRACE_MS = Number(process.env.PAYMENT_GRACE_HOURS || 24) * 60 * 60 * 1000;
-  const INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
+  const INTERVAL_MS = 30 * 60 * 1000;
 
   const runEnforcement = async () => {
     try {
@@ -1957,9 +1959,9 @@ function startPaymentEnforcementJob() {
       );
 
       for (const dep of store.deployments || []) {
-        // Only enforce payment on apps deployed through the Glondia platform.
-        // Pre-existing / imported services are never touched.
-        if (!dep.platformDeployed) continue;
+        // ONLY act on deployments made through this platform.
+        // platformDeployed must be explicitly true — anything else is off-limits.
+        if (dep.platformDeployed !== true) continue;
         if (dep.paymentStatus === 'paid' || dep.paymentStatus === 'overdue_suspended') continue;
         if (paidIds.has(dep.deploymentId)) continue;
         if (!dep.createdAt) continue;
@@ -1975,14 +1977,15 @@ function startPaymentEnforcementJob() {
           const d = (s.deployments || []).find((x) => x.deploymentId === dep.deploymentId);
           if (d) { d.paymentStatus = 'overdue_suspended'; d.status = 'suspended'; d.updatedAt = nowIso(); }
         });
-        console.log(`[enforcement] Suspended ${dep.serviceName || dep.deploymentId} — payment overdue after ${GRACE_MS / 3600000}h.`);
+        console.log(`[enforcement] Suspended ${dep.serviceName || dep.deploymentId} — payment overdue.`);
       }
     } catch (err) {
       console.error('[enforcement] Job error:', err.message);
     }
   };
 
-  runEnforcement(); // immediate first pass on startup
+  // No immediate startup run — only fires on the interval.
+  // This prevents touching anything when the server redeploys.
   return setInterval(runEnforcement, INTERVAL_MS);
 }
 
