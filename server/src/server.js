@@ -1957,6 +1957,9 @@ function startPaymentEnforcementJob() {
       );
 
       for (const dep of store.deployments || []) {
+        // Only enforce payment on apps deployed through the Glondia platform.
+        // Pre-existing / imported services are never touched.
+        if (!dep.platformDeployed) continue;
         if (dep.paymentStatus === 'paid' || dep.paymentStatus === 'overdue_suspended') continue;
         if (paidIds.has(dep.deploymentId)) continue;
         if (!dep.createdAt) continue;

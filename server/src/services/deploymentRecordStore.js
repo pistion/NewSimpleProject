@@ -29,6 +29,7 @@ export async function createDeploymentRecord(input = {}) {
     githubBranch: input.githubBranch || 'main',
     source: input.source || 'deployment',
     sourceReference: input.sourceReference || null,
+    platformDeployed: true,   // deployed through Glondia — marks it for payment enforcement
     generatedSite: input.generatedSite || null,
     environmentVariablesMetadata: [],
     diskMetadata: [],

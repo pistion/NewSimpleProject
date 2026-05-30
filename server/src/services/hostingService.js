@@ -40,7 +40,9 @@ class HostingService {
     const store = await readHostingStore();
     return store.deployments
       .filter((d) => isManagedRenderDeployment(d))
-      .filter((d) => !userId || d.userId === userId || d.userId == null || d.source === 'render-import')
+      // Customers only see their own platform-deployed apps — never imported
+      // services or another customer's deployments.
+      .filter((d) => d.platformDeployed === true && d.userId === userId)
       .filter((d) => d.status !== STATUS_DELETED)
       .map((d) => this.toHostingSummary(d));
   }
@@ -389,6 +391,7 @@ class HostingService {
         githubBranch: svc.branch || 'main',
         source: 'render-import',
         sourceReference: svc.repo || svc.repoUrl || null,
+        platformDeployed: false,  // pre-existing — exempt from payment enforcement
         managedBy: 'glondiasites',
         environmentVariablesMetadata: [],
         diskMetadata: [],
