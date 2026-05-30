@@ -64,7 +64,12 @@ function shouldSkip(relativeName) {
 function detectRootPrefix(names) {
   const firstParts = names.map((name) => cleanZipPath(name).split('/').filter(Boolean)[0]).filter(Boolean);
   const unique = new Set(firstParts);
-  return unique.size === 1 ? `${[...unique][0]}/` : '';
+  // Only strip a root prefix if ALL files are inside a single directory (i.e. at least one
+  // path contains a '/' separator — otherwise the "first part" is the file itself, not a folder).
+  if (unique.size !== 1) return '';
+  const candidate = [...unique][0];
+  const allNested = names.every((name) => cleanZipPath(name).includes('/'));
+  return allNested ? `${candidate}/` : '';
 }
 
 function cleanZipPath(value) {
