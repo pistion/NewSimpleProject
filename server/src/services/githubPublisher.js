@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { hasRealValue } from './runtimeConfig.js';
+import { getGithubInstallationToken } from './githubAppAuth.js';
 
 export function parseGithubRepoUrl(url) {
   const match = String(url || '').match(/github\.com[:/]([^/]+)\/([^/.#?]+)(?:\.git)?/i);
@@ -12,6 +13,12 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
   const parsed = parseGithubRepoUrl(repoUrl);
   if (!parsed) throw stageError('Invalid generated-sites GitHub repository URL.', 'github_repo_validate', 400);
   if (!hasRealValue(token)) throw stageError('GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is required to publish ZIP source files.', 'github_push', 409);
+
+  if (isRsaPrivateKey(token)) {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (!clientId) throw stageError('GITHUB_CLIENT_ID is required when GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is a GitHub App private key.', 'github_push', 409);
+    token = await getGithubInstallationToken({ clientId, privateKey: token });
+  }
 
   const files = await walkFiles(directory);
   if (!files.length) throw stageError('No files found to publish to GitHub.', 'github_push', 400);
@@ -60,7 +67,7 @@ async function upsertGithubFile({ owner, repo, path: targetPath, branch, token, 
 }
 
 function githubHeaders(token) {
-  return { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'glondiasites-render-deploy' };
+  return { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'glondiasites-render-deploy-lab' };
 }
 
 function encodeURIComponentPath(pathValue) {
@@ -79,6 +86,10 @@ async function walkFiles(dir) {
 }
 
 function normalizeSlash(value) { return String(value).replace(/\\/g, '/'); }
+
+function isRsaPrivateKey(value) {
+  return String(value || '').includes('-----BEGIN RSA PRIVATE KEY-----') || String(value || '').includes('-----BEGIN PRIVATE KEY-----');
+}
 
 function stageError(message, stage, status = 400) {
   const error = new Error(message);
