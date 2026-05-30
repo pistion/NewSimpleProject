@@ -85,14 +85,27 @@ router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (r
     });
     res.json(result);
   } catch (err) {
-    // Return structured JSON errors instead of passing to generic handler
+    // Return structured JSON errors with stage field as required by the deployment engine spec.
     const status = err.status || 500;
     const code = err.code || 'ZIP_DEPLOY_ERROR';
     const message = err.expose !== false ? (err.message || 'ZIP deploy failed.') : 'An unexpected error occurred during ZIP deployment.';
-    console.error(`[zip-route] Error: ${message}`);
-    res.status(status).json({ error: message, code, details: err.details || null });
+    const stage = err.stage || codeToStage(code);
+    console.error(`[zip-route] Error [${stage}]: ${message}`);
+    res.status(status).json({ success: false, error: message, code, stage, details: err.details || null });
   }
 });
+
+function codeToStage(code = '') {
+  const c = String(code).toLowerCase();
+  if (c.startsWith('zip_no') || c === 'zip_empty' || c === 'zip_too_large' || c === 'zip_missing_file') return 'zip_upload';
+  if (c.startsWith('zip_path') || c.startsWith('zip_entry') || c === 'zip_no_files' || c === 'zip_no_deployable_entry' || c === 'zip_too_many_deployable_files') return 'zip_validation';
+  if (c.startsWith('zip_extract') || c === 'zip_invalid_type' || c === 'zip_bad_request') return 'zip_extract';
+  if (c.includes('github') && c.includes('push')) return 'github_push';
+  if (c.includes('github') && c.includes('repo')) return 'github_repo_create';
+  if (c.includes('render') && (c.includes('service') || c.includes('create'))) return 'render_service_create';
+  if (c.includes('render') && c.includes('deploy')) return 'render_deploy_trigger';
+  return 'zip_deploy';
+}
 
 // ── ZIP validate endpoint (dev/debug — no deployment) ───────────────────────
 router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async (req, res, next) => {

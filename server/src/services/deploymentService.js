@@ -39,7 +39,7 @@ class DeploymentService {
       serviceResponse = await renderApiService.createService({ ...input, serviceName, serviceType, sourceReference });
       renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || null;
     }
-    if (!renderServiceId) throw providerError('Render did not return a service ID.', serviceResponse);
+    if (!renderServiceId) throw providerError('Render did not return a service ID.', serviceResponse, 'render_service_create');
 
     let deployResponse = null;
     if (renderServiceId) {
@@ -50,7 +50,7 @@ class DeploymentService {
     }
 
     const renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || serviceResponse?.deployId || serviceResponse?.deploy?.id || null;
-    if (!renderDeployId && !renderServiceId) throw providerError('Render did not return a service or deploy ID.', { serviceResponse, deployResponse });
+    if (!renderDeployId && !renderServiceId) throw providerError('Render did not return a service or deploy ID.', { serviceResponse, deployResponse }, 'render_deploy_trigger');
     const liveUrl = input.liveUrl || serviceResponse?.service?.serviceDetails?.url || serviceResponse?.service?.url || serviceResponse?.url || null;
     const deployment = {
       deploymentId,
@@ -207,11 +207,12 @@ function notFound(message) {
   return error;
 }
 
-function providerError(message, details) {
+function providerError(message, details, stage = 'render_service_create') {
   const error = new Error(message);
   error.status = 502;
   error.expose = true;
   error.details = details;
+  error.stage = stage;
   return error;
 }
 

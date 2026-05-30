@@ -1928,11 +1928,17 @@ function httpError(message, status = 400, details) {
 
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
+  const message = isProd && !err.expose ? 'An unexpected error occurred.' : (err.message || String(err));
   console.error(`[error] ${req.method} ${req.url} →`, err.message || err);
-  res.status(status).json({
-    error: { code: 'INTERNAL_ERROR', message: isProd && !err.expose ? 'An unexpected error occurred.' : (err.message || String(err)) },
+  const body = {
+    success: false,
+    error: { code: err.code || 'INTERNAL_ERROR', message },
     requestId: req.id,
-  });
+  };
+  // Include stage field when present — used by deployment error responses
+  if (err.stage) body.stage = err.stage;
+  if (err.details && err.expose) body.details = err.details;
+  res.status(status).json(body);
 });
 
 // ── Payment enforcement job ───────────────────────────────────────────────────

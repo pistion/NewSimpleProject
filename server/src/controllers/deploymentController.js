@@ -15,6 +15,14 @@ const deploymentController = {
       const deployment = await deploymentService.createRenderDeployment(req.body || {}, { userId: req.user?.id });
       res.status(202).json({ data: deployment, message: 'Render deployment accepted.', requestId: req.id });
     } catch (error) {
+      // Attach stage field for structured error responses
+      if (!error.stage) {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('repo') || msg.includes('github')) error.stage = 'github_repo_validate';
+        else if (msg.includes('render') && msg.includes('service')) error.stage = 'render_service_create';
+        else if (msg.includes('render') && msg.includes('deploy')) error.stage = 'render_deploy_trigger';
+        else error.stage = 'render_service_create';
+      }
       next(error);
     }
   },

@@ -4,12 +4,16 @@ import { join, resolve } from 'node:path';
 import AdmZip from 'adm-zip';
 import { makeId, mutateHostingStore, nowIso } from './hostingStore.js';
 import renderApiService from './renderApiService.js';
+import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken, parseGitHubRepoUrl } from './githubGeneratedSitePublisher.service.js';
 
 // ── Provider constants ──────────────────────────────────────────────────────
 // ZIP uploads are website/app hosting → always Render.
-// Flow: upload ZIP → extract → store on disk → hand off to Render API.
-// No GitHub intermediary — files are stored in DATA_DIR and Render deploys
-// from the repo URL the user provides (or RENDER_GENERATED_SITES_REPO_URL).
+// Flow: upload ZIP → validate → extract → detect project → write build script
+//       → push files to GitHub (RENDER_GENERATED_SITES_REPO_URL)
+//       → create Render service from that GitHub repo → trigger deploy
+// GitHub publish is required so Render has a real commit to build from.
+// If RENDER_GENERATED_SITES_REPO_URL or GITHUB_GENERATED_SITES_TOKEN is not set,
+// the GitHub step is skipped and Render is attempted with the existing repo content.
 const HOSTING_PROVIDER = 'render';
 // VPS_PROVIDER = 'vultr' — lives in vps routes/services only
 
@@ -159,20 +163,26 @@ export function getZipDeployConfigStatus() {
   const renderApiConfigured = renderApiService.configured();
   const sourceRepo = (process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
   const renderSourceRepoConfigured = Boolean(sourceRepo);
+  const { token: ghToken, error: ghTokenError } = resolveGitHubPublisherToken();
+  const githubPublisherConfigured = Boolean(ghToken && !ghTokenError);
 
   const missing = [];
   if (!renderApiConfigured) missing.push('RENDER_API_KEY and/or RENDER_OWNER_ID');
   if (!renderSourceRepoConfigured) missing.push('RENDER_GENERATED_SITES_REPO_URL');
+  if (!githubPublisherConfigured) missing.push('GITHUB_GENERATED_SITES_TOKEN');
 
   return {
     provider: HOSTING_PROVIDER,
     renderApiConfigured,
     renderSourceRepoConfigured,
+    githubPublisherConfigured,
+    githubTokenError: ghTokenError || null,
     missing,
     expectedEnv: [
       'RENDER_API_KEY',
       'RENDER_OWNER_ID',
       'RENDER_GENERATED_SITES_REPO_URL',
+      'GITHUB_GENERATED_SITES_TOKEN',
     ],
   };
 }
@@ -234,11 +244,42 @@ export async function deployZipSite(input = {}) {
     siteName, finalSlug, publishDirectory, siteDir, now,
   });
 
-  // 6. Render handoff — direct, no GitHub intermediary
+  // 6. GitHub publish step — push extracted files to the generated-sites repo
+  // so Render can build from a real commit. This is required for the ZIP→GitHub→Render flow.
   const sourceRepo = resolveRenderSourceRepo(input);
   const renderRootDirectory = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '';
   const buildCommand = 'bash glondia-render-build.sh';
+  const targetRoot = renderRootDirectory || `uploaded-sites/${finalSlug}`;
 
+  let githubPublish = { attempted: false, skippedReason: null };
+  const { token: ghToken, error: ghTokenError } = resolveGitHubPublisherToken();
+  const parsedRepo = parseGitHubRepoUrl(sourceRepo);
+
+  if (!sourceRepo || !parsedRepo) {
+    githubPublish.skippedReason = 'Missing or invalid RENDER_GENERATED_SITES_REPO_URL — GitHub publish skipped.';
+    console.log(`[zip-deploy] GitHub publish skipped: ${githubPublish.skippedReason}`);
+  } else if (ghTokenError) {
+    githubPublish.skippedReason = `GitHub publisher token error: ${ghTokenError}`;
+    console.log(`[zip-deploy] GitHub publish skipped: ${githubPublish.skippedReason}`);
+  } else {
+    try {
+      console.log(`[zip-deploy] Publishing extracted files to GitHub ${parsedRepo.owner}/${parsedRepo.repo} at ${targetRoot}...`);
+      githubPublish = await publishGeneratedSiteToGitHub({
+        siteDir,
+        repoUrl: sourceRepo,
+        branch,
+        targetRoot,
+        commitMessage: `Glondiasites: publish ZIP upload ${finalSlug} (${fileName})`,
+      });
+      console.log(`[zip-deploy] GitHub publish: ${githubPublish.publishedCount ?? 0} files published, ${githubPublish.errors?.length ?? 0} errors`);
+    } catch (ghError) {
+      githubPublish.attempted = true;
+      githubPublish.error = { message: ghError.message, status: ghError.status, details: ghError.details || null };
+      console.warn(`[zip-deploy] GitHub publish failed (non-fatal): ${ghError.message}`);
+    }
+  }
+
+  // 7. Render handoff — create service from GitHub repo, then trigger deploy
   let renderServiceId = makeId('render_svc_pending');
   let renderDeployId = makeId('render_deploy_pending');
   let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null };
@@ -254,6 +295,11 @@ export async function deployZipSite(input = {}) {
   } else if (!sourceRepo) {
     render.skippedReason = 'Missing source repository URL. Set RENDER_GENERATED_SITES_REPO_URL in environment or enter a repository URL in the deploy form.';
   } else {
+    // Attempt Render deploy regardless of GitHub publish outcome.
+    // If GitHub push failed, Render will build from the existing repo content.
+    if (githubPublish.errors?.length) {
+      console.warn('[zip-deploy] GitHub publish had errors — proceeding to Render with existing repo content.');
+    }
     try {
       console.log(`[zip-deploy] Starting Render handoff for ${finalSlug}...`);
       render.attempted = true;
@@ -296,7 +342,6 @@ export async function deployZipSite(input = {}) {
     console.log(`[zip-deploy] Render handoff skipped: ${render.skippedReason}`);
   }
 
-  const targetRoot = renderRootDirectory || `uploaded-sites/${finalSlug}`;
   const generatedSite = {
     siteDir,
     sourceType: 'uploaded-zip-source-artifact',
@@ -313,9 +358,10 @@ export async function deployZipSite(input = {}) {
     sourceArtifact,
     githubTargetRoot: targetRoot,
     sourceRepository: sourceRepo || null,
+    githubPublish: githubPublish || null,
   };
 
-  // 7. Persist deployment record + logs
+  // 8. Persist deployment record + logs
   await mutateHostingStore((store) => {
     if (!store.uploadedSiteArtifacts) store.uploadedSiteArtifacts = [];
     store.uploadedSiteArtifacts.push({
@@ -393,6 +439,16 @@ export async function deployZipSite(input = {}) {
       makeLog(`Shell file written: ${shellFile.relativePath}.`, 'ok'),
       makeLog(`Source artifact manifest stored at ${sourceArtifact.manifestPath}.`, 'ok'),
     ];
+
+    // GitHub publish log
+    if (githubPublish.attempted && githubPublish.publishedCount > 0 && !githubPublish.errors?.length) {
+      logs.push(makeLog(`Published ${githubPublish.publishedCount} files to GitHub at ${githubPublish.repository}/${targetRoot}.`, 'ok'));
+    } else if (githubPublish.attempted && githubPublish.errors?.length) {
+      logs.push(makeLog(`GitHub publish completed with ${githubPublish.errors.length} error(s). First: ${githubPublish.errors[0]?.message}`, 'warn'));
+    } else if (githubPublish.skippedReason) {
+      logs.push(makeLog(`GitHub publish skipped: ${githubPublish.skippedReason}`, 'warn'));
+    }
+
     if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
     if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
     if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
@@ -405,9 +461,10 @@ export async function deployZipSite(input = {}) {
     siteId: uploadId,
     generatedSite,
     render,
+    githubPublish,
     liveUrl,
     message: render.attempted && !errorMessage
-      ? 'ZIP extracted, stored, and Render deployment started.'
+      ? 'ZIP extracted, stored, pushed to GitHub, and Render deployment started.'
       : 'ZIP extracted and stored. Hosting record created. Check Hosting logs for Render configuration status.',
   };
 }
