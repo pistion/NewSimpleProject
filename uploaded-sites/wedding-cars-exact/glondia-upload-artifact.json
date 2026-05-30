@@ -1,0 +1,37 @@
+{
+  "deploymentId": "dep_g4fcroipnfdhy",
+  "uploadId": "zip_96fy5s9fnfdhw",
+  "source": "zip-upload",
+  "originalName": "wedding-cars-exact.zip",
+  "targetRoot": "uploaded-sites/wedding-cars-exact",
+  "sourceRepo": "https://github.com/pistion/Glondiasites",
+  "branch": "main",
+  "detected": {
+    "type": "vite-source",
+    "projectType": "vite-source",
+    "framework": "Vite",
+    "serviceType": "static_site",
+    "detectedServiceType": "static_site",
+    "detectedBuildCommand": "npm run build",
+    "buildCommand": "bash glondia-render-build.sh",
+    "publishDirectory": "dist",
+    "detectedPublishDirectory": "dist",
+    "detectedStartCommand": null,
+    "startCommand": null,
+    "runtime": null,
+    "nodeVersion": null
+  },
+  "files": [
+    "index.html",
+    "package-lock.json",
+    "package.json",
+    "postcss.config.js",
+    "src/App.jsx",
+    "src/index.css",
+    "src/main.jsx",
+    "tailwind.config.js",
+    "vite.config.js"
+  ],
+  "ignoredCount": 0,
+  "createdAt": "2026-05-30T17:52:49.985Z"
+}
