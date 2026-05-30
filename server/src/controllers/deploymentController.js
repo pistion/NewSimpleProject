@@ -40,7 +40,7 @@ const deploymentController = {
 
   createZipDeployment: async (req, res, next) => {
     try {
-      const file = req.file || req.files?.zip?.[0] || req.files?.file?.[0];
+      const file = req.file || req.files?.siteZip?.[0] || req.files?.zip?.[0] || req.files?.file?.[0];
       const deployment = await zipDeploymentService.create({ file, fields: req.body || {} }, { userId: req.user?.id });
       res.status(202).json({ data: deployment, message: 'ZIP deployment session started.', requestId: req.id });
     } catch (error) {
