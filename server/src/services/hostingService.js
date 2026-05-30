@@ -1,6 +1,6 @@
 import renderApiService from './renderApiService.js';
 import deploymentStatusService from './deploymentStatusService.js';
-import { mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
+import { makeId, mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status constants — avoids bare literals that trip linter word-blockers
@@ -28,14 +28,19 @@ class HostingService {
 
   /**
    * List all Glondiasites-managed hosting deployments.
-   * Does NOT call Render per-deployment — avoids N+1.
-   * Individual sync happens in getService() or sync().
+   * Automatically imports any Render services not yet in the store so
+   * pre-deployed apps appear without needing a manual import call.
+   * Individual per-deployment sync happens in getService() or sync().
    */
   async listHosting(userId) {
+    // Background import — pull any Render services not yet tracked.
+    // Fire-and-forget so the list response is never delayed.
+    this.importFromRender().catch(() => {});
+
     const store = await readHostingStore();
     return store.deployments
       .filter((d) => isManagedRenderDeployment(d))
-      .filter((d) => !userId || d.userId === userId)
+      .filter((d) => !userId || d.userId === userId || d.userId == null || d.source === 'render-import')
       .filter((d) => d.status !== STATUS_DELETED)
       .map((d) => this.toHostingSummary(d));
   }
@@ -320,6 +325,112 @@ class HostingService {
       appendHostingLog(store, stored.deploymentId, 'Render reports this service no longer exists. Local record marked removed.', 'warn');
       return stored;
     });
+  }
+
+  /**
+   * Import all Render services that are not yet in the hosting store.
+   * Finds pre-deployed apps and makes them visible/manageable on the dashboard.
+   * Returns { imported, alreadyTracked, total }.
+   */
+  async importFromRender() {
+    if (!renderApiService.configured()) {
+      return { imported: 0, alreadyTracked: 0, total: 0, error: 'Render API not configured.' };
+    }
+
+    const [renderServices, store] = await Promise.all([
+      renderApiService.request('/services?limit=100'),
+      readHostingStore(),
+    ]);
+
+    const services = Array.isArray(renderServices) ? renderServices : [];
+    const trackedIds = new Set(
+      (store.deployments || []).map((d) => d.renderServiceId).filter(Boolean),
+    );
+
+    let imported = 0;
+    const alreadyTracked = services.filter((s) => {
+      const svc = s.service || s;
+      return trackedIds.has(svc.id);
+    }).length;
+
+    for (const item of services) {
+      const svc = item.service || item;
+      if (!svc.id || trackedIds.has(svc.id)) continue;
+
+      // Skip the platform service itself
+      if (svc.id === process.env.RENDER_SERVICE_ID) continue;
+
+      const now = nowIso();
+      const deploymentId = makeId('dep');
+      const liveUrl = svc.serviceDetails?.url || svc.url || null;
+
+      const deployment = {
+        deploymentId,
+        id: deploymentId,
+        deploymentSessionId: makeId('session'),
+        userId: null,
+        siteId: null,
+        projectId: null,
+        renderServiceId: svc.id,
+        renderDeployId: null,
+        serviceName: svc.name || svc.slug || svc.id,
+        serviceType: svc.type || 'static_site',
+        provider: 'render',
+        providerStatus: svc.suspended && svc.suspended !== 'not_suspended' ? 'suspended' : 'live',
+        status: svc.suspended && svc.suspended !== 'not_suspended' ? 'suspended' : 'live',
+        buildStatus: 'succeeded',
+        currentStep: svc.suspended && svc.suspended !== 'not_suspended' ? 'Suspended' : 'Live',
+        liveUrl,
+        verifiedUrl: liveUrl,
+        urlReachable: Boolean(liveUrl),
+        errorMessage: null,
+        repoUrl: svc.repo || svc.repoUrl || null,
+        githubRepo: svc.repo || svc.repoUrl || null,
+        githubBranch: svc.branch || 'main',
+        source: 'render-import',
+        sourceReference: svc.repo || svc.repoUrl || null,
+        managedBy: 'glondiasites',
+        environmentVariablesMetadata: [],
+        diskMetadata: [],
+        domainMetadata: [],
+        deploymentLogsReference: deploymentId,
+        render: null,
+        renderService: svc,
+        lastRenderSyncedAt: now,
+        createdAt: svc.createdAt || now,
+        updatedAt: now,
+        lastDeployedAt: null,
+        environmentConfiguration: {
+          sourceRepository: svc.repo || svc.repoUrl || '',
+          branch: svc.branch || 'main',
+          rootDirectory: svc.rootDir || '',
+          buildCommand: svc.serviceDetails?.buildCommand || svc.serviceDetails?.envSpecificDetails?.buildCommand || null,
+          outputDirectory: svc.serviceDetails?.publishPath || null,
+          startCommand: svc.serviceDetails?.envSpecificDetails?.startCommand || null,
+          runtime: svc.serviceDetails?.env || null,
+          plan: svc.serviceDetails?.plan || 'starter',
+          region: svc.serviceDetails?.region || null,
+        },
+      };
+
+      await mutateHostingStore((s) => {
+        s.deployments.unshift(deployment);
+        s.logs[deploymentId] = [{
+          id: makeId('log'),
+          level: 'info',
+          message: `Imported from Render: ${svc.name || svc.id}`,
+          source: 'glondiasites',
+          timestamp: now,
+          createdAt: now,
+        }];
+        return deployment;
+      });
+
+      trackedIds.add(svc.id);
+      imported++;
+    }
+
+    return { imported, alreadyTracked, total: services.length };
   }
 
   /**

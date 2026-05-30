@@ -5,6 +5,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.use(authMiddleware);
+router.post('/import-from-render', hostingController.importFromRender);
 router.get('/', hostingController.listHosting);
 router.get('/:deploymentId', hostingController.getHostingService);
 router.post('/:deploymentId/sync', hostingController.syncHostingService);

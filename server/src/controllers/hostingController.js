@@ -35,6 +35,10 @@ const hostingController = {
   redeployWithSettings: async (req, res, next) => {
     try { res.ok(await hostingService.redeployWithSettings(req.params.deploymentId, req.body || {})); } catch (error) { next(error); }
   },
+
+  importFromRender: async (req, res, next) => {
+    try { res.ok(await hostingService.importFromRender()); } catch (error) { next(error); }
+  },
 };
 
 export default hostingController;
