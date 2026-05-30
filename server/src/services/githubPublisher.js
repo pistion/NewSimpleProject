@@ -15,9 +15,10 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
   if (!hasRealValue(token)) throw stageError('GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is required to publish ZIP source files.', 'github_push', 409);
 
   if (isRsaPrivateKey(token)) {
+    const appId = process.env.GITHUB_APP_ID;
     const clientId = process.env.GITHUB_CLIENT_ID;
-    if (!clientId) throw stageError('GITHUB_CLIENT_ID is required when GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is a GitHub App private key.', 'github_push', 409);
-    token = await getGithubInstallationToken({ clientId, privateKey: token });
+    if (!appId && !clientId) throw stageError('GITHUB_APP_ID is required when GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is a GitHub App private key.', 'github_push', 409);
+    token = await getGithubInstallationToken({ appId, clientId, privateKey: token, owner: parsed.owner, repo: parsed.repo });
   }
 
   const files = await walkFiles(directory);
