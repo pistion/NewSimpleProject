@@ -3,7 +3,7 @@ import path from 'node:path';
 import renderApiService from './renderApiService.js';
 import { extractZipSafely } from './zipExtractor.js';
 import { detectProject } from './projectDetector.js';
-import { writeRenderBuildScript } from './buildScriptWriter.js';
+import { writeRenderBuildScript, writeRootDispatcherScript } from './buildScriptWriter.js';
 import { publishDirectoryToGithub } from './githubPublisher.js';
 import { getRuntimeConfig, hasRealValue, normalizeRoot } from './runtimeConfig.js';
 import { addDeploymentLog, createDeploymentRecord, renderSafeName, serviceUrl, updateDeploymentRecord } from './deploymentRecordStore.js';
@@ -56,13 +56,15 @@ class ZipDeploymentService {
       if (!hasRealValue(sourceRepo)) return ready(deployment.deploymentId, baseUpdate, 'Ready — missing generated-sites repo', 'Configure RENDER_GENERATED_SITES_REPO_URL before Render can deploy ZIP source.');
       if (!cfg.githubPublisherConfigured) return ready(deployment.deploymentId, baseUpdate, 'Ready — missing GitHub publisher token', `Configure ${cfg.missingGithubPublisher.join(', ')} before Render can deploy ZIP source.`);
 
-      const githubPublish = await publishDirectoryToGithub({ directory: siteDir, targetRoot, repoUrl: sourceRepo, branch, token: cfg.githubPublisherToken });
+      const githubPublish = await publishDirectoryToGithub({ directory: siteDir, targetRoot, repoUrl: sourceRepo, branch, token: cfg.githubPublisherToken, rootDispatcher: writeRootDispatcherScript });
       baseUpdate.generatedSite.githubPublish = githubPublish;
       await addDeploymentLog(deployment.deploymentId, `Published ${githubPublish.published.length} files to GitHub.`, 'ok');
 
       if (!renderApiService.configured()) return ready(deployment.deploymentId, baseUpdate, 'Ready — missing Render credentials', `Configure ${cfg.missingRender.join(', ')} to start Render deployment.`);
 
-      const serviceResponse = await renderApiService.createService(renderInput);
+      // Pass site slug so Render service gets GLONDIA_SITE_SLUG env var —
+      // the root dispatcher uses it if rootDir is ever missing on the service.
+      const serviceResponse = await renderApiService.createService({ ...renderInput, siteSlug: slug });
       const renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || null;
       if (!renderServiceId) throw stageError('Render did not return a service ID.', 'render_service_create', 502, serviceResponse);
 

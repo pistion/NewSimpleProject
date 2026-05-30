@@ -9,7 +9,7 @@ export function parseGithubRepoUrl(url) {
   return { owner: match[1], repo: match[2].replace(/\.git$/i, '') };
 }
 
-export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl, branch = 'main', token }) {
+export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl, branch = 'main', token, rootDispatcher }) {
   const parsed = parseGithubRepoUrl(repoUrl);
   if (!parsed) throw stageError('Invalid generated-sites GitHub repository URL.', 'github_repo_validate', 400);
   if (!hasRealValue(token)) throw stageError('GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is required to publish ZIP source files.', 'github_push', 409);
@@ -19,6 +19,20 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
     const clientId = process.env.GITHUB_CLIENT_ID;
     if (!appId && !clientId) throw stageError('GITHUB_APP_ID is required when GITHUB_GENERATED_SITES_TOKEN or GITHUB_TOKEN is a GitHub App private key.', 'github_push', 409);
     token = await getGithubInstallationToken({ appId, clientId, privateKey: token, owner: parsed.owner, repo: parsed.repo });
+  }
+
+  // Push root-level dispatcher so Render can find the right build script
+  // even when rootDir is not set on the service (fallback safety net).
+  if (rootDispatcher) {
+    try {
+      const os = await import('node:os');
+      const fsp = await import('node:fs/promises');
+      const tmpDir = await fsp.mkdtemp(path.join(os.default.tmpdir(), 'glondia-root-'));
+      const dispatcherPath = await rootDispatcher(tmpDir);
+      const content = await fs.readFile(dispatcherPath);
+      await upsertGithubFile({ owner: parsed.owner, repo: parsed.repo, path: 'glondia-render-build.sh', branch, token, content, message: 'Glondiasites: update root build dispatcher' });
+      await fsp.rm(tmpDir, { recursive: true, force: true });
+    } catch { /* non-fatal */ }
   }
 
   const files = await walkFiles(directory);

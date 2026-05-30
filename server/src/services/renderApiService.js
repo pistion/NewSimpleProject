@@ -491,6 +491,13 @@ class RenderApiService {
       console.warn('[render-api] Service name is generic — consider providing a specific serviceName.');
     }
 
+    // Always include GLONDIA_SITE_SLUG so the root dispatcher can find the
+    // correct subdirectory even if rootDir is not honoured.
+    const siteSlugVar = input.siteSlug
+      ? [{ key: 'GLONDIA_SITE_SLUG', value: input.siteSlug }]
+      : [];
+    const envVars = [...siteSlugVar, ...(input.envVars || [])];
+
     return cleanObject({
       type: serviceType,
       name,
@@ -503,7 +510,7 @@ class RenderApiService {
       // individual file commit and runs the build before the script is there.
       autoDeploy: 'no',
       serviceDetails: details,
-      envVars: input.envVars || undefined,
+      envVars: envVars.length ? envVars : undefined,
     });
   }
 

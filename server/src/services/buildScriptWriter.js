@@ -7,9 +7,47 @@ export async function writeRenderBuildScript(siteDir, detected = {}) {
   const buildCommand = detected.detectedBuildCommand || null;
   const nodeVersion = detected.nodeVersion || null;
 
-  const body = buildCommand ? sourceBuildScript({ buildCommand, publishDirectory, framework: detected.framework, nodeVersion }) : staticBuildScript({ publishDirectory });
+  const body = buildCommand
+    ? sourceBuildScript({ buildCommand, publishDirectory, framework: detected.framework, nodeVersion })
+    : staticBuildScript({ publishDirectory });
+
   await fs.writeFile(scriptPath, body, { mode: 0o755 });
   return { scriptPath, relativePath: 'glondia-render-build.sh', buildCommand: 'bash glondia-render-build.sh' };
+}
+
+/**
+ * Write the root-level dispatcher script to the repo root directory.
+ * This is pushed once to the root of glondia-generated-sites so that if
+ * Render runs without a rootDir set it can still find and execute the
+ * correct per-site build script using the GLONDIA_SITE_SLUG env var.
+ */
+export async function writeRootDispatcherScript(repoRootDir) {
+  const scriptPath = path.join(repoRootDir, 'glondia-render-build.sh');
+  const body = `#!/usr/bin/env bash
+set -euo pipefail
+
+# Root-level dispatcher — runs when Render has no rootDir set on the service.
+# Finds the correct site directory via GLONDIA_SITE_SLUG env var.
+
+SITE_SLUG="\${GLONDIA_SITE_SLUG:-}"
+if [ -z "$SITE_SLUG" ]; then
+  echo "[glondia] ERROR: GLONDIA_SITE_SLUG is not set and no rootDir was configured."
+  echo "[glondia] Set GLONDIA_SITE_SLUG on the Render service to the site folder name."
+  exit 1
+fi
+
+SITE_DIR="uploaded-sites/$SITE_SLUG"
+if [ ! -d "$SITE_DIR" ]; then
+  echo "[glondia] ERROR: Site directory not found: $SITE_DIR"
+  exit 1
+fi
+
+echo "[glondia] Dispatching build for site: $SITE_SLUG"
+cd "$SITE_DIR"
+bash glondia-render-build.sh
+`;
+  await fs.writeFile(scriptPath, body, { mode: 0o755 });
+  return scriptPath;
 }
 
 function staticBuildScript({ publishDirectory }) {
