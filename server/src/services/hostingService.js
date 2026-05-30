@@ -40,10 +40,12 @@ class HostingService {
     const store = await readHostingStore();
     return store.deployments
       .filter((d) => isManagedRenderDeployment(d))
-      // Customers only see their own platform-deployed apps — never imported
-      // services or another customer's deployments.
-      .filter((d) => d.platformDeployed === true && d.userId === userId)
-      .filter((d) => d.status !== STATUS_DELETED)
+      // Show every deployment belonging to this user — failed, suspended,
+      // building, live. Never hide by status. Customers manage their own list.
+      // Exclude only: other users' records, and imported/pre-existing services
+      // (platformDeployed === false). platformDeployed undefined is allowed so
+      // older records aren't accidentally hidden.
+      .filter((d) => d.userId === userId && d.platformDeployed !== false)
       .map((d) => this.toHostingSummary(d));
   }
 

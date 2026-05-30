@@ -498,6 +498,10 @@ class RenderApiService {
       repo,
       branch: input.branch || input.productionBranch || 'main',
       rootDir: input.rootDirectory || undefined,
+      // Always disable auto-deploy — the pipeline triggers manually after all
+      // files are committed to GitHub. Without this Render fires on every
+      // individual file commit and runs the build before the script is there.
+      autoDeploy: 'no',
       serviceDetails: details,
       envVars: input.envVars || undefined,
     });
