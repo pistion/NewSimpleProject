@@ -25,7 +25,7 @@ const upload = multer({
 });
 
 router.use(authMiddleware);
-router.post('/zip', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }]), deploymentController.createZipDeployment);
+router.post('/zip', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), deploymentController.createZipDeployment);
 router.post('/github', deploymentController.createGithubDeployment);
 router.post('/render', validateDeploymentInput, deploymentController.createRenderDeployment);
 router.post('/', validateDeploymentInput, deploymentController.createDeployment);
