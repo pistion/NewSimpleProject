@@ -1,16 +1,18 @@
 import { createSign } from 'node:crypto';
 
-export async function getGithubInstallationToken({ clientId, privateKey }) {
+export async function getGithubInstallationToken({ appId, clientId, privateKey, owner, repo }) {
+  const issuer = appId || clientId;
+  if (!issuer) throw new Error('GITHUB_APP_ID is required for GitHub App private-key publishing. GITHUB_CLIENT_ID is accepted only as a legacy fallback.');
   const normalizedKey = String(privateKey || '').replace(/\\n/g, '\n');
-  const jwt = makeAppJwt(clientId, normalizedKey);
-  const installation = await findInstallation(jwt);
+  const jwt = makeAppJwt(issuer, normalizedKey);
+  const installation = owner && repo ? await findRepoInstallation(jwt, owner, repo) : await findFirstInstallation(jwt);
   return exchangeForToken(jwt, installation.id);
 }
 
-function makeAppJwt(clientId, privateKey) {
+function makeAppJwt(issuer, privateKey) {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: clientId }));
+  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: issuer }));
   const unsigned = `${header}.${payload}`;
   const sign = createSign('RSA-SHA256');
   sign.update(unsigned);
@@ -18,7 +20,16 @@ function makeAppJwt(clientId, privateKey) {
   return `${unsigned}.${sig}`;
 }
 
-async function findInstallation(jwt) {
+async function findRepoInstallation(jwt, owner, repo) {
+  const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/installation`, { headers: appHeaders(jwt) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`GitHub App is not installed on ${owner}/${repo} or lacks access (${res.status}): ${body}`);
+  }
+  return res.json();
+}
+
+async function findFirstInstallation(jwt) {
   const res = await fetch('https://api.github.com/app/installations', { headers: appHeaders(jwt) });
   if (!res.ok) throw new Error(`GitHub App installations lookup failed ${res.status}: ${await res.text().catch(() => '')}`);
   const list = await res.json();
