@@ -38,6 +38,62 @@ class RenderApiService {
     return this.request(`/services/${encodeURIComponent(serviceId)}/suspend`, { method: 'POST', body: {} });
   }
 
+  async resumeService(serviceId) {
+    this.assertConfigured('resume_service');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/resume`, { method: 'POST', body: {} });
+  }
+
+  async restartService(serviceId) {
+    this.assertConfigured('restart_service');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/restart`, { method: 'POST', body: {} });
+  }
+
+  async purgeCache(serviceId) {
+    this.assertConfigured('purge_cache');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/cache/purge`, { method: 'POST', body: {} });
+  }
+
+  async listServiceEvents(serviceId) {
+    this.assertConfigured('list_service_events');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/events?limit=50`);
+  }
+
+  async listSecretFiles(serviceId) {
+    this.assertConfigured('list_secret_files');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/secret-files`);
+  }
+
+  async upsertSecretFiles(serviceId, files = []) {
+    this.assertConfigured('upsert_secret_files');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/secret-files`, { method: 'PUT', body: files });
+  }
+
+  async listHeaders(serviceId) {
+    this.assertConfigured('list_headers');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/headers`);
+  }
+
+  async updateHeaders(serviceId, headers = []) {
+    this.assertConfigured('update_headers');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/headers`, { method: 'PUT', body: headers });
+  }
+
+  async listRoutes(serviceId) {
+    this.assertConfigured('list_routes');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/routes`);
+  }
+
+  async updateRoutes(serviceId, routes = []) {
+    this.assertConfigured('update_routes');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/routes`, { method: 'PUT', body: routes });
+  }
+
+  async getMetrics(metricType, params = {}) {
+    this.assertConfigured('get_metrics');
+    const qs = new URLSearchParams(params).toString();
+    return this.request(`/metrics/${encodeURIComponent(metricType)}${qs ? `?${qs}` : ''}`);
+  }
+
   async deleteService(serviceId) {
     this.assertConfigured('delete_service');
     return this.request(`/services/${encodeURIComponent(serviceId)}`, { method: 'DELETE' });
@@ -65,6 +121,19 @@ class RenderApiService {
   async listDeploys(serviceId, limit = 20) {
     this.assertConfigured('list_deploys');
     return this.request(`/services/${encodeURIComponent(serviceId)}/deploys?limit=${encodeURIComponent(limit)}`);
+  }
+
+  async cancelDeploy(serviceId, deployId) {
+    this.assertConfigured('cancel_deploy');
+    return this.request(
+      `/services/${encodeURIComponent(serviceId)}/deploys/${encodeURIComponent(deployId)}/cancel`,
+      { method: 'POST', body: {} }
+    );
+  }
+
+  async rollbackDeploy(serviceId, deployId) {
+    this.assertConfigured('rollback_deploy');
+    return this.request(`/services/${encodeURIComponent(serviceId)}/rollback`, { method: 'POST', body: { deployId } });
   }
 
   async getDeployLogs(serviceId, deployId, cursor = null) {

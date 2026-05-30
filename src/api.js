@@ -241,6 +241,64 @@ export async function suspendHostingDeployment(deploymentId) {
   return service;
 }
 export const suspendHostingApp = suspendHostingDeployment;
+export async function resumeHostingDeployment(deploymentId) {
+  const service = await hostingRequest(`/hosting/${deploymentId}/resume`, { method: 'POST' });
+  notifyDataChanged();
+  return service;
+}
+export async function restartHostingDeployment(deploymentId) {
+  const service = await hostingRequest(`/hosting/${deploymentId}/restart`, { method: 'POST' });
+  notifyDataChanged();
+  return service;
+}
+export async function cancelHostingDeploy(deploymentId, deployId) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/cancel-deploy`, { method: 'POST', body: JSON.stringify({ deployId }) });
+  notifyDataChanged();
+  return result;
+}
+export async function rollbackHostingDeploy(deploymentId, deployId) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/rollback`, { method: 'POST', body: JSON.stringify({ deployId }) });
+  notifyDataChanged();
+  return result;
+}
+export async function listHostingDeployHistory(deploymentId) {
+  return hostingRequest(`/hosting/${deploymentId}/deploys`);
+}
+export async function purgeHostingCache(deploymentId) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/purge-cache`, { method: 'POST' });
+  notifyDataChanged();
+  return result;
+}
+export async function listHostingEvents(deploymentId) {
+  return hostingRequest(`/hosting/${deploymentId}/events`);
+}
+export async function listHostingSecretFiles(deploymentId) {
+  return hostingRequest(`/hosting/${deploymentId}/secret-files`);
+}
+export async function upsertHostingSecretFiles(deploymentId, files) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/secret-files`, { method: 'PUT', body: JSON.stringify(files) });
+  notifyDataChanged();
+  return result;
+}
+export async function listHostingHeaders(deploymentId) {
+  return hostingRequest(`/hosting/${deploymentId}/headers`);
+}
+export async function updateHostingHeaders(deploymentId, headers) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/headers`, { method: 'PUT', body: JSON.stringify(headers) });
+  notifyDataChanged();
+  return result;
+}
+export async function listHostingRoutes(deploymentId) {
+  return hostingRequest(`/hosting/${deploymentId}/routes`);
+}
+export async function updateHostingRoutes(deploymentId, routes) {
+  const result = await hostingRequest(`/hosting/${deploymentId}/routes`, { method: 'PUT', body: JSON.stringify(routes) });
+  notifyDataChanged();
+  return result;
+}
+export async function getHostingMetrics(deploymentId, type) {
+  return hostingRequest(`/hosting/${deploymentId}/metrics?type=${encodeURIComponent(type || 'cpu')}`);
+}
 export async function deleteHostingDeployment(deploymentId) {
   const result = await hostingRequest(`/hosting/${deploymentId}`, { method: 'DELETE' });
   notifyDataChanged();

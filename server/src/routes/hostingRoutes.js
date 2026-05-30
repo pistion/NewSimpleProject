@@ -15,6 +15,20 @@ router.patch('/:deploymentId/build-settings', hostingController.updateBuildSetti
 router.patch('/:deploymentId/source-settings', hostingController.updateSourceSettings);
 router.post('/:deploymentId/redeploy-with-settings', hostingController.redeployWithSettings);
 router.post('/:deploymentId/suspend', hostingController.suspendHostingService);
+router.post('/:deploymentId/resume', hostingController.resumeHostingService);
+router.post('/:deploymentId/restart', hostingController.restartHostingService);
+router.post('/:deploymentId/cancel-deploy', hostingController.cancelHostingDeploy);
+router.post('/:deploymentId/rollback', hostingController.rollbackHostingDeploy);
+router.get('/:deploymentId/deploys', hostingController.listHostingDeployHistory);
+router.post('/:deploymentId/purge-cache', hostingController.purgeHostingCache);
+router.get('/:deploymentId/events', hostingController.listHostingEvents);
+router.get('/:deploymentId/secret-files', hostingController.listHostingSecretFiles);
+router.put('/:deploymentId/secret-files', hostingController.upsertHostingSecretFiles);
+router.get('/:deploymentId/headers', hostingController.listHostingHeaders);
+router.put('/:deploymentId/headers', hostingController.updateHostingHeaders);
+router.get('/:deploymentId/routes', hostingController.listHostingRoutes);
+router.put('/:deploymentId/routes', hostingController.updateHostingRoutes);
+router.get('/:deploymentId/metrics', hostingController.getHostingMetrics);
 router.delete('/:deploymentId', hostingController.deleteHostingService);
 
 export default router;

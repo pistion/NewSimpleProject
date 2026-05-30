@@ -682,6 +682,176 @@ class HostingService {
   // Note: suspend() and delete() are in section 1 (Public API) above
   // because they are top-level controller-facing methods.
 
+  /**
+   * Resume a suspended Render service.
+   */
+  async resume(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    const renderResult = await renderApiService.resumeService(deployment.renderServiceId);
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_LIVE;
+      stored.currentStep = 'Live';
+      stored.suspendedAt = null;
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      stored.renderResumeResponse = renderResult;
+      appendHostingLog(store, stored.deploymentId, 'Render service resumed from Glondiasites.', 'ok');
+      return stored;
+    });
+  }
+
+  /**
+   * Restart a Render web service.
+   */
+  async restart(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    const renderResult = await renderApiService.restartService(deployment.renderServiceId);
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      appendHostingLog(store, stored.deploymentId, 'Render service restart requested.', 'info');
+      return { ...stored, renderRestartResponse: renderResult };
+    });
+  }
+
+  /**
+   * Cancel an in-progress deploy.
+   */
+  async cancelDeploy(deploymentId, deployId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    const resolvedDeployId = deployId || deployment.renderDeployId;
+    if (!resolvedDeployId) throw conflict('No deploy ID available to cancel.');
+    const renderResult = await renderApiService.cancelDeploy(deployment.renderServiceId, resolvedDeployId);
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      appendHostingLog(store, stored.deploymentId, `Deploy ${resolvedDeployId} cancel requested.`, 'warn');
+      return { ...stored, renderCancelResponse: renderResult };
+    });
+  }
+
+  /**
+   * Rollback to a previous deploy.
+   */
+  async rollbackDeploy(deploymentId, deployId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    if (!deployId) throw conflict('deployId is required for rollback.');
+    const renderResult = await renderApiService.rollbackDeploy(deployment.renderServiceId, deployId);
+    return mutateHostingStore((store) => {
+      const stored = this._find(store, deployment.deploymentId);
+      stored.status = STATUS_BUILDING;
+      stored.buildStatus = 'queued';
+      stored.currentStep = 'Rolling back';
+      stored.lastRenderSyncedAt = nowIso();
+      stored.updatedAt = nowIso();
+      appendHostingLog(store, stored.deploymentId, `Rollback to deploy ${deployId} triggered.`, 'warn');
+      return { ...stored, renderRollbackResponse: renderResult };
+    });
+  }
+
+  /**
+   * List deploy history for a service.
+   */
+  async listDeploys(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.listDeploys(deployment.renderServiceId, 20);
+  }
+
+  /**
+   * Purge cache for a static site.
+   */
+  async purgeCache(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.purgeCache(deployment.renderServiceId);
+  }
+
+  /**
+   * List service events.
+   */
+  async listEvents(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.listServiceEvents(deployment.renderServiceId);
+  }
+
+  /**
+   * List secret files.
+   */
+  async listSecretFiles(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.listSecretFiles(deployment.renderServiceId);
+  }
+
+  /**
+   * Upsert secret files.
+   */
+  async upsertSecretFiles(deploymentId, files = []) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.upsertSecretFiles(deployment.renderServiceId, files);
+  }
+
+  /**
+   * List custom response headers.
+   */
+  async listHeaders(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.listHeaders(deployment.renderServiceId);
+  }
+
+  /**
+   * Update custom response headers.
+   */
+  async updateHeaders(deploymentId, headers = []) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.updateHeaders(deployment.renderServiceId, headers);
+  }
+
+  /**
+   * List redirect/rewrite routes.
+   */
+  async listRoutes(deploymentId) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.listRoutes(deployment.renderServiceId);
+  }
+
+  /**
+   * Update redirect/rewrite routes.
+   */
+  async updateRoutes(deploymentId, routes = []) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    return renderApiService.updateRoutes(deployment.renderServiceId, routes);
+  }
+
+  /**
+   * Get service metrics.
+   */
+  async getMetrics(deploymentId, metricType) {
+    const deployment = await this.findManagedDeployment(deploymentId);
+    this.assertRealRenderService(deployment);
+    const endTime = new Date().toISOString();
+    const startTime = new Date(Date.now() - 3600 * 1000).toISOString();
+    return renderApiService.getMetrics(metricType, {
+      resource: deployment.renderServiceId,
+      startTime,
+      endTime,
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 6. OUTPUT MAPPING
   // ═══════════════════════════════════════════════════════════════════════════
