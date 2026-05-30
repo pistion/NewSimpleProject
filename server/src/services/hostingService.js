@@ -110,36 +110,60 @@ class HostingService {
   }
 
   /**
-   * Delete a Render service and mark the local record deleted.
-   * If Render already reports 404/410, still mark local record.
+   * Fully delete a deployment:
+   *   1. Delete the Render service (if one exists and Render API is configured)
+   *   2. Purge the record and its logs from the local store entirely
+   *   3. Remove any locally extracted uploaded-site files
+   * Works for all states — failed, building, live, or already removed from Render.
    */
   async [['de', 'lete'].join('')](deploymentId) {
-    const deployment = await this.findManagedDeployment(deploymentId);
-    this.assertRealRenderService(deployment);
-    if (deployment.status === STATUS_DELETED) {
-      return { deleted: true, deploymentId: deployment.deploymentId, alreadyDeleted: true };
+    const deployment = await this.findDeployment(deploymentId);
+    const result = {
+      deleted: true,
+      deploymentId: deployment.deploymentId,
+      renderDeleted: false,
+      renderResult: null,
+      localFilesRemoved: false,
+    };
+
+    // ── 1. Delete from Render ──────────────────────────────────────────────
+    if (hasRealRenderId(deployment.renderServiceId) && renderApiService.configured()) {
+      try {
+        result.renderResult = await renderApiService[['de', 'leteService'].join('')](deployment.renderServiceId);
+        result.renderDeleted = true;
+      } catch (error) {
+        if (isRenderGone(error)) {
+          result.renderResult = { status: 'already_removed', message: error.message };
+          result.renderDeleted = true;
+        } else {
+          // Render error — still purge locally but surface the render error message
+          result.renderResult = { status: 'render_error', message: error.message };
+        }
+      }
     }
 
-    let renderResult = null;
-    try {
-      renderResult = await renderApiService[['de', 'leteService'].join('')](deployment.renderServiceId);
-    } catch (error) {
-      if (!isRenderGone(error)) throw error;
-      renderResult = { status: 'already_removed', providerStatus: error.status, message: error.message };
+    // ── 2. Remove local uploaded-site files ───────────────────────────────
+    const siteDir = deployment.generatedSite?.siteDir;
+    if (siteDir) {
+      try {
+        const { rm } = await import('node:fs/promises');
+        await rm(siteDir, { recursive: true, force: true });
+        result.localFilesRemoved = true;
+      } catch { /* best-effort */ }
     }
 
-    return mutateHostingStore((store) => {
-      const stored = this._find(store, deployment.deploymentId);
-      stored.status = STATUS_DELETED;
-      stored.buildStatus = STATUS_DELETED;
-      stored.currentStep = STEP_DELETED;
-      stored.deletedAt = nowIso();
-      stored.lastRenderSyncedAt = nowIso();
-      stored.updatedAt = nowIso();
-      stored.renderDeleteResponse = renderResult;
-      appendHostingLog(store, stored.deploymentId, 'Render service removed from Glondiasites and local record marked removed.', 'warn');
-      return { deleted: true, deploymentId: deployment.deploymentId };
+    // ── 3. Purge record + logs from store entirely ────────────────────────
+    await mutateHostingStore((store) => {
+      store.deployments = (store.deployments || []).filter(
+        (d) => d.deploymentId !== deployment.deploymentId && d.id !== deployment.deploymentId,
+      );
+      store.sessions = (store.sessions || []).filter(
+        (s) => s.deploymentId !== deployment.deploymentId,
+      );
+      delete store.logs[deployment.deploymentId];
     });
+
+    return result;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
