@@ -1,6 +1,6 @@
 // Pre-deploy sanity check: ensure DB directory exists and schema is valid.
 // Uses db push (not migrate deploy) since this project uses SQLite without a migrations folder.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -25,7 +25,11 @@ if (databaseUrl.startsWith('file:')) {
 }
 
 try {
-  execFileSync('npx', ['prisma', 'validate'], { stdio: 'inherit' });
+  if (process.platform === 'win32') {
+    execSync('npx prisma validate', { stdio: 'inherit' });
+  } else {
+    execFileSync('npx', ['prisma', 'validate'], { stdio: 'inherit' });
+  }
   console.log('[pre-migration] Schema valid. OK');
 } catch (error) {
   console.error('[pre-migration] Failed.');

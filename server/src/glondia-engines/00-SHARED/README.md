@@ -19,12 +19,12 @@ Never duplicate shared logic in either engine. Import from here.
 
 ## Migration status
 
-- [ ] deploymentRecordStore.js   (source: services/deploymentRecordStore.js)
-- [ ] runtimeConfig.js           (source: services/runtimeConfig.js)
-- [ ] stageLogger.js             (new)
-- [ ] stageErrors.js             (new — consolidates error factories)
-- [ ] stageNames.js              (new)
-- [ ] deploymentContext.js       (new — shared context factory)
-- [ ] fileRules.js               (new — consolidates ignore rules from zip services)
-- [ ] githubCommon.js            (new — consolidates token/URL helpers)
-- [ ] renderCommon.js            (new — consolidates render helpers)
+- [x] deploymentRecordStore.js   (source: services/deploymentRecordStore.js)
+- [x] runtimeConfig.js           (source: services/runtimeConfig.js)
+- [x] stageLogger.js             (new)
+- [x] stageErrors.js             (new — consolidates error factories)
+- [x] stageNames.js              (new)
+- [x] deploymentContext.js       (new — shared context factory)
+- [x] fileRules.js               (new — consolidates ignore rules from zip services)
+- [x] githubCommon.js            (new — consolidates token/URL helpers)
+- [x] renderCommon.js            (new — consolidates render helpers)

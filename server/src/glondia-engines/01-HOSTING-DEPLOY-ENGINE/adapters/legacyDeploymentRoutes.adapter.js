@@ -9,4 +9,4 @@
  * adapter can be removed.
  */
 
-export { default } from '../../../routes/deploymentRoutes.js';
+export { default } from '../routes/hostingDeploy.routes.js';

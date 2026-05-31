@@ -18,6 +18,7 @@ User already has source code. ZIP upload or GitHub repo → deployed on Render.
 03-GITHUB-SOURCE-MOUNTAIN/
   Job: Resolve GitHub token (PAT or App key exchange).
        Validate repo and branch. Publish extracted source to targetRoot.
+       Optionally create a temporary one-site repo when repoMode=temporary.
        Return published file count and any errors.
   Output: { github.repoUrl, github.targetRoot, github.publishedCount, github.errors[] }
 
@@ -61,21 +62,22 @@ POST /api/template-ai/zip/deploy → zipToRender.pipeline (template-ai compat al
 ## Migration status
 
 ### Mountains
-- [ ] 01-ZIP-INTAKE-MOUNTAIN
-- [ ] 02-UNZIP-AND-DETECT-MOUNTAIN
-- [ ] 03-GITHUB-SOURCE-MOUNTAIN
-- [ ] 04-RENDER-PAYLOAD-MOUNTAIN
-- [ ] 05-RENDER-DEPLOY-MOUNTAIN
-- [ ] 06-CLEANUP-MOUNTAIN
+- [x] 01-ZIP-INTAKE-MOUNTAIN
+- [x] 02-UNZIP-AND-DETECT-MOUNTAIN
+- [x] 03-GITHUB-SOURCE-MOUNTAIN
+- [x] 04-RENDER-PAYLOAD-MOUNTAIN
+- [x] 05-RENDER-DEPLOY-MOUNTAIN
+- [x] 06-CLEANUP-MOUNTAIN
 
 ### Pipelines
-- [ ] zipToRender.pipeline.js
-- [ ] githubLinkToRender.pipeline.js
+- [x] zipToRender.pipeline.js
+- [x] githubLinkToRender.pipeline.js
+- [x] optional temporary repo mode
 
 ### Routes / Controller
-- [ ] routes/hostingDeploy.routes.js
-- [ ] controllers/hostingDeploy.controller.js
+- [x] routes/hostingDeploy.routes.js
+- [x] controllers/hostingDeploy.controller.js
 
 ### Adapters (wrappers keeping old imports alive)
-- [ ] adapters/legacyDeploymentRoutes.adapter.js
-- [ ] adapters/templateAiZipRoute.adapter.js
+- [x] adapters/legacyDeploymentRoutes.adapter.js
+- [x] adapters/templateAiZipRoute.adapter.js

@@ -5,4 +5,4 @@
  * Once migrated, server.js will point to templateAi.routes.js directly.
  */
 
-export { default } from '../../../routes/template-ai.routes.js';
+export { default } from '../routes/templateAi.routes.js';

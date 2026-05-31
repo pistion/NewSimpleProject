@@ -10,7 +10,7 @@
  *   services/githubAppAuth.js
  */
 
-import { getGithubInstallationToken } from '../../services/githubAppAuth.js';
+import { getGithubInstallationToken } from '../01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/githubAppAuth.stage.js';
 
 // ── URL parsing ───────────────────────────────────────────────────────────────
 

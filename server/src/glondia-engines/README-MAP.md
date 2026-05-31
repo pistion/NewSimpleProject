@@ -213,15 +213,15 @@ export async function runStage(context) {
 ## Migration order
 
 ```
-Phase 0  Skeleton + this README (no code changes)               ← YOU ARE HERE
-Phase 1  00-SHARED utilities and context object
-Phase 2  02-UNZIP-AND-DETECT-MOUNTAIN (zipExtractor, detector, buildScript)
-Phase 3  03-GITHUB-SOURCE-MOUNTAIN (publishers, appAuth)
-Phase 4  04-RENDER-PAYLOAD-MOUNTAIN + 05-RENDER-DEPLOY-MOUNTAIN
-Phase 5  Hosting Deploy pipelines (zipToRender, githubLinkToRender)
-Phase 6  02-TEMPLATE-AI-ENGINE stages and controller split
-Phase 7  Template deploy handoff to Hosting Deploy Engine
-Phase 8  Optional: temporary repo support
+Phase 0  Skeleton + this README (no code changes)               DONE
+Phase 1  00-SHARED utilities and context object                  DONE
+Phase 2  02-UNZIP-AND-DETECT-MOUNTAIN (zipExtractor, detector, buildScript) DONE
+Phase 3  03-GITHUB-SOURCE-MOUNTAIN (publishers, appAuth)         DONE
+Phase 4  04-RENDER-PAYLOAD-MOUNTAIN + 05-RENDER-DEPLOY-MOUNTAIN DONE
+Phase 5  Hosting Deploy pipelines (zipToRender, githubLinkToRender) DONE (compat orchestrators)
+Phase 6  02-TEMPLATE-AI-ENGINE stages and controller split       DONE (stage homes + route/controller bridge)
+Phase 7  Template deploy handoff to Hosting Deploy Engine        DONE (GitHub publish before Render)
+Phase 8  Optional: temporary repo support                       DONE (opt-in repoMode/sourceRepoMode=temporary)
 ```
 
 One PR per phase. Run route tests after each phase. Never delete old files until nothing imports them.

@@ -3,10 +3,12 @@
  * Handles AI-assisted template intake, HTML tailoring, draft persistence, and Render deployment records.
  */
 
-import { tailorHtmlTemplate, INTAKE_QUESTIONS, REQUIRED_KEYS } from '../services/openaiSiteAssistant.service.js';
+import { tailorHtmlTemplate, INTAKE_QUESTIONS, REQUIRED_KEYS } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/04-AI-REFINEMENT-MOUNTAIN/openaiTailor.stage.js';
 import { makeId, nowIso, mutateHostingStore } from '../services/hostingStore.js';
-import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../services/templateSiteStore.js';
-import { generateViteStaticSiteFromTemplateSite } from '../services/staticSiteGenerator.service.js';
+import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/store/templateSiteStore.js';
+import { generateViteStaticSiteFromTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/finalSourcePackager.stage.js';
+import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/generatedSitePublisher.stage.js';
+import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
 import renderApiService from '../services/renderApiService.js';
 
 const sessions = new Map();
@@ -136,7 +138,14 @@ async function deploySite(req, res, next) {
     const finalSlug = slugify(slug || finalSiteName || siteId);
     const generatedSite = await generateViteStaticSiteFromTemplateSite(site, { siteName: finalSiteName, slug: finalSlug, buildCommand, publishDirectory });
     const sourceRepo = (repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
-    const renderRootDirectory = rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '';
+    const configuredRoot = process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'generated-sites';
+    const githubTargetRoot = rootDirectory || [configuredRoot, finalSlug].filter(Boolean).join('/');
+    const useTemporaryRepo = shouldUseTemporaryRepo(req.body || {});
+    let activeSourceRepo = sourceRepo;
+    let activeBranch = branch;
+    let renderRootDirectory = githubTargetRoot;
+    let temporaryRepo = null;
+    let githubPublish = { attempted: false, skippedReason: null };
     let renderServiceId = makeId('render_svc_pending');
     let renderDeployId = makeId('render_deploy_pending');
     let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, serviceResponse: null, deployResponse: null };
@@ -147,12 +156,63 @@ async function deploySite(req, res, next) {
     let liveUrl = `https://${finalSlug}.onrender.com`;
     let errorMessage = null;
 
-    if (!sourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the deploy form.';
+    if (!useTemporaryRepo && !sourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the deploy form.';
     else if (!renderApiService.configured()) render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';
     else {
       try {
+        if (useTemporaryRepo) {
+          const { token, error: tokenError } = resolveGitHubPublisherToken();
+          if (tokenError) {
+            providerStatus = 'handoff_blocked';
+            status = 'prepared';
+            buildStatus = 'configuration_required';
+            currentStep = 'Generated site ready; temporary repo publish blocked';
+            errorMessage = `GitHub publisher token error: ${tokenError}`;
+            render.skippedReason = errorMessage;
+            throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
+          }
+          temporaryRepo = await publishDirectoryToTemporaryRepo({
+            directory: generatedSite.siteDir,
+            slug: finalSlug,
+            branch,
+            token,
+            owner: req.body?.temporaryRepoOwner || req.body?.githubOwner,
+            name: req.body?.temporaryRepoName,
+            privateRepo: req.body?.temporaryRepoPrivate !== false && req.body?.temporaryRepoPrivate !== 'false',
+          });
+          githubPublish = temporaryRepo.githubPublish;
+          activeSourceRepo = temporaryRepo.repoUrl;
+          activeBranch = temporaryRepo.branch || branch;
+          renderRootDirectory = '';
+        } else {
+          githubPublish = await publishGeneratedSiteToGitHub({
+            siteDir: generatedSite.siteDir,
+            repoUrl: sourceRepo,
+            branch,
+            targetRoot: githubTargetRoot,
+            commitMessage: `Publish Glondia Template AI site ${finalSlug}`,
+          });
+        }
+        if (!githubPublish.attempted) {
+          providerStatus = 'handoff_blocked';
+          status = 'prepared';
+          buildStatus = 'configuration_required';
+          currentStep = 'Generated site ready; GitHub publish blocked';
+          errorMessage = githubPublish.skippedReason || 'Generated source could not be published to GitHub.';
+          render.skippedReason = errorMessage;
+          throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
+        }
+        if (githubPublish.errors?.length) {
+          providerStatus = 'handoff_blocked';
+          status = 'prepared';
+          buildStatus = 'github_publish_failed';
+          currentStep = 'Generated site ready; GitHub publish failed';
+          errorMessage = `GitHub publish completed with ${githubPublish.errors.length} error(s).`;
+          render.skippedReason = errorMessage;
+          throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
+        }
         render.attempted = true;
-        const serviceResponse = await renderApiService.createService({ serviceName: finalSlug, serviceType, plan, repoUrl: sourceRepo, branch, rootDirectory: renderRootDirectory, buildCommand, outputDirectory: publishDirectory, sourceReference: sourceRepo });
+        const serviceResponse = await renderApiService.createService({ serviceName: finalSlug, serviceType, plan, repoUrl: activeSourceRepo, branch: activeBranch, rootDirectory: renderRootDirectory, buildCommand, outputDirectory: publishDirectory, sourceReference: activeSourceRepo });
         renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || renderServiceId;
         const deployResponse = await renderApiService.triggerDeploy(renderServiceId, { deployMode: 'build_and_deploy' });
         renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || renderDeployId;
@@ -164,21 +224,26 @@ async function deploySite(req, res, next) {
         render.serviceResponse = serviceResponse;
         render.deployResponse = deployResponse;
       } catch (error) {
-        providerStatus = 'handoff_failed'; status = 'deployed_unverified'; buildStatus = 'generated'; currentStep = 'Generated and published; Render handoff failed'; errorMessage = error.message || 'Render handoff failed.';
+        if (!error.skipRenderFailureRecord) {
+          providerStatus = 'handoff_failed'; status = 'deployed_unverified'; buildStatus = 'generated'; currentStep = 'Generated and published; Render handoff failed'; errorMessage = error.message || 'Render handoff failed.';
+        }
         render.error = { message: error.message, status: error.status, details: error.details || null };
       }
     }
 
     await mutateHostingStore((store) => {
-      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite, render, environmentConfiguration: { environment, branch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: sourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
+      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite: { ...generatedSite, githubPublish, githubTargetRoot: renderRootDirectory, temporaryRepo }, render, environmentConfiguration: { environment, branch: activeBranch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: activeSourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
       const logs = [makeLog('Deployment session created from RoxanneAI tailored template.', 'info'), makeLog(`Generated Vite React static site files in ${generatedSite.siteDir}.`, 'ok'), makeLog(`Build command prepared: ${generatedSite.buildCommand}.`, 'info'), makeLog(`Publish directory prepared: ${generatedSite.publishDirectory}.`, 'info')];
+      if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} generated files to ${githubPublish.repository}:${githubPublish.targetRoot}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
+      if (!githubPublish.attempted && githubPublish.skippedReason) logs.push(makeLog(githubPublish.skippedReason, 'warn'));
       if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
       if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
       if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
       store.logs[deploymentId] = logs;
     });
-    await updateTemplateSite(siteId, { status, deploymentId, generatedSite, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: sourceRepo || null, rootDirectory: renderRootDirectory || null } });
-    res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for Render configuration status.' });
+    const generatedSiteWithPublish = { ...generatedSite, githubPublish, githubTargetRoot: renderRootDirectory, temporaryRepo };
+    await updateTemplateSite(siteId, { status, deploymentId, generatedSite: generatedSiteWithPublish, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: activeSourceRepo || null, rootDirectory: renderRootDirectory || null } });
+    res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite: generatedSiteWithPublish, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site, published source, and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for Render configuration status.' });
   } catch (err) { next(err); }
 }
 

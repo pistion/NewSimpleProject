@@ -7,12 +7,13 @@ One job: remove local temp files after the pipeline completes.
 - Failure: preserve working directory for debugging, log reason
 - GitHub source: NEVER delete — Render needs it for redeploys
 - Default: generated-sites monorepo folders are permanent
+- Temporary GitHub repos: keep by default; archive only through an explicit maintenance action
 
 ## Source files (current)
 - services/hostingService.js  delete() removes siteDir
 - services/zipSiteDeployment.service.js  (no cleanup currently)
 
-## Target files (future)
+## Target files
 - localTempCleanup.stage.js        Remove workDir after success
 - failedDeployCleanup.stage.js     Partial cleanup + preserve logs on failure
-- temporaryRepoCleanup.stage.js    (future) Archive/remove temp GitHub repos
+- temporaryRepoCleanup.stage.js    Archive/remove temp GitHub repos

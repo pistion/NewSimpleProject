@@ -69,22 +69,22 @@ GET  /api/template-ai/templates/:templateId/preview
 ## Migration status
 
 ### Mountains
-- [ ] 01-TEMPLATE-LIBRARY-MOUNTAIN
-- [ ] 02-TEMPLATE-SOURCE-MOUNTAIN
-- [ ] 03-USER-BRIEF-MOUNTAIN
-- [ ] 04-AI-REFINEMENT-MOUNTAIN
-- [ ] 05-TEMPLATE-EDITING-MOUNTAIN
-- [ ] 06-PREVIEW-MOUNTAIN
-- [ ] 07-HANDOFF-TO-HOSTING-MOUNTAIN
+- [x] 01-TEMPLATE-LIBRARY-MOUNTAIN
+- [x] 02-TEMPLATE-SOURCE-MOUNTAIN
+- [x] 03-USER-BRIEF-MOUNTAIN
+- [x] 04-AI-REFINEMENT-MOUNTAIN
+- [x] 05-TEMPLATE-EDITING-MOUNTAIN
+- [x] 06-PREVIEW-MOUNTAIN
+- [x] 07-HANDOFF-TO-HOSTING-MOUNTAIN
 
 ### Pipelines
-- [ ] templateToPreview.pipeline.js
-- [ ] templateToDeploy.pipeline.js
+- [x] templateToPreview.pipeline.js
+- [x] templateToDeploy.pipeline.js
 
 ### Routes / Controller / Store
-- [ ] routes/templateAi.routes.js
-- [ ] controllers/templateAi.controller.js
-- [ ] store/templateSiteStore.js
+- [x] routes/templateAi.routes.js
+- [x] controllers/templateAi.controller.js
+- [x] store/templateSiteStore.js
 
 ### Adapters
-- [ ] adapters/legacyTemplateAiRoutes.adapter.js
+- [x] adapters/legacyTemplateAiRoutes.adapter.js
