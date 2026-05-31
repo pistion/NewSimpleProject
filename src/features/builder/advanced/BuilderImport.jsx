@@ -189,6 +189,10 @@ export function BuilderImport({ mode = 'github', navigate }) {
     serviceType: 'static_site', plan: 'starter', region: 'oregon',
     runtime: 'node', healthCheckPath: '/', repoUrl: '', pullRequestPreviews: 'no',
   });
+  // Environment variables: array of { key, value } pairs
+  const [envVars, setEnvVars] = useStateB([]);
+  // Disk settings (web services only)
+  const [disk, setDisk] = useStateB({ enabled: false, name: 'data', mountPath: '/data', sizeGB: 1 });
   const [zipConfig, setZipConfig] = useStateB(null);
   const [settingsMode, setSettingsMode] = useStateB('basic');
   const [activePreset, setActivePreset] = useStateB(null);
@@ -300,7 +304,31 @@ export function BuilderImport({ mode = 'github', navigate }) {
     setZipBusy(true); setZipError(null); setZipNotice('Uploading ZIP package...'); setImportPhase('uploading'); clearTimeout(phaseTimer.current); phaseTimer.current = setTimeout(() => setImportPhase('building'), 1000);
     try {
       const effectiveZipName = renderConfig.serviceName.trim() || zipFile.name.replace(/\.zip$/i, '');
-      const result = await deployZipTemplate(zipFile, { siteName: effectiveZipName, slug: effectiveZipName, serviceName: effectiveZipName, serviceType: renderConfig.serviceType, plan: renderConfig.plan, region: renderConfig.region, environment: 'production', buildCommand: isStaticSite ? (renderConfig.frontendBuildCommand || 'npm run build') : (renderConfig.backendBuildCommand || 'npm install && npm run build'), publishDirectory: renderConfig.frontendPublishDirectory || 'dist', startCommand: isStaticSite ? undefined : renderConfig.backendStartCommand, runtime: isStaticSite ? undefined : renderConfig.runtime, healthCheckPath: isStaticSite ? undefined : renderConfig.healthCheckPath, repoUrl: renderConfig.repoUrl, branch: repoBranch || 'main', rootDirectory: isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory });
+      const validEnvVars = envVars.filter(v => v.key.trim());
+      const result = await deployZipTemplate(zipFile, {
+        // Identity
+        siteName: effectiveZipName, slug: effectiveZipName, serviceName: effectiveZipName,
+        // Deploy settings
+        serviceType: renderConfig.serviceType,
+        plan: renderConfig.plan,
+        region: renderConfig.region,
+        environment: 'production',
+        // Build settings
+        buildCommand: isStaticSite ? (renderConfig.frontendBuildCommand || 'npm run build') : (renderConfig.backendBuildCommand || 'npm install && npm run build'),
+        publishDirectory: renderConfig.frontendPublishDirectory || 'dist',
+        startCommand: isStaticSite ? undefined : (renderConfig.backendStartCommand || undefined),
+        runtime: isStaticSite ? undefined : (renderConfig.runtime || undefined),
+        healthCheckPath: isStaticSite ? undefined : (renderConfig.healthCheckPath || undefined),
+        pullRequestPreviewsEnabled: isStaticSite ? renderConfig.pullRequestPreviews : undefined,
+        // Source
+        repoUrl: renderConfig.repoUrl,
+        branch: repoBranch || 'main',
+        rootDirectory: isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory,
+        // Env vars (JSON-stringified — route parses it back)
+        envVars: validEnvVars.length ? JSON.stringify(validEnvVars) : undefined,
+        // Disk (web services only, JSON-stringified)
+        disk: (!isStaticSite && disk.enabled) ? JSON.stringify({ name: disk.name, mountPath: disk.mountPath, sizeGB: disk.sizeGB }) : undefined,
+      });
       clearTimeout(phaseTimer.current); setImportPhase('complete'); setZipNotice('ZIP uploaded. Opening Hosting detail...'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId } }), 700);
     } catch (err) { setZipError(err.message || 'ZIP upload failed.'); setZipNotice(''); setImportPhase('error'); } finally { setZipBusy(false); }
   };
@@ -401,10 +429,40 @@ export function BuilderImport({ mode = 'github', navigate }) {
             {!isStaticSite && <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Your app must listen on process.env.PORT and bind to 0.0.0.0.</div>}
 
             <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Environment Variables</h3>
-            <div className="muted" style={{ fontSize: 12, padding: '6px 0' }}>Pre-deploy environment variable configuration: Coming soon. Variables can be added after deploy in the Env Vars tab.</div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {envVars.map((ev, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6 }}>
+                  <input className="input mono" placeholder="KEY" value={ev.key} style={{ flex: '0 0 38%' }}
+                    onChange={e => setEnvVars(v => v.map((x, j) => j === i ? { ...x, key: e.target.value } : x))} />
+                  <input className="input mono" placeholder="value" value={ev.value} style={{ flex: 1 }}
+                    onChange={e => setEnvVars(v => v.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} />
+                  <button className="btn btn-sm btn-outline" style={{ flexShrink: 0 }}
+                    onClick={() => setEnvVars(v => v.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+              <button className="btn btn-sm btn-outline" style={{ alignSelf: 'flex-start' }}
+                onClick={() => setEnvVars(v => [...v, { key: '', value: '' }])}>+ Add variable</button>
+              <div className="muted" style={{ fontSize: 11 }}>Variables injected at deploy time. Secrets can also be added in the Env Vars tab after deploy.</div>
+            </div>
 
-            <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Database Add-on</h3>
-            <div className="muted" style={{ fontSize: 12, padding: '6px 0' }}>Render Postgres database: Coming soon</div>
+            {!isStaticSite && (<>
+              <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Persistent Disk</h3>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input type="checkbox" id="disk-enabled" checked={disk.enabled}
+                  onChange={e => setDisk(d => ({ ...d, enabled: e.target.checked }))} />
+                <label htmlFor="disk-enabled" style={{ fontSize: 13 }}>Attach persistent disk (web services only)</label>
+              </div>
+              {disk.enabled && (
+                <div className="render-config-grid render-config-grid--compact">
+                  <label><span>Disk name</span><input className="input mono" value={disk.name}
+                    onChange={e => setDisk(d => ({ ...d, name: e.target.value }))} placeholder="data" /></label>
+                  <label><span>Mount path</span><input className="input mono" value={disk.mountPath}
+                    onChange={e => setDisk(d => ({ ...d, mountPath: e.target.value }))} placeholder="/data" /></label>
+                  <label><span>Size (GB)</span><input className="input mono" type="number" min="1" value={disk.sizeGB}
+                    onChange={e => setDisk(d => ({ ...d, sizeGB: Number(e.target.value) }))} /></label>
+                </div>
+              )}
+            </>)}
           </>)}
 
           {/* Deploy Doctor */}

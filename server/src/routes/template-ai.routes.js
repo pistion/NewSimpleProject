@@ -68,21 +68,37 @@ router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (r
       return res.status(400).json({ error: 'siteZip file is required.', code: 'ZIP_MISSING_FILE' });
     }
     console.log(`[zip-route] ZIP deploy request: ${req.file.originalname} (${req.file.size} bytes)`);
+    // Parse optional JSON fields sent as form-data strings
+    const safeJson = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+
     const result = await deployZipSite({
       fileName: req.file.originalname,
       fileBase64: req.file.buffer.toString('base64'),
       userId: req.user?.id || req.headers['x-user-id'] || req.headers['x-glondia-user-id'] || 'local-user',
+      // ── Identity ───────────────────────────────────────────────────────
       siteName: req.body?.siteName,
       slug: req.body?.slug,
+      // ── Deploy settings ────────────────────────────────────────────────
       serviceType: req.body?.serviceType,
       plan: req.body?.plan,
+      region: req.body?.region,
       environment: req.body?.environment,
+      // ── Build settings ─────────────────────────────────────────────────
       buildCommand: req.body?.buildCommand,
       publishDirectory: req.body?.publishDirectory,
+      startCommand: req.body?.startCommand,
+      runtime: req.body?.runtime,
+      healthCheckPath: req.body?.healthCheckPath,
+      pullRequestPreviewsEnabled: req.body?.pullRequestPreviewsEnabled,
+      // ── Source settings ────────────────────────────────────────────────
       repoUrl: req.body?.repoUrl,
       repositoryUrl: req.body?.repositoryUrl,
       branch: req.body?.branch,
       rootDirectory: req.body?.rootDirectory,
+      // ── Environment variables — JSON array [{ key, value }] ────────────
+      envVars: safeJson(req.body?.envVars),
+      // ── Persistent disk — JSON object { name, mountPath, sizeGB } ──────
+      disk: safeJson(req.body?.disk),
     });
     res.json(result);
   } catch (err) {

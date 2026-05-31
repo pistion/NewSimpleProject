@@ -545,7 +545,8 @@ class RenderApiService {
               buildCommand,
               startCommand: input.startCommand || 'npm start',
             },
-            ...(input.disk ? { disk: { name: input.disk.name, mountPath: input.disk.mountPath, sizeGB: Number(input.disk.sizeGB || 1) } } : {}),
+            ...(input.healthCheckPath ? { healthCheckPath: input.healthCheckPath } : {}),
+            ...(input.disk ? { disk: { name: input.disk.name || 'data', mountPath: input.disk.mountPath, sizeGB: Number(input.disk.sizeGB || 1) } } : {}),
           };
 
     const repo = input.repoUrl || input.repositoryUrl || input.sourceReference;

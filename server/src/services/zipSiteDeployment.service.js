@@ -207,7 +207,19 @@ export async function deployZipSite(input = {}) {
   // serviceType resolved after detection — placeholder here, overridden below
   let serviceType = input.serviceType || null;
   const plan = input.plan || 'starter';
+  const region = input.region || null;
   const environment = input.environment || 'production';
+  const runtime = input.runtime || null;
+  const healthCheckPath = input.healthCheckPath || null;
+  const pullRequestPreviewsEnabled = input.pullRequestPreviewsEnabled || 'no';
+  // envVars: array of { key, value } — validated and sanitised below
+  const envVars = Array.isArray(input.envVars)
+    ? input.envVars.filter((v) => v && String(v.key || '').trim())
+    : [];
+  // disk: { name, mountPath, sizeGB } — web services only
+  const disk = input.disk && typeof input.disk === 'object' && input.disk.mountPath
+    ? { name: String(input.disk.name || 'data'), mountPath: String(input.disk.mountPath), sizeGB: Number(input.disk.sizeGB || 1) }
+    : null;
   const deploymentId = makeId('dep');
   const uploadId = makeId('zip');
   const siteDir = join(uploadedRoot, uploadId);
@@ -310,19 +322,31 @@ export async function deployZipSite(input = {}) {
       console.log(`[zip-deploy] Starting Render handoff for ${finalSlug}...`);
       render.attempted = true;
       const serviceResponse = await renderApiService.createService({
+        // ── Identity ─────────────────────────────────────────────────────
         serviceName: finalSlug,
         serviceType,
+        // ── Infrastructure ───────────────────────────────────────────────
         plan,
+        region: region || undefined,
+        // ── Source ───────────────────────────────────────────────────────
         repoUrl: sourceRepo,
         branch,
         // rootDirectory must match targetRoot so Render cds into the right
         // subdirectory and finds glondia-render-build.sh.
         rootDirectory: targetRoot,
+        sourceReference: sourceRepo,
+        framework: detected.framework,
+        // ── Build / runtime ──────────────────────────────────────────────
         buildCommand,
         outputDirectory: publishDirectory,
-        startCommand,
-        framework: detected.framework,
-        sourceReference: sourceRepo,
+        startCommand: startCommand || undefined,
+        runtime: runtime || (detected.detectedServiceType === 'web_service' ? 'node' : undefined),
+        healthCheckPath: healthCheckPath || undefined,
+        pullRequestPreviewsEnabled,
+        // ── Environment variables (user-provided + GLONDIA_SITE_SLUG) ────
+        envVars: envVars.length ? envVars : undefined,
+        // ── Persistent disk (web services only) ──────────────────────────
+        disk: disk || undefined,
         // Fallback env var — root dispatcher reads this if rootDir is dropped
         siteSlug: finalSlug,
       });
@@ -422,13 +446,19 @@ export async function deployZipSite(input = {}) {
         rootDirectory: targetRoot,
         buildCommand,
         outputDirectory: publishDirectory,
-        startCommand,
+        startCommand: startCommand || null,
+        runtime: runtime || null,
+        region: region || null,
+        healthCheckPath: healthCheckPath || null,
+        pullRequestPreviewsEnabled,
         framework: detected.framework,
         detectedProjectType: detected.type,
         packageManager: detected.packageManager,
         nodeVersion: detected.nodeVersion || null,
         sourceRepository: sourceRepo || null,
         providerTarget: HOSTING_PROVIDER,
+        envVarsCount: envVars.length,
+        hasDisk: Boolean(disk),
       },
       environmentVariablesMetadata: [],
       diskMetadata: [],
