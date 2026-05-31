@@ -54,11 +54,12 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
 
   const published = [];
   const errors = [];
+  let commitId = null;
   for (const filePath of files) {
     const rel = normalizeSlash(path.relative(directory, filePath));
     const targetPath = normalizeSlash(path.posix.join(targetRoot, rel));
     try {
-      await upsertGithubFile({
+      const response = await upsertGithubFile({
         owner: parsed.owner,
         repo: parsed.repo,
         path: targetPath,
@@ -67,6 +68,8 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
         content: await fs.readFile(filePath),
         message: `Publish Glondiasites uploaded site source: ${targetRoot}`,
       });
+      // Capture the latest commit SHA so callers can pin a Render deploy to it.
+      if (response?.commit?.sha) commitId = response.commit.sha;
       published.push(targetPath);
     } catch (error) {
       errors.push({ path: targetPath, message: error.message });
@@ -81,7 +84,7 @@ export async function publishDirectoryToGithub({ directory, targetRoot, repoUrl,
     throw err;
   }
 
-  return { repo: `${parsed.owner}/${parsed.repo}`, branch, targetRoot, published, errors };
+  return { repo: `${parsed.owner}/${parsed.repo}`, branch, targetRoot, published, errors, commitId };
 }
 
 export async function runStage(context) {

@@ -6,6 +6,10 @@
 
 import { createSign } from 'node:crypto';
 
+// Short-lived installation token cache, keyed by installation id.
+// GitHub installation tokens live ~1h; we refresh a minute before expiry.
+const tokenCache = new Map();
+
 export async function getGithubInstallationToken({ appId, clientId, privateKey, owner, repo }) {
   const issuer = appId || clientId;
   if (!issuer) throw new Error('GITHUB_APP_ID is required for GitHub App private-key publishing. GITHUB_CLIENT_ID is accepted only as a legacy fallback.');
@@ -13,6 +17,80 @@ export async function getGithubInstallationToken({ appId, clientId, privateKey, 
   const jwt = makeAppJwt(issuer, normalizedKey);
   const installation = owner && repo ? await findRepoInstallation(jwt, owner, repo) : await findFirstInstallation(jwt);
   return exchangeForToken(jwt, installation.id);
+}
+
+// ── Single source of truth for GitHub App auth ─────────────────────────────────
+
+/**
+ * Resolve GitHub App credentials from the environment.
+ * Accepts a dedicated GITHUB_APP_PRIVATE_KEY, or a legacy GITHUB_GENERATED_SITES_TOKEN
+ * / GITHUB_TOKEN that happens to hold an RSA private key.
+ */
+export function resolveAppCredentials() {
+  const appId = process.env.GITHUB_APP_ID || process.env.GITHUB_APP_CLIENT_ID || process.env.GITHUB_CLIENT_ID || '';
+  let privateKey = process.env.GITHUB_APP_PRIVATE_KEY || '';
+  if (!privateKey) {
+    const legacy = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '';
+    if (legacy.includes('-----BEGIN')) privateKey = legacy;
+  }
+  return { appId, privateKey: String(privateKey || '').replace(/\\n/g, '\n') };
+}
+
+/**
+ * Build a signed GitHub App JWT from the configured app credentials.
+ */
+export function createAppJwt() {
+  const { appId, privateKey } = resolveAppCredentials();
+  if (!appId) throw new Error('GITHUB_APP_ID (or GITHUB_APP_CLIENT_ID) is required to create a GitHub App JWT.');
+  if (!privateKey) throw new Error('GITHUB_APP_PRIVATE_KEY is required to create a GitHub App JWT.');
+  return makeAppJwt(appId, privateKey);
+}
+
+/**
+ * Get an installation access token for a specific installation id, with caching.
+ */
+export async function getInstallationToken(installationId) {
+  const id = String(installationId || '').trim();
+  if (!id) throw new Error('installationId is required to get a GitHub App installation token.');
+  const cached = tokenCache.get(id);
+  if (cached && cached.expiresAt - Date.now() > 60_000) return cached.token;
+  const jwt = createAppJwt();
+  const { token, expiresAt } = await exchangeForToken(jwt, id, { withExpiry: true });
+  tokenCache.set(id, { token, expiresAt });
+  return token;
+}
+
+/**
+ * Get an installation token scoped to a specific repo (resolves the installation first).
+ */
+export async function getInstallationTokenForRepo({ owner, repo }) {
+  const jwt = createAppJwt();
+  const installation = await findRepoInstallation(jwt, owner, repo);
+  return getInstallationToken(installation.id);
+}
+
+/**
+ * Token used to read a client repository (Contents: Read).
+ */
+export function getClientInstallationToken(clientInstallationId) {
+  return getInstallationToken(clientInstallationId);
+}
+
+/**
+ * Token used to create/update Glondiasites-controlled repos (Contents: Read/Write).
+ */
+export function getPlatformInstallationToken() {
+  const id = process.env.GITHUB_GLONDIASITES_INSTALLATION_ID;
+  if (!id) throw new Error('GITHUB_GLONDIASITES_INSTALLATION_ID is required to get the platform installation token.');
+  return getInstallationToken(id);
+}
+
+/**
+ * True when GitHub App private-key auth is configured.
+ */
+export function githubAppConfigured() {
+  const { appId, privateKey } = resolveAppCredentials();
+  return Boolean(appId && privateKey);
 }
 
 function makeAppJwt(issuer, privateKey) {
@@ -43,11 +121,15 @@ async function findFirstInstallation(jwt) {
   return list[0];
 }
 
-async function exchangeForToken(jwt, installationId) {
+async function exchangeForToken(jwt, installationId, { withExpiry = false } = {}) {
   const res = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: 'POST', headers: appHeaders(jwt) });
   if (!res.ok) throw new Error(`GitHub App token exchange failed ${res.status}: ${await res.text().catch(() => '')}`);
   const data = await res.json();
-  return data.token;
+  if (!withExpiry) return data.token;
+  return {
+    token: data.token,
+    expiresAt: data.expires_at ? Date.parse(data.expires_at) : Date.now() + 3_600_000,
+  };
 }
 
 function appHeaders(jwt) {
