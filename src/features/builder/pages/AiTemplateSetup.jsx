@@ -1,4 +1,4 @@
-// AiTemplateSetup.jsx — RoxanneAI guided customization before Render deployment settings.
+// AiTemplateSetup.jsx — RoxanneAI guided customization before Hosting handoff.
 import React, { useState, useEffect, useRef } from 'react';
 import { ICN } from '../../../icons';
 import { GD } from '../../../data';
@@ -107,7 +107,7 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
       nextQ
         ? { role: 'ai', text: nextQ.question, questionKey: nextQ.key }
         : { role: 'ai', text: REQUIRED_KEYS.every(k => newAnswers[k]?.trim())
-          ? 'Perfect. I have the core details. Click “Generate with RoxanneAI” and I will edit the copied template for Render deployment settings.'
+          ? 'Perfect. I have the core details. Click “Generate with RoxanneAI” and I will edit the copied template for Hosting handoff.'
           : 'I still need business name, industry, and products/services before I can generate the copied template.' },
     ]);
     setStep(nextStep);
@@ -193,7 +193,7 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
           </a>
           <h1>RoxanneAI setup for {template?.name || templateId}</h1>
           <p className="sub">
-            Answer the editing questions. RoxanneAI will create a copied template draft, customize it, and send you to Render deployment settings.
+            Answer the editing questions. RoxanneAI will create a copied template draft, customize it, and send you to Hosting handoff.
           </p>
         </div>
         <div className="actions">
@@ -258,7 +258,7 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
             </form>
           ) : (
             <div className="ai-intake-complete-bar">
-              <span className="faint" style={{ fontSize: 13 }}>All questions answered. Generate the copied site to continue to Render settings.</span>
+              <span className="faint" style={{ fontSize: 13 }}>All questions answered. Generate the copied site to continue to Hosting handoff.</span>
               <button className="btn btn-primary" onClick={handleGenerateAndContinue} disabled={!minRequired}>
                 <ICN.Sparkles size={14} /> Generate with RoxanneAI
               </button>

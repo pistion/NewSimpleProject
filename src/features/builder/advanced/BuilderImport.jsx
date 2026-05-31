@@ -304,30 +304,20 @@ export function BuilderImport({ mode = 'github', navigate }) {
     setZipBusy(true); setZipError(null); setZipNotice('Uploading ZIP package...'); setImportPhase('uploading'); clearTimeout(phaseTimer.current); phaseTimer.current = setTimeout(() => setImportPhase('building'), 1000);
     try {
       const effectiveZipName = renderConfig.serviceName.trim() || zipFile.name.replace(/\.zip$/i, '');
-      const validEnvVars = envVars.filter(v => v.key.trim());
       const result = await deployZipTemplate(zipFile, {
         // Identity
         siteName: effectiveZipName, slug: effectiveZipName, serviceName: effectiveZipName,
-        // Deploy settings
-        serviceType: renderConfig.serviceType,
-        plan: renderConfig.plan,
-        region: renderConfig.region,
+        // Hosting handoff settings
         environment: 'production',
         // Build settings
         buildCommand: isStaticSite ? (renderConfig.frontendBuildCommand || 'npm run build') : (renderConfig.backendBuildCommand || 'npm install && npm run build'),
         publishDirectory: renderConfig.frontendPublishDirectory || 'dist',
-        startCommand: isStaticSite ? undefined : (renderConfig.backendStartCommand || undefined),
-        runtime: isStaticSite ? undefined : (renderConfig.runtime || undefined),
-        healthCheckPath: isStaticSite ? undefined : (renderConfig.healthCheckPath || undefined),
-        pullRequestPreviewsEnabled: isStaticSite ? renderConfig.pullRequestPreviews : undefined,
         // Source
         repoUrl: renderConfig.repoUrl,
         branch: repoBranch || 'main',
         rootDirectory: isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory,
         // Env vars (JSON-stringified — route parses it back)
-        envVars: validEnvVars.length ? JSON.stringify(validEnvVars) : undefined,
         // Disk (web services only, JSON-stringified)
-        disk: (!isStaticSite && disk.enabled) ? JSON.stringify({ name: disk.name, mountPath: disk.mountPath, sizeGB: disk.sizeGB }) : undefined,
       });
       clearTimeout(phaseTimer.current); setImportPhase('complete'); setZipNotice('ZIP uploaded. Opening Hosting detail...'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId } }), 700);
     } catch (err) { setZipError(err.message || 'ZIP upload failed.'); setZipNotice(''); setImportPhase('error'); } finally { setZipBusy(false); }
@@ -373,13 +363,12 @@ export function BuilderImport({ mode = 'github', navigate }) {
           </div>
         )}
 
-        {/* ── Deploy Configuration Panel ─────────────────────────────── */}
+        {/* ── Hosting handoff panel ──────────────────────────────────── */}
         <div className="render-config-panel">
           <div className="row between" style={{ marginBottom: 6 }}>
-            <div><div className="eyebrow">Deploy Configuration</div></div>
+            <div><div className="eyebrow">Hosting Handoff</div></div>
             <div className="tabs" style={{ margin: 0, fontSize: 12 }}>
               <button className={settingsMode === 'basic' ? 'active' : ''} onClick={() => setSettingsMode('basic')} style={{ padding: '4px 10px' }}>Basic</button>
-              <button className={settingsMode === 'advanced' ? 'active' : ''} onClick={() => setSettingsMode('advanced')} style={{ padding: '4px 10px' }}>Advanced</button>
             </div>
           </div>
 
@@ -392,10 +381,9 @@ export function BuilderImport({ mode = 'github', navigate }) {
           {presetNotice && <div style={{ color: 'var(--accent)', fontSize: 12, marginBottom: 8 }}>{presetNotice}</div>}
 
           {/* Basic settings — always visible */}
-          <h3 style={{ margin: '0 0 8px', fontSize: 13 }}>Basic Settings</h3>
+          <h3 style={{ margin: '0 0 8px', fontSize: 13 }}>Handoff Settings</h3>
           <div className="render-config-grid render-config-grid--compact">
-            <label><span>Service name</span><input className="input mono" value={renderConfig.serviceName} onChange={(e) => updateRenderConfig('serviceName', e.target.value)} placeholder={activeMode === 'zip' && zipFile ? zipFile.name.replace(/\.zip$/i, '') : detectedRepo ? detectedRepo.repo : 'my-site'} /></label>
-            <label><span>Service type</span><select className="input" value={renderConfig.serviceType} onChange={(e) => updateServiceType(e.target.value)}><option value="static_site">Static Site</option><option value="web_service">Web Service</option></select></label>
+            <label><span>Handoff name</span><input className="input mono" value={renderConfig.serviceName} onChange={(e) => updateRenderConfig('serviceName', e.target.value)} placeholder={activeMode === 'zip' && zipFile ? zipFile.name.replace(/\.zip$/i, '') : detectedRepo ? detectedRepo.repo : 'my-site'} /></label>
           </div>
 
           {/* Build settings — always visible */}
@@ -479,8 +467,8 @@ export function BuilderImport({ mode = 'github', navigate }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button className="btn btn-outline" disabled style={{ fontSize: 12 }}>Save Draft (coming soon)</button>
             {activeMode === 'zip'
-              ? <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleZipDeploy} disabled={zipBusy || !zipFile || hasErrors}><ICN.Rocket size={14} /> {zipBusy ? 'Uploading...' : zipFile ? 'Deploy ZIP' : 'Choose ZIP first'}</button>
-              : <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo || hasErrors}><ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening' : gitBusy ? 'Importing' : 'Deploy to Render'}</button>}
+              ? <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleZipDeploy} disabled={zipBusy || !zipFile}><ICN.Rocket size={14} /> {zipBusy ? 'Handing off...' : zipFile ? 'Send ZIP to Hosting' : 'Choose ZIP first'}</button>
+              : <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo}><ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening' : gitBusy ? 'Importing' : 'Import source'}</button>}
           </div>
         </div>
       </div><div className="bld-preview"><ImportProgressPreview phase={importPhase} repo={detectedRepo} branch={repoBranch || 'main'} error={activeError} showLoader={importStarted} isImporting={isImporting} zipFile={activeMode === 'zip' ? zipFile : null} /></div></div></div>

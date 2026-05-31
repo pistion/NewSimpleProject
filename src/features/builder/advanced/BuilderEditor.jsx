@@ -13,7 +13,6 @@ import {
   getBuilderSite,
   listBuilderPages,
   createRenderDeployment,
-  getRenderSettings,
   getStoredAuth,
   aiEditBuilderPage,
 } from '../../../api';
@@ -404,21 +403,8 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
   const contents = content._githubFileContents && typeof content._githubFileContents === 'object' ? content._githubFileContents : {};
   const summary = content._githubSummary || {};
   const loadedPaths = Object.keys(contents);
-  const [renderStatus, setRenderStatus] = useStateB({ loading: true, settings: null, deploys: [], error: null });
-  const [selectedRenderServiceId, setSelectedRenderServiceId] = useStateB('');
   const [deploying, setDeploying] = useStateB(false);
   const [deployMsg, setDeployMsg] = useStateB(null);
-
-  const refreshRenderStatus = React.useCallback(() => {
-    setRenderStatus((current) => ({ ...current, loading: true, error: null }));
-    getRenderSettings()
-      .then((settings) => {
-        setRenderStatus({ loading: false, settings, deploys: [], error: settings?.error || null });
-      })
-      .catch((error) => setRenderStatus({ loading: false, settings: null, deploys: [], error: error.message }));
-  }, []);
-
-  React.useEffect(() => { refreshRenderStatus(); }, [refreshRenderStatus]);
 
   const renderActivationPayload = React.useCallback(() => {
     let packageJson = {};
@@ -440,7 +426,6 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
       const payload = renderActivationPayload();
       const deploymentPayload = {
         siteId: site?.id, projectId: site?.projectId || site?.id,
-        renderServiceId: selectedRenderServiceId || undefined,
         name: payload.name, serviceType: payload.startCommand ? 'web_service' : 'static_site',
         repoUrl: payload.repoUrl, githubRepo: content._repository, branch: payload.branch,
         sourceReference: content._sandboxPreviewUrl || payload.repoUrl,
@@ -448,14 +433,14 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
         outputDirectory: payload.outputDirectory, environment: 'production',
       };
       const deployment = await createRenderDeployment(deploymentPayload);
-      setDeployMsg('Deployment started. Pay in Hosting → Billing to keep the site live.');
+      setDeployMsg('Deployment handoff created. Opening Hosting detail...');
       navigate({ view: 'hosting-detail', params: { id: deployment.deploymentId } });
     } catch (error) {
       setDeployMsg(error.message || 'Publishing needs attention.');
     } finally {
       setDeploying(false);
     }
-  }, [content._repository, content._sandboxPreviewUrl, navigate, renderActivationPayload, selectedRenderServiceId, site?.id, site?.projectId]);
+  }, [content._repository, content._sandboxPreviewUrl, navigate, renderActivationPayload, site?.id, site?.projectId]);
 
   React.useEffect(() => {
     const publish = () => handleRenderDeploy();
@@ -481,26 +466,22 @@ function ImportedGithubWorkspace({ content, site, navigate }) {
         <div style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
           <div className="row between" style={{ gap: 12 }}>
             <div>
-              <div style={{ fontWeight: 700 }}>Hosting setup</div>
+              <div style={{ fontWeight: 700 }}>Hosting handoff</div>
               <div className="muted" style={{ fontSize: 13 }}>
-                {renderStatus.loading ? 'Checking hosting configuration...' : renderStatus.settings?.configured ? 'Ready to publish this app to a dedicated customer hosting environment.' : 'Hosting is not configured yet. Contact support before publishing.'}
+                Builder prepares the source and opens Hosting detail. Deployment controls live in Hosting.
               </div>
             </div>
-            <Badge tone={renderStatus.settings?.configured ? "success" : "warn"} dot={false}>
-              {renderStatus.settings?.configured ? "Ready" : "Setup"}
-            </Badge>
+            <Badge tone="success" dot={false}>Handoff</Badge>
           </div>
           <div style={{ display: "grid", gap: 10 }}>
             <PublishStep done={!!content._repository} label="Repository connected" />
             <PublishStep done={content._sandboxStatus === 'ready'} label="Build preview prepared" />
-            <PublishStep done={!!selectedRenderServiceId} label="Dedicated customer hosting" pendingLabel="Created on publish" />
+            <PublishStep done label="Hosting detail opens after deploy record" />
           </div>
-          {renderStatus.error && <div style={{ color: "var(--warning)", fontSize: 13 }}>{renderStatus.error}</div>}
           {deployMsg && <div style={{ color: "var(--accent)", fontSize: 13 }}>{deployMsg}</div>}
-          <div className="row" style={{ gap: 8, justifyContent: "space-between" }}>
-            <button className="btn btn-sm btn-outline" onClick={refreshRenderStatus} disabled={renderStatus.loading}>Refresh status</button>
+          <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
             <button className="btn btn-sm btn-primary" onClick={handleRenderDeploy} disabled={deploying}>
-              <ICN.Rocket size={13} /> {deploying ? "Deploying..." : "Deploy now"}
+              <ICN.Rocket size={13} /> {deploying ? "Handing off..." : "Send to Hosting"}
             </button>
           </div>
         </div>
@@ -562,8 +543,6 @@ function ImportedGithubPreview({ content }) {
 function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteId, existingPageId, onPublished }) {
   const [phase, setPhase] = useStateB("review");
   const [publishError, setPublishError] = useStateB(null);
-  const [liveUrl, setLiveUrl] = useStateB(`https://${siteSlug}.glondia.app`);
-  const [deployResult, setDeployResult] = useStateB(null);
 
   const runPublish = async () => {
     setPhase("building");
@@ -619,8 +598,7 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
               <p className="muted" style={{ marginTop: 0 }}>This will publish <b style={{ color: "var(--text)" }}>{content.siteName || content._repository || 'this site'}</b> to its customer hosting environment and start a production deployment.</p>
               <div className="kv" style={{ marginTop: 16 }}>
                 <dt>Source</dt><dd>{content._repository ? <span className="mono">{content._repository}</span> : `${tpl?.name || 'Builder'} template`}</dd>
-                <dt>Hosting</dt><dd className="mono">Dedicated customer environment</dd>
-                <dt>Provider</dt><dd><Badge tone="success">Render</Badge></dd>
+                <dt>Handoff</dt><dd className="mono">Hosting detail opens next</dd>
                 <dt>Preview</dt><dd className="mono">{content._sandboxPreviewUrl || 'Current build output'}</dd>
               </div>
             </div>
@@ -638,9 +616,9 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
               <ICN.Rocket size={28} />
             </div>
             <h3 style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 26, margin: 0 }}>Starting deployment…</h3>
-            <div className="muted" style={{ marginTop: 8 }}>Creating the hosting app and moving you to Hosting for live monitoring.</div>
+            <div className="muted" style={{ marginTop: 8 }}>Creating the handoff record and moving you to Hosting for live monitoring.</div>
             <div style={{ marginTop: 18, display: "grid", gap: 8, textAlign: "left" }}>
-              {['Saving latest customer content','Preparing dedicated customer hosting','Triggering Render deployment','Preparing custom domain attachment'].map((step) => (
+              {['Saving latest customer content','Packaging source for handoff','Creating Hosting deployment record','Opening Hosting detail'].map((step) => (
                 <div key={step} className="anim-slideUp" style={{ display: "grid", gridTemplateColumns: "22px 1fr", gap: 10, alignItems: "center", padding: "9px 10px", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", background: "var(--bg-deep)" }}>
                   <ICN.CheckCircle size={14} style={{ color: "var(--accent)" }} />
                   <span style={{ fontSize: 13 }}>{step}</span>
@@ -664,16 +642,10 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
             </div>
             <h3 style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 28, margin: 0 }}>Your site is live!</h3>
             <p className="muted" style={{ maxWidth: 40 + "ch", margin: "10px auto 0" }}>
-              The Render deployment has started for the Glondiasites app. Visit the live link below, then attach a custom domain when you are ready.
+              The deployment handoff has started. Continue monitoring and service setup from Hosting.
             </p>
-            {(deployResult?.serviceId || deployResult?.renderServiceId) && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                Render service <span className="mono">{deployResult.serviceId || deployResult.renderServiceId}</span>
-              </div>
-            )}
             <div style={{ marginTop: 22, padding: 14, background: "var(--bg-deep)", borderRadius: "var(--r-sm)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="mono" style={{ color: "var(--accent)" }}>{liveUrl}</span>
-              <button className="btn btn-sm btn-outline" onClick={() => navigator.clipboard?.writeText(liveUrl)}><ICN.Copy size={12} /></button>
+              <span className="mono" style={{ color: "var(--accent)" }}>Hosting detail</span>
             </div>
             <div style={{ marginTop: 14, padding: 14, border: "1px solid var(--border)", borderRadius: "var(--r-sm)", textAlign: "left" }}>
               <div style={{ fontWeight: 700 }}>Attach a domain name</div>
@@ -682,9 +654,6 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
             <div className="row" style={{ justifyContent: "center", gap: 10, marginTop: 24 }}>
               <button className="btn btn-outline" onClick={() => { onClose(); navigate({ view: "hosting-list" }); }}>View in hosting</button>
               <button className="btn btn-outline" onClick={() => { onClose(); navigate({ view: "domains" }); }}>Attach domain</button>
-              <a href={liveUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
-                <ICN.ExternalLink size={14} /> Visit site
-              </a>
             </div>
           </div>
         )}
@@ -852,7 +821,7 @@ export function BuilderEditor({ id, siteId: initialSiteId, navigate }) {
             <ICN.Eye size={14} /> Preview live
           </button>
           <button className="btn btn-primary" onClick={() => isGithubImport ? window.dispatchEvent(new CustomEvent('glondia:imported-publish')) : setPublishing(true)}>
-            <ICN.Rocket size={14} /> {isGithubImport ? "Deploy to Render" : "Publish"}
+            <ICN.Rocket size={14} /> {isGithubImport ? "Send to Hosting" : "Publish"}
           </button>
         </div>
       </div>
