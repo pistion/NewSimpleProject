@@ -106,7 +106,8 @@ class RenderApiService {
     return this.request(`/services/${encodeURIComponent(serviceId)}/deploys`, {
       method: 'POST',
       body: {
-        clearCache: input.clearCache || 'do_not_clear',
+        // Render Public API deploy body: clearCache, commitId, imageUrl, deployMode.
+        clearCache: normalizeClearCache(input.clearCache),
         deployMode: input.deployMode || 'build_and_deploy',
         ...(input.commitId ? { commitId: input.commitId } : {}),
       },
@@ -171,11 +172,15 @@ class RenderApiService {
 
   // ── Disks ────────────────────────────────────────────────────────────────────
 
+  // Render Public API: disks are a top-level resource, NOT nested under a
+  // service. Create is POST /disks with serviceId in the body; update/delete
+  // target /disks/{diskId}. (There is no /services/{id}/disks path.)
   async createDisk(serviceId, disk = {}) {
     this.assertConfigured('create_disk');
-    return this.request(`/services/${encodeURIComponent(serviceId)}/disks`, {
+    return this.request('/disks', {
       method: 'POST',
       body: {
+        serviceId,
         name: disk.name,
         mountPath: disk.mountPath,
         sizeGB: Number(disk.sizeGB || disk.size || 1),
@@ -185,15 +190,20 @@ class RenderApiService {
 
   async updateDisk(serviceId, diskId, disk = {}) {
     this.assertConfigured('update_disk');
-    return this.request(`/services/${encodeURIComponent(serviceId)}/disks/${encodeURIComponent(diskId)}`, {
+    // Only name, mountPath, sizeGB are accepted on update.
+    return this.request(`/disks/${encodeURIComponent(diskId)}`, {
       method: 'PATCH',
-      body: disk,
+      body: cleanObject({
+        name: disk.name,
+        mountPath: disk.mountPath,
+        sizeGB: disk.sizeGB !== undefined || disk.size !== undefined ? Number(disk.sizeGB || disk.size) : undefined,
+      }),
     });
   }
 
   async deleteDisk(serviceId, diskId) {
     this.assertConfigured('delete_disk');
-    return this.request(`/services/${encodeURIComponent(serviceId)}/disks/${encodeURIComponent(diskId)}`, { method: 'DELETE' });
+    return this.request(`/disks/${encodeURIComponent(diskId)}`, { method: 'DELETE' });
   }
 
   // ── Custom Domains ───────────────────────────────────────────────────────────
@@ -538,7 +548,10 @@ class RenderApiService {
             region: input.region || 'oregon',
           }
         : {
-            env: runtime,
+            // Render Public API: web service detail field is `runtime` (enum:
+            // node|python|ruby|go|rust|elixir|docker|image). There is no `env`
+            // field; `runtime` is required, so sending `env` drops it entirely.
+            runtime,
             plan: input.plan || 'starter',
             region: input.region || 'oregon',
             envSpecificDetails: {
@@ -669,7 +682,7 @@ function buildWebServiceUpdatePayload(input = {}) {
 
     serviceDetails: {
       ...(input.runtime || input.env
-        ? { env: input.runtime || input.env }
+        ? { runtime: input.runtime || input.env }
         : {}),
 
       ...(input.plan
