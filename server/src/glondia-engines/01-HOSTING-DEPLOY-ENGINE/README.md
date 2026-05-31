@@ -2,7 +2,7 @@
 
 User already has source code. ZIP upload or GitHub repo → deployed on Render.
 
-## The six mountains
+## The ZIP mountains
 
 ```
 01-ZIP-INTAKE-MOUNTAIN/
@@ -40,6 +40,28 @@ User already has source code. ZIP upload or GitHub repo → deployed on Render.
   Output: { cleanup.localDirRemoved, cleanup.reason }
 ```
 
+## The GitHub link mountains
+
+```
+01-GITHUB-LINK-INTAKE-MOUNTAIN/
+  Job: Accept repoUrl/repositoryUrl/sourceRepository/sourceReference.
+       Validate it as a GitHub repo link. Normalize branch and service name.
+  Output: { repoUrl, parsedRepo, branch, siteName }
+
+02-GITHUB-RENDER-SOURCE-MOUNTAIN/
+  Job: Build the direct GitHub source object Render needs.
+       No ZIP extraction and no generated-sites publishing.
+  Output: { sourceType, repoUrl, branch, owner, repo, fullName }
+
+03-GITHUB-LINK-RECORD-MOUNTAIN/
+  Job: Create/update Hosting deployment records and logs for GitHub link deploys.
+  Output: { deploymentId, logs, status }
+
+04-RENDER-PAYLOAD-MOUNTAIN/
+05-RENDER-DEPLOY-MOUNTAIN/
+  Job: Shared Render payload + deploy stages.
+```
+
 ## Pipelines
 
 ```
@@ -63,8 +85,11 @@ POST /api/template-ai/zip/deploy → zipToRender.pipeline (template-ai compat al
 
 ### Mountains
 - [x] 01-ZIP-INTAKE-MOUNTAIN
+- [x] 01-GITHUB-LINK-INTAKE-MOUNTAIN
 - [x] 02-UNZIP-AND-DETECT-MOUNTAIN
+- [x] 02-GITHUB-RENDER-SOURCE-MOUNTAIN
 - [x] 03-GITHUB-SOURCE-MOUNTAIN
+- [x] 03-GITHUB-LINK-RECORD-MOUNTAIN
 - [x] 04-RENDER-PAYLOAD-MOUNTAIN
 - [x] 05-RENDER-DEPLOY-MOUNTAIN
 - [x] 06-CLEANUP-MOUNTAIN

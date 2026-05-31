@@ -54,7 +54,7 @@ adapters/
 | Current file | Future location |
 |---|---|
 | `services/zipDeploymentService.js` | `pipelines/zipToRender.pipeline.js` |
-| `services/githubDeploymentService.js` | `pipelines/githubLinkToRender.pipeline.js` |
+| `services/githubDeploymentService.js` | `01-GITHUB-LINK-INTAKE-MOUNTAIN` + `02-GITHUB-RENDER-SOURCE-MOUNTAIN` + `03-GITHUB-LINK-RECORD-MOUNTAIN` + `pipelines/githubLinkToRender.pipeline.js` |
 | `services/zipExtractor.js` | `02-UNZIP-AND-DETECT-MOUNTAIN/zipExtractor.stage.js` |
 | `services/projectDetector.js` | `02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.stage.js` |
 | `services/buildScriptWriter.js` | `02-UNZIP-AND-DETECT-MOUNTAIN/buildScriptWriter.stage.js` |
