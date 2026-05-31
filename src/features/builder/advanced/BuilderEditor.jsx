@@ -566,6 +566,7 @@ function PublishModal({ onClose, content, tpl, siteSlug, navigate, existingSiteI
         slug: published?.slug || siteSlug,
         serviceType: content._sandboxMode === 'node' ? 'web_service' : 'static_site',
         repoUrl: content._repository ? `https://github.com/${content._repository}` : null,
+        githubRepo: content._repository || undefined,
         sourceReference: content._sandboxPreviewUrl || content._source || 'builder',
         branch: content._branch || 'main',
         buildCommand: content._renderConfig?.buildCommand || content._sandboxBuildCommand || null,

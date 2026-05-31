@@ -178,10 +178,20 @@ export async function archiveProject(projectId) { return projectApi.archiveProje
 export async function createDeployment(projectId, input) { return projectApi.createDeployment(projectId, input); }
 
 export async function createRenderDeployment(input) {
-  const path = isLiveMode() ? '/deployments/render' : '/deployments';
+  const path = isLiveMode()
+    ? (isDirectGithubDeployment(input) ? '/deployments/github' : '/deployments/render')
+    : '/deployments';
   const deployment = await hostingRequest(path, { method: 'POST', body: JSON.stringify(input) });
   notifyDataChanged();
   return deployment;
+}
+
+function isDirectGithubDeployment(input = {}) {
+  if (input.githubRepo || input.repositoryProvider === 'github' || input.source === 'github' || input.source === 'github-link') return true;
+  const repoUrl = String(input.repoUrl || input.repositoryUrl || input.sourceRepository || '').trim();
+  if (!/github\.com[:/][^/]+\/[^/.#?]+/i.test(repoUrl)) return false;
+  const sourceReference = String(input.sourceReference || '').trim();
+  return !sourceReference || sourceReference === repoUrl;
 }
 
 export async function getRenderDeploymentStatus(deploymentId) { return hostingRequest(`/deployments/${deploymentId}/status`); }
