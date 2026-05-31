@@ -193,6 +193,7 @@ export function getZipDeployConfigStatus() {
 
 export async function deployZipSite(input = {}) {
   const fileName = sanitizeFileName(input.fileName || 'uploaded-site.zip');
+  const userId = input.userId || input.user_id || 'local-user';
   const base64 = String(input.fileBase64 || '').replace(/^data:.*?;base64,/, '');
   if (!base64) throw badRequest('fileBase64 is required.', 'ZIP_NO_DATA');
 
@@ -309,12 +310,16 @@ export async function deployZipSite(input = {}) {
         plan,
         repoUrl: sourceRepo,
         branch,
-        rootDirectory: renderRootDirectory,
+        // rootDirectory must match targetRoot so Render cds into the right
+        // subdirectory and finds glondia-render-build.sh.
+        rootDirectory: targetRoot,
         buildCommand,
         outputDirectory: publishDirectory,
         startCommand,
         framework: detected.framework,
         sourceReference: sourceRepo,
+        // Fallback env var — root dispatcher reads this if rootDir is dropped
+        siteSlug: finalSlug,
       });
       renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || renderServiceId;
       const deployResponse = await renderApiService.triggerDeploy(renderServiceId, { deployMode: 'build_and_deploy' });
@@ -383,6 +388,8 @@ export async function deployZipSite(input = {}) {
     store.deployments.unshift({
       id: deploymentId,
       deploymentId,
+      userId,
+      platformDeployed: true,
       siteId: uploadId,
       serviceName: finalSlug,
       siteName,
@@ -407,7 +414,7 @@ export async function deployZipSite(input = {}) {
       environmentConfiguration: {
         environment,
         branch,
-        rootDirectory: renderRootDirectory || targetRoot,
+        rootDirectory: targetRoot,
         buildCommand,
         outputDirectory: publishDirectory,
         startCommand,
@@ -874,7 +881,12 @@ function detectRootPrefix(names) {
   const firstParts = names.map(name => cleanZipPath(name).split('/')[0]).filter(Boolean);
   if (!firstParts.length) return '';
   const first = firstParts[0];
-  return firstParts.every(part => part === first) ? `${first}/` : '';
+  if (!firstParts.every(part => part === first)) return '';
+  // Only strip the prefix when ALL entries actually live inside a subdirectory
+  // (i.e. at least one path has a '/' separator). If the single shared first
+  // part is a flat filename (like index.html) we must NOT treat it as a folder.
+  const allNested = names.every(name => cleanZipPath(name).includes('/'));
+  return allNested ? `${first}/` : '';
 }
 
 function cleanZipPath(value = '') {

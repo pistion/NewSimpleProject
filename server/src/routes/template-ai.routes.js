@@ -71,6 +71,7 @@ router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (r
     const result = await deployZipSite({
       fileName: req.file.originalname,
       fileBase64: req.file.buffer.toString('base64'),
+      userId: req.user?.id || req.headers['x-user-id'] || req.headers['x-glondia-user-id'] || 'local-user',
       siteName: req.body?.siteName,
       slug: req.body?.slug,
       serviceType: req.body?.serviceType,
