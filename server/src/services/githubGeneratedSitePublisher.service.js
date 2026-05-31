@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { getGithubInstallationToken } from './githubAppAuth.js';
 
 const DEFAULT_BRANCH = 'main';
 
@@ -27,15 +28,14 @@ export function resolveGitHubPublisherToken() {
     };
   }
 
-  // Reject SSH private keys accidentally placed in GITHUB_TOKEN
+  // RSA private keys are GitHub App keys — they require an installation token
+  // exchange before use. Flag them here; publishGeneratedSiteToGitHub handles
+  // the async exchange.
   if (raw.startsWith('-----BEGIN')) {
-    return {
-      token: '',
-      error: 'GITHUB_TOKEN looks like a private key, not a GitHub API bearer token. Set GITHUB_GENERATED_SITES_TOKEN to a GitHub fine-grained PAT or installation token.',
-    };
+    return { token: raw, isAppKey: true, error: null };
   }
 
-  return { token: raw, error: null };
+  return { token: raw, isAppKey: false, error: null };
 }
 
 export function parseGitHubRepoUrl(repoUrl = '') {
@@ -64,12 +64,16 @@ export function githubPublisherConfigured(repoUrl = '') {
  * Makes a lightweight GET to the repo metadata endpoint.
  * Returns { ok, error }.
  */
-export async function verifyGitHubAccess(repoUrl) {
+export async function verifyGitHubAccess(repoUrl, resolvedToken) {
   const parsed = parseGitHubRepoUrl(repoUrl);
   if (!parsed) return { ok: false, error: 'Invalid GitHub repository URL.' };
 
-  const { token, error: tokenError } = resolveGitHubPublisherToken();
-  if (tokenError) return { ok: false, error: tokenError };
+  let token = resolvedToken;
+  if (!token) {
+    const { token: t, error: tokenError } = resolveGitHubPublisherToken();
+    if (tokenError) return { ok: false, error: tokenError };
+    token = t;
+  }
 
   try {
     const url = `https://api.github.com/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`;
@@ -109,12 +113,25 @@ export async function publishGeneratedSiteToGitHub({
   const parsed = parseGitHubRepoUrl(repoUrl);
   if (!parsed) return { attempted: false, skippedReason: 'No valid GitHub repository URL was provided for generated site publishing.' };
 
-  const { token, error: tokenError } = resolveGitHubPublisherToken();
+  let { token, isAppKey, error: tokenError } = resolveGitHubPublisherToken();
   if (tokenError) return { attempted: false, skippedReason: tokenError };
   if (!siteDir) return { attempted: false, skippedReason: 'Generated site directory is missing.' };
 
+  // GitHub App private key — exchange for an installation access token first
+  if (isAppKey) {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (!clientId) {
+      return { attempted: false, skippedReason: 'GITHUB_CLIENT_ID is required when GITHUB_TOKEN is a GitHub App private key.' };
+    }
+    try {
+      token = await getGithubInstallationToken({ clientId, privateKey: token });
+    } catch (err) {
+      return { attempted: false, skippedReason: `GitHub App token exchange failed: ${err.message}` };
+    }
+  }
+
   // Pre-flight: verify the token can access this repo before uploading files
-  const accessCheck = await verifyGitHubAccess(repoUrl);
+  const accessCheck = await verifyGitHubAccess(repoUrl, token);
   if (!accessCheck.ok) {
     return { attempted: false, skippedReason: accessCheck.error };
   }
@@ -192,8 +209,12 @@ async function listFiles(dir) {
   return files;
 }
 
+function encodeRepoPath(p) {
+  return String(p || '').split('/').map(encodeURIComponent).join('/');
+}
+
 async function getExistingFileSha({ owner, repo, path, branch, token }) {
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path}?ref=${encodeURIComponent(branch)}`;
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeRepoPath(path)}?ref=${encodeURIComponent(branch)}`;
   const response = await fetch(url, { headers: githubHeaders(token) });
   if (response.status === 404) return null;
   const result = await response.json().catch(() => ({}));
@@ -202,7 +223,7 @@ async function getExistingFileSha({ owner, repo, path, branch, token }) {
 }
 
 async function putFile({ owner, repo, path, branch, token, contentBase64, sha, message }) {
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path}`;
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeRepoPath(path)}`;
   const body = {
     message,
     content: contentBase64,

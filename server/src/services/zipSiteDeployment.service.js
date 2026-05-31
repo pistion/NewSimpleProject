@@ -248,9 +248,14 @@ export async function deployZipSite(input = {}) {
   // 6. GitHub publish step — push extracted files to the generated-sites repo
   // so Render can build from a real commit. This is required for the ZIP→GitHub→Render flow.
   const sourceRepo = resolveRenderSourceRepo(input);
-  const renderRootDirectory = input.rootDirectory || process.env.RENDER_GENERATED_SITES_ROOT_DIR || '';
   const buildCommand = 'bash glondia-render-build.sh';
-  const targetRoot = renderRootDirectory || `uploaded-sites/${finalSlug}`;
+  // targetRoot is the subdirectory in the generated-sites repo where this
+  // site's files live. Always include the site slug so each upload gets its
+  // own directory and doesn't overwrite others.
+  // If the caller provides a full rootDirectory path, use it as-is.
+  // Otherwise combine the base dir (env or default) with the slug.
+  const rootBase = (process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'uploaded-sites').replace(/\/+$/, '');
+  const targetRoot = input.rootDirectory || `${rootBase}/${finalSlug}`;
 
   let githubPublish = { attempted: false, skippedReason: null };
   const { token: ghToken, error: ghTokenError } = resolveGitHubPublisherToken();
