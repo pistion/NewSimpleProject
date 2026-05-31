@@ -28,6 +28,7 @@ import {
 import { normalizeRoot } from '../../00-SHARED/runtimeConfig.js';
 import {
   getClientInstallationToken,
+  getInstallationTokenForRepo,
   getPlatformInstallationToken,
   githubAppConfigured,
 } from '../03-GITHUB-SOURCE-MOUNTAIN/githubAppAuth.stage.js';
@@ -94,13 +95,22 @@ async function resolveImportToken({ parsedRepo, clientInstallationId }) {
   if (clientInstallationId) {
     return getClientInstallationToken(clientInstallationId);
   }
-  // No client installation. Try platform App token as a courtesy (works only if
-  // the platform App is also installed on the source repo), else go anonymous.
-  if (githubAppConfigured() && process.env.GITHUB_GLONDIASITES_INSTALLATION_ID) {
+  if (githubAppConfigured()) {
+    // No explicit client installation id. If the GitHub App is installed on the
+    // client repo, resolve that installation directly from the repo — this is
+    // what lets us read private repos the App has access to.
     try {
-      return await getPlatformInstallationToken();
+      return await getInstallationTokenForRepo({ owner: parsedRepo.owner, repo: parsedRepo.repo });
     } catch {
-      return null;
+      // App not installed on the client repo. Fall back to the platform
+      // installation if one is configured (covers same-org private repos).
+      if (process.env.GITHUB_GLONDIASITES_INSTALLATION_ID) {
+        try {
+          return await getPlatformInstallationToken();
+        } catch {
+          return null;
+        }
+      }
     }
   }
   return null;

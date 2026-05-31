@@ -70,6 +70,16 @@ export async function getInstallationTokenForRepo({ owner, repo }) {
 }
 
 /**
+ * Get an installation token for a whole account (user or org), resolving the
+ * installation that covers that owner. Useful when no repo is known yet.
+ */
+export async function getInstallationTokenForOwner(owner) {
+  const jwt = createAppJwt();
+  const installation = await findOwnerInstallation(jwt, owner);
+  return getInstallationToken(installation.id);
+}
+
+/**
  * Token used to read a client repository (Contents: Read).
  */
 export function getClientInstallationToken(clientInstallationId) {
@@ -111,6 +121,17 @@ async function findRepoInstallation(jwt, owner, repo) {
     throw new Error(`GitHub App is not installed on ${owner}/${repo} or lacks access (${res.status}): ${body}`);
   }
   return res.json();
+}
+
+async function findOwnerInstallation(jwt, owner) {
+  for (const kind of ['users', 'orgs']) {
+    const res = await fetch(`https://api.github.com/${kind}/${encodeURIComponent(owner)}/installation`, { headers: appHeaders(jwt) });
+    if (res.ok) return res.json();
+    if (res.status !== 404) {
+      throw new Error(`GitHub App installation lookup for ${owner} failed ${res.status}: ${await res.text().catch(() => '')}`);
+    }
+  }
+  throw new Error(`GitHub App is not installed on ${owner}.`);
 }
 
 async function findFirstInstallation(jwt) {

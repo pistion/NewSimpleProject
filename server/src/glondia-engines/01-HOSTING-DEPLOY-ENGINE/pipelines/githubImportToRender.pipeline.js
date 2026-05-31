@@ -21,8 +21,10 @@ import { importClientGithubRepo } from '../02-GITHUB-CLIENT-IMPORT-MOUNTAIN/gith
 import { detectProject } from '../02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.stage.js';
 import { writeRenderBuildScript } from '../02-UNZIP-AND-DETECT-MOUNTAIN/buildScriptWriter.stage.js';
 import { publishToControlledRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/controlledRepoPublisher.stage.js';
+import { githubAppConfigured } from '../03-GITHUB-SOURCE-MOUNTAIN/githubAppAuth.stage.js';
 import { buildRenderPayload } from '../04-RENDER-PAYLOAD-MOUNTAIN/renderPayloadBuilder.stage.js';
 import { createAndTriggerRenderDeploy } from '../05-RENDER-DEPLOY-MOUNTAIN/renderDeploy.stage.js';
+import { hasRealValue } from '../../00-SHARED/runtimeConfig.js';
 import {
   addDeploymentLog,
   createDeploymentRecord,
@@ -74,11 +76,17 @@ export async function run(input = {}, context = {}) {
       importedAt: imported.importedAt,
     };
 
-    if (!process.env.GITHUB_GLONDIASITES_OWNER && !process.env.GITHUB_GENERATED_SITES_TOKEN && !process.env.GITHUB_APP_PRIVATE_KEY) {
+    // Capability check: we can publish to a controlled repo if we have a usable
+    // credential (GitHub App or non-PEM PAT) AND a controlled target (a creatable
+    // owner or the shared RENDER_GENERATED_SITES_REPO_URL fallback).
+    const patToken = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '';
+    const hasControlledCreds = githubAppConfigured() || (hasRealValue(patToken) && !patToken.includes('-----BEGIN'));
+    const hasControlledTarget = hasRealValue(process.env.GITHUB_GLONDIASITES_OWNER) || hasRealValue(process.env.RENDER_GENERATED_SITES_REPO_URL);
+    if (!hasControlledCreds || !hasControlledTarget) {
       return ready(
         deployment.deploymentId,
         'Ready - controlled repo publishing not configured',
-        'Configure GITHUB_GLONDIASITES_OWNER and GitHub App credentials before deploying client repos.',
+        'Configure GitHub App credentials (GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY) and a controlled target (GITHUB_GLONDIASITES_OWNER or RENDER_GENERATED_SITES_REPO_URL) before deploying client repos.',
         { githubSource },
       );
     }
@@ -90,8 +98,10 @@ export async function run(input = {}, context = {}) {
       owner: input.controlledRepoOwner || process.env.GITHUB_GLONDIASITES_OWNER,
       privateRepo: input.privateRepo,
     });
-    await addDeploymentLog(deployment.deploymentId, `Published ${controlledRepo.publishedCount} files to controlled repo: ${controlledRepo.controlledFullName}.`, 'ok', {
+    await addDeploymentLog(deployment.deploymentId, `Published ${controlledRepo.publishedCount} files to controlled repo (${controlledRepo.mode}): ${controlledRepo.controlledFullName}${controlledRepo.rootDirectory ? '/' + controlledRepo.rootDirectory : ''}.`, 'ok', {
       controlledSource: controlledRepo.controlledRepoUrl,
+      mode: controlledRepo.mode,
+      rootDirectory: controlledRepo.rootDirectory,
       commitId: controlledRepo.commitId,
     });
 

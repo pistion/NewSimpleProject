@@ -15,24 +15,39 @@
  */
 
 import { publishDirectoryToGithub, parseGithubRepoUrl } from './githubPublisher.stage.js';
-import { getPlatformInstallationToken, githubAppConfigured } from './githubAppAuth.stage.js';
-import { hasRealValue } from '../../00-SHARED/runtimeConfig.js';
+import {
+  getInstallationTokenForOwner,
+  getInstallationTokenForRepo,
+  getPlatformInstallationToken,
+  githubAppConfigured,
+} from './githubAppAuth.stage.js';
+import { hasRealValue, normalizeRoot } from '../../00-SHARED/runtimeConfig.js';
 
 const DEFAULT_PREFIX = 'glondia-site';
 
 /**
  * Resolve the token used to create/manage controlled repos.
- * Prefers the platform GitHub App installation token; falls back to a PAT
- * (GITHUB_GENERATED_SITES_TOKEN / GITHUB_TOKEN) when the App is not configured.
+ * Prefers the platform GitHub App installation token (explicit id → known
+ * controlled repo → owner lookup), then falls back to a PAT.
  */
 export async function resolveControlledRepoToken() {
-  if (githubAppConfigured() && process.env.GITHUB_GLONDIASITES_INSTALLATION_ID) {
-    return getPlatformInstallationToken();
+  if (githubAppConfigured()) {
+    if (process.env.GITHUB_GLONDIASITES_INSTALLATION_ID) {
+      try { return await getPlatformInstallationToken(); } catch { /* fall through */ }
+    }
+    const knownRepo = parseGithubRepoUrl(process.env.RENDER_GENERATED_SITES_REPO_URL || '');
+    if (knownRepo) {
+      try { return await getInstallationTokenForRepo({ owner: knownRepo.owner, repo: knownRepo.repo }); } catch { /* fall through */ }
+    }
+    const owner = process.env.GITHUB_GLONDIASITES_OWNER || knownRepo?.owner;
+    if (owner) {
+      try { return await getInstallationTokenForOwner(owner); } catch { /* fall through */ }
+    }
   }
   const pat = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '';
   if (hasRealValue(pat) && !pat.includes('-----BEGIN')) return pat;
   throw stageError(
-    'No GitHub credential available to create the controlled repo. Configure the GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_GLONDIASITES_INSTALLATION_ID) or a GITHUB_GENERATED_SITES_TOKEN PAT.',
+    'No GitHub credential available for controlled-repo publishing. Configure the GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY) installed on the controlled owner, or a GITHUB_GENERATED_SITES_TOKEN PAT.',
     'controlled_repo_create',
     409,
   );
@@ -120,10 +135,19 @@ export async function publishDirectoryToControlledRepo({ directory, repoUrl, bra
 }
 
 /**
- * High-level helper used by the pipeline: create a controlled repo and publish.
+ * High-level helper used by the pipeline: publish imported source into a
+ * Glondiasites-controlled repo and return the metadata Render needs.
  *
- * @returns {{ controlledRepoUrl, controlledFullName, branch, rootDirectory,
- *             commitId, publishedCount, private }}
+ * Mode A — dedicated repo per deployment (preferred). Requires the credential
+ *          to be able to create repos under the controlled owner.
+ * Mode B — fallback to a per-site subdirectory inside the shared controlled
+ *          repo (RENDER_GENERATED_SITES_REPO_URL) when repo creation is not
+ *          permitted (e.g. GitHub App installation token on a user account).
+ *
+ * In both modes Render only ever sees the Glondiasites-controlled repo.
+ *
+ * @returns {{ mode, controlledRepoUrl, controlledFullName, branch, rootDirectory,
+ *             commitId, publishedCount, private, createdAt }}
  */
 export async function publishToControlledRepo({ localDir, siteName, userId, owner, privateRepo = true, branch = 'main', token }) {
   const repoOwner = owner || process.env.GITHUB_GLONDIASITES_OWNER || '';
@@ -131,28 +155,70 @@ export async function publishToControlledRepo({ localDir, siteName, userId, owne
   const activeToken = token || (await resolveControlledRepoToken());
   const name = makeControlledRepoName({ siteName, userId });
 
-  const repo = await createControlledGithubRepo({
-    owner: repoOwner,
-    name,
-    privateRepo: usePrivate,
-    token: activeToken,
-  });
+  // ── Mode A: dedicated repo per deployment ──────────────────────────────────
+  let repo = null;
+  try {
+    repo = await createControlledGithubRepo({
+      owner: repoOwner,
+      name,
+      privateRepo: usePrivate,
+      token: activeToken,
+    });
+  } catch (error) {
+    // 403 (integration cannot create repos) / 404 (owner is not an org) → Mode B.
+    if (![403, 404].includes(error.status)) throw error;
+  }
 
-  const publish = await publishDirectoryToControlledRepo({
+  if (repo) {
+    const publish = await publishDirectoryToControlledRepo({
+      directory: localDir,
+      repoUrl: repo.repoUrl,
+      branch: repo.branch || branch,
+      token: activeToken,
+    });
+    return {
+      mode: 'dedicated-repo',
+      controlledRepoUrl: repo.repoUrl,
+      controlledFullName: repo.fullName,
+      branch: publish.branch || repo.branch || branch,
+      rootDirectory: '',
+      commitId: publish.commitId || null,
+      publishedCount: publish.publishedCount,
+      private: repo.private,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  // ── Mode B: subdirectory in the shared controlled repo ─────────────────────
+  const sharedRepoUrl = process.env.RENDER_GENERATED_SITES_REPO_URL || '';
+  const sharedParsed = parseGithubRepoUrl(sharedRepoUrl);
+  if (!sharedParsed) {
+    throw stageError(
+      'Dedicated controlled-repo creation is not permitted for this GitHub account, and RENDER_GENERATED_SITES_REPO_URL is not configured for the shared controlled-repo fallback.',
+      'controlled_repo_create',
+      409,
+    );
+  }
+  const rootBase = normalizeRoot(process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'uploaded-sites');
+  const rootDirectory = `${rootBase}/${name}`.replace(/^\/+/, '');
+
+  const publish = await publishDirectoryToGithub({
     directory: localDir,
-    repoUrl: repo.repoUrl,
-    branch: repo.branch || branch,
+    targetRoot: rootDirectory,
+    repoUrl: sharedRepoUrl,
+    branch,
     token: activeToken,
   });
 
   return {
-    controlledRepoUrl: repo.repoUrl,
-    controlledFullName: repo.fullName,
-    branch: publish.branch || repo.branch || branch,
-    rootDirectory: '',
+    mode: 'shared-repo',
+    controlledRepoUrl: sharedParsed.url || `https://github.com/${sharedParsed.owner}/${sharedParsed.repo}`,
+    controlledFullName: `${sharedParsed.owner}/${sharedParsed.repo}`,
+    branch: publish.branch || branch,
+    rootDirectory,
     commitId: publish.commitId || null,
-    publishedCount: publish.publishedCount,
-    private: repo.private,
+    publishedCount: publish.published?.length || 0,
+    private: usePrivate,
     createdAt: new Date().toISOString(),
   };
 }
