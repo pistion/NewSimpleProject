@@ -4,7 +4,6 @@ import { ICN } from '../../icons';
 import { getBillingSummary } from '../../api/billing.js';
 import {
   createDeploymentPaypalOrder,
-  captureDeploymentPaypalOrder,
   uploadManualReceipt,
 } from '../../api/payments.js';
 
@@ -130,7 +129,7 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [file, setFile] = useState(null);
-  const [ppOrderId, setPpOrderId] = useState(null);
+  const [waiting, setWaiting] = useState(false);
 
   const startPaypal = async () => {
     setBusy('paypal'); setErr(''); setMsg('');
@@ -138,9 +137,9 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
       const res = await createDeploymentPaypalOrder(order.id);
       if (res?.alreadyPaid) { setMsg('Already paid.'); onChanged(); return; }
       if (res?.approvalUrl) {
-        setPpOrderId(res.paypalOrderId);
         window.open(res.approvalUrl, '_blank', 'noopener,noreferrer');
-        setMsg('Approve the payment in the new PayPal tab, then click “I have approved”.');
+        setWaiting(true);
+        setMsg('Complete the payment in the PayPal tab. This page updates automatically once payment is confirmed.');
       } else {
         setErr('PayPal is not configured. Upload a bank receipt instead.');
       }
@@ -148,13 +147,14 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
     finally { setBusy(''); }
   };
 
-  const capturePaypal = async () => {
-    if (!ppOrderId) { setErr('Start a PayPal payment first.'); return; }
-    setBusy('capture'); setErr(''); setMsg('');
-    try { await captureDeploymentPaypalOrder(ppOrderId); setMsg('Payment captured — thank you.'); onChanged(); }
-    catch (e) { setErr(e.message || 'Capture failed.'); }
-    finally { setBusy(''); }
-  };
+  // While awaiting PayPal confirmation, poll the billing summary so the card
+  // flips to "paid" as soon as the webhook records the capture. No manual step.
+  useEffect(() => {
+    if (!waiting || paid) { if (paid) setWaiting(false); return undefined; }
+    const tick = setInterval(() => { onChanged(); }, 5000);
+    const stop = setTimeout(() => { clearInterval(tick); setWaiting(false); }, 3 * 60 * 1000);
+    return () => { clearInterval(tick); clearTimeout(stop); };
+  }, [waiting, paid, onChanged]);
 
   const upload = async () => {
     if (!file) { setErr('Choose a receipt file (PDF, PNG, JPG, JPEG).'); return; }
@@ -196,9 +196,9 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
         <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Pay with PayPal / Card</div>
-            <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal'} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K200'} with PayPal`}</button>
-              <button className="btn btn-outline btn-sm" disabled={busy === 'capture' || !ppOrderId} onClick={capturePaypal}>{busy === 'capture' ? 'Confirming…' : 'I have approved'}</button>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal' || waiting} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K200'} with PayPal`}</button>
+              {waiting && <span className="muted" style={{ fontSize: 12 }}><ICN.RefreshCw size={12} /> Waiting for PayPal confirmation…</span>}
             </div>
           </div>
           <div>
