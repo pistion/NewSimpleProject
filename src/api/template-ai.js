@@ -62,6 +62,13 @@ export async function deployTailoredTemplate(siteId, deploymentSettings = {}) {
   });
 }
 
+export async function packageTailoredTemplate(siteId, packageSettings = {}) {
+  return liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/package`, {
+    method: 'POST',
+    body: packageSettings,
+  });
+}
+
 /**
  * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
  *

@@ -1,6 +1,7 @@
 import deploymentService from '../../../services/deploymentService.js';
 import { getZipDeployConfigStatus, validateZipSite } from '../pipelines/base64ZipToRender.pipeline.js';
 import { run as runGithubLinkToRender } from '../pipelines/githubLinkToRender.pipeline.js';
+import { run as runGeneratedSiteToRender } from '../pipelines/generatedSiteToRender.pipeline.js';
 import { run as runZipToRender } from '../pipelines/zipToRender.pipeline.js';
 
 const hostingDeployController = {
@@ -46,6 +47,16 @@ const hostingDeployController = {
       res.status(202).json({ data: deployment, message: 'ZIP deployment session started.', requestId: req.id });
     } catch (error) {
       if (!error.stage) error.stage = 'zip_upload';
+      next(error);
+    }
+  },
+
+  createGeneratedSiteDeployment: async (req, res, next) => {
+    try {
+      const deployment = await runGeneratedSiteToRender(req.body || {}, { userId: req.user?.id });
+      res.status(202).json({ data: deployment, message: 'Generated site deployment session started.', requestId: req.id });
+    } catch (error) {
+      if (!error.stage) error.stage = 'generated_site_package';
       next(error);
     }
   },

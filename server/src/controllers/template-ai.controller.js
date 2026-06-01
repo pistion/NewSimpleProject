@@ -1,14 +1,13 @@
 /*
  * template-ai.controller.js
- * Handles AI-assisted template intake, HTML tailoring, draft persistence, and Render deployment records.
+ * Handles AI-assisted template intake, HTML tailoring, draft persistence, and Hosting handoff packaging.
  */
 
 import { tailorHtmlTemplate, INTAKE_QUESTIONS, REQUIRED_KEYS } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/04-AI-REFINEMENT-MOUNTAIN/openaiTailor.stage.js';
-import { makeId, nowIso, mutateHostingStore } from '../services/hostingStore.js';
+import { makeId } from '../services/hostingStore.js';
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/store/templateSiteStore.js';
 import { generateViteStaticSiteFromTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/finalSourcePackager.stage.js';
-import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/generatedSitePublisher.stage.js';
-import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
+import { run as runGeneratedSiteToRender } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/pipelines/generatedSiteToRender.pipeline.js';
 import renderApiService from '../services/renderApiService.js';
 
 const sessions = new Map();
@@ -123,127 +122,60 @@ async function previewSite(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function packageSite(req, res, next) {
+  try {
+    const { siteId } = req.params;
+    if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
+    const site = await getTemplateSite(siteId);
+    if (!site) return res.status(404).json({ error: `Site "${siteId}" not found. Complete the AI intake to create it.` });
+    const handoff = await packageTemplateSiteForHosting(site, req.body || {});
+    await updateTemplateSite(siteId, {
+      status: 'ready_for_hosting',
+      generatedSite: handoff.generatedSite,
+      deploymentSettings: handoff.recommended,
+    });
+    res.json(handoff);
+  } catch (err) { next(err); }
+}
+
 async function deploySite(req, res, next) {
   try {
     const { siteId } = req.params;
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     const site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found. Complete the AI intake to create it.` });
-    if (!Array.isArray(site.pages) || site.pages.length === 0) return res.status(409).json({ error: 'This tailored site has no generated pages. Run RoxanneAI generation first.' });
 
-    const { siteName = '', slug = '', serviceType = 'static_site', plan = 'starter', environment = 'production', buildCommand = 'npm run build', publishDirectory = 'dist', sourceReference = 'roxanne-ai-tailored-template', repoUrl = '', repositoryUrl = '', branch = 'main', rootDirectory = '' } = req.body || {};
-    const deploymentId = makeId('dep');
-    const now = nowIso();
-    const finalSiteName = siteName || site.answers?.businessName || site.templateId;
-    const finalSlug = slugify(slug || finalSiteName || siteId);
-    const generatedSite = await generateViteStaticSiteFromTemplateSite(site, { siteName: finalSiteName, slug: finalSlug, buildCommand, publishDirectory });
-    const sourceRepo = (repoUrl || repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
-    const configuredRoot = process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'generated-sites';
-    const githubTargetRoot = rootDirectory || [configuredRoot, finalSlug].filter(Boolean).join('/');
-    const useTemporaryRepo = shouldUseTemporaryRepo(req.body || {});
-    let activeSourceRepo = sourceRepo;
-    let activeBranch = branch;
-    let renderRootDirectory = githubTargetRoot;
-    let temporaryRepo = null;
-    let githubPublish = { attempted: false, skippedReason: null };
-    let renderServiceId = makeId('render_svc_pending');
-    let renderDeployId = makeId('render_deploy_pending');
-    let render = { configured: renderApiService.configured(), attempted: false, skippedReason: null, serviceResponse: null, deployResponse: null };
-    let providerStatus = 'prepared';
-    let status = 'prepared';
-    let buildStatus = 'generated';
-    let currentStep = 'Generated Vite site prepared';
-    let liveUrl = `https://${finalSlug}.onrender.com`;
-    let errorMessage = null;
+    const handoff = await packageTemplateSiteForHosting(site, req.body || {});
+    const deployment = await runGeneratedSiteToRender({
+      ...(req.body || {}),
+      ...handoff,
+      generatedSite: handoff.generatedSite,
+      siteName: handoff.siteName,
+      slug: handoff.slug,
+      sourceReference: 'roxanne-ai-tailored-template',
+    }, { userId: req.user?.id });
 
-    if (!useTemporaryRepo && !sourceRepo) render.skippedReason = 'Missing RENDER_GENERATED_SITES_REPO_URL. Add it in Render Environment Variables or enter a repository URL in the deploy form.';
-    else if (!renderApiService.configured()) render.skippedReason = 'Render API credentials are missing. Set RENDER_API_KEY and RENDER_OWNER_ID.';
-    else {
-      try {
-        if (useTemporaryRepo) {
-          const { token, error: tokenError } = resolveGitHubPublisherToken();
-          if (tokenError) {
-            providerStatus = 'handoff_blocked';
-            status = 'prepared';
-            buildStatus = 'configuration_required';
-            currentStep = 'Generated site ready; temporary repo publish blocked';
-            errorMessage = `GitHub publisher token error: ${tokenError}`;
-            render.skippedReason = errorMessage;
-            throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
-          }
-          temporaryRepo = await publishDirectoryToTemporaryRepo({
-            directory: generatedSite.siteDir,
-            slug: finalSlug,
-            branch,
-            token,
-            owner: req.body?.temporaryRepoOwner || req.body?.githubOwner,
-            name: req.body?.temporaryRepoName,
-            privateRepo: req.body?.temporaryRepoPrivate !== false && req.body?.temporaryRepoPrivate !== 'false',
-          });
-          githubPublish = temporaryRepo.githubPublish;
-          activeSourceRepo = temporaryRepo.repoUrl;
-          activeBranch = temporaryRepo.branch || branch;
-          renderRootDirectory = '';
-        } else {
-          githubPublish = await publishGeneratedSiteToGitHub({
-            siteDir: generatedSite.siteDir,
-            repoUrl: sourceRepo,
-            branch,
-            targetRoot: githubTargetRoot,
-            commitMessage: `Publish Glondia Template AI site ${finalSlug}`,
-          });
-        }
-        if (!githubPublish.attempted) {
-          providerStatus = 'handoff_blocked';
-          status = 'prepared';
-          buildStatus = 'configuration_required';
-          currentStep = 'Generated site ready; GitHub publish blocked';
-          errorMessage = githubPublish.skippedReason || 'Generated source could not be published to GitHub.';
-          render.skippedReason = errorMessage;
-          throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
-        }
-        if (githubPublish.errors?.length) {
-          providerStatus = 'handoff_blocked';
-          status = 'prepared';
-          buildStatus = 'github_publish_failed';
-          currentStep = 'Generated site ready; GitHub publish failed';
-          errorMessage = `GitHub publish completed with ${githubPublish.errors.length} error(s).`;
-          render.skippedReason = errorMessage;
-          throw Object.assign(new Error(errorMessage), { skipRenderFailureRecord: true });
-        }
-        render.attempted = true;
-        const serviceResponse = await renderApiService.createService({ serviceName: finalSlug, serviceType, plan, repoUrl: activeSourceRepo, branch: activeBranch, rootDirectory: renderRootDirectory, buildCommand, outputDirectory: publishDirectory, sourceReference: activeSourceRepo });
-        renderServiceId = serviceResponse?.service?.id || serviceResponse?.id || renderServiceId;
-        const deployResponse = await renderApiService.triggerDeploy(renderServiceId, { deployMode: 'build_and_deploy' });
-        renderDeployId = deployResponse?.deploy?.id || deployResponse?.id || renderDeployId;
-        providerStatus = deployResponse?.deploy?.status || deployResponse?.status || 'accepted';
-        status = renderDeployId ? 'building' : 'preparing';
-        buildStatus = renderDeployId ? 'queued' : 'accepted';
-        currentStep = renderDeployId ? 'Queued in Render' : 'Sent to Render';
-        liveUrl = serviceResponse?.service?.serviceDetails?.url || serviceResponse?.service?.url || serviceResponse?.url || liveUrl;
-        render.serviceResponse = serviceResponse;
-        render.deployResponse = deployResponse;
-      } catch (error) {
-        if (!error.skipRenderFailureRecord) {
-          providerStatus = 'handoff_failed'; status = 'deployed_unverified'; buildStatus = 'generated'; currentStep = 'Generated and published; Render handoff failed'; errorMessage = error.message || 'Render handoff failed.';
-        }
-        render.error = { message: error.message, status: error.status, details: error.details || null };
-      }
-    }
-
-    await mutateHostingStore((store) => {
-      store.deployments.unshift({ id: deploymentId, deploymentId, siteId, templateId: site.templateId, serviceName: finalSlug, siteName: finalSiteName, serviceType, plan, provider: 'render', providerStatus, status, buildStatus, currentStep, source: 'ai-tailored-template', sourceReference, renderServiceId, renderDeployId, liveUrl, verifiedUrl: null, urlReachable: false, errorMessage, deploymentLogsReference: deploymentId, generatedSite: { ...generatedSite, githubPublish, githubTargetRoot: renderRootDirectory, temporaryRepo }, render, environmentConfiguration: { environment, branch: activeBranch, rootDirectory: renderRootDirectory || generatedSite.siteDir, buildCommand: generatedSite.buildCommand, outputDirectory: generatedSite.publishDirectory, framework: generatedSite.framework, sourceRepository: activeSourceRepo || null }, environmentVariablesMetadata: [], diskMetadata: [], domainMetadata: [], createdAt: now, updatedAt: now, lastDeployedAt: null });
-      const logs = [makeLog('Deployment session created from RoxanneAI tailored template.', 'info'), makeLog(`Generated Vite React static site files in ${generatedSite.siteDir}.`, 'ok'), makeLog(`Build command prepared: ${generatedSite.buildCommand}.`, 'info'), makeLog(`Publish directory prepared: ${generatedSite.publishDirectory}.`, 'info')];
-      if (githubPublish.attempted) logs.push(makeLog(`Published ${githubPublish.publishedCount || 0} generated files to ${githubPublish.repository}:${githubPublish.targetRoot}.`, githubPublish.errors?.length ? 'warn' : 'ok'));
-      if (!githubPublish.attempted && githubPublish.skippedReason) logs.push(makeLog(githubPublish.skippedReason, 'warn'));
-      if (render.attempted && !errorMessage) logs.push(makeLog(`Render deploy ${renderDeployId} started for ${finalSlug}.`, 'ok'));
-      if (render.attempted && errorMessage) logs.push(makeLog(`Render handoff failed: ${errorMessage}`, 'warn'));
-      if (!render.attempted) logs.push(makeLog(render.skippedReason || 'Render handoff skipped.', 'warn'));
-      store.logs[deploymentId] = logs;
+    await updateTemplateSite(siteId, {
+      status: deployment?.status || 'ready_for_hosting',
+      deploymentId: deployment?.deploymentId || deployment?.id || null,
+      generatedSite: deployment?.generatedSite || handoff.generatedSite,
+      render: deployment?.render || null,
+      deploymentSettings: {
+        ...handoff.recommended,
+        repoUrl: deployment?.repoUrl || req.body?.repoUrl || req.body?.repositoryUrl || null,
+        rootDirectory: deployment?.environmentConfiguration?.rootDirectory || handoff.recommended.rootDirectory,
+      },
     });
-    const generatedSiteWithPublish = { ...generatedSite, githubPublish, githubTargetRoot: renderRootDirectory, temporaryRepo };
-    await updateTemplateSite(siteId, { status, deploymentId, generatedSite: generatedSiteWithPublish, render, deploymentSettings: { siteName: finalSiteName, slug: finalSlug, serviceType, plan, environment, buildCommand, publishDirectory, repoUrl: activeSourceRepo || null, rootDirectory: renderRootDirectory || null } });
-    res.json({ status, siteId, deploymentId, templateId: site.templateId, generatedSite: generatedSiteWithPublish, render, liveUrl, message: render.attempted && !errorMessage ? 'Generated site, published source, and started Render deployment.' : 'Generated site and created Hosting record. Check Hosting logs for Render configuration status.' });
+
+    res.json({
+      ...(deployment || {}),
+      siteId,
+      templateId: site.templateId,
+      handoff,
+      message: deployment?.render?.attempted
+        ? 'Generated site handoff sent to Hosting and Render deployment started.'
+        : 'Generated site handoff created. Check Hosting logs for configuration status.',
+    });
   } catch (err) { next(err); }
 }
 
@@ -255,7 +187,55 @@ async function getTemplatePreview(req, res, next) {
   } catch (err) { next(err); }
 }
 
-function makeLog(message, level = 'info') { return { id: makeId('log'), level, message, timestamp: nowIso(), createdAt: nowIso() }; }
+async function packageTemplateSiteForHosting(site, options = {}) {
+  if (!Array.isArray(site.pages) || site.pages.length === 0) {
+    const error = new Error('This tailored site has no generated pages. Run RoxanneAI generation first.');
+    error.status = 409;
+    throw error;
+  }
+
+  const {
+    siteName = '',
+    slug = '',
+    serviceType = 'static_site',
+    plan = 'starter',
+    environment = 'production',
+    buildCommand = 'npm run build',
+    publishDirectory = 'dist',
+    branch = 'main',
+    rootDirectory = '',
+  } = options || {};
+  const finalSiteName = siteName || site.answers?.businessName || site.templateId;
+  const finalSlug = slugify(slug || finalSiteName || site.siteId);
+  const generatedSite = await generateViteStaticSiteFromTemplateSite(site, {
+    siteName: finalSiteName,
+    slug: finalSlug,
+    buildCommand,
+    publishDirectory,
+  });
+
+  return {
+    sourceType: 'roxanne-ai-template',
+    status: 'ready_for_hosting',
+    siteId: site.siteId,
+    templateId: site.templateId,
+    siteName: finalSiteName,
+    slug: finalSlug,
+    sourceArtifactId: generatedSite.siteDir,
+    previewUrl: `/api/template-ai/sites/${site.siteId}/preview`,
+    generatedSite,
+    recommended: {
+      serviceType,
+      plan,
+      environment,
+      branch,
+      rootDirectory,
+      buildCommand: generatedSite.buildCommand,
+      publishDirectory: generatedSite.publishDirectory,
+    },
+  };
+}
+
 function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }
 
-export const templateAiController = { getSettings, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, deploySite, getTemplatePreview };
+export const templateAiController = { getSettings, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, packageSite, deploySite, getTemplatePreview };

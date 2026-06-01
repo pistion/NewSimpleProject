@@ -49,6 +49,7 @@ router.post('/generate', templateAiController.generateTailored);
 router.post('/sites', templateAiController.createSite);
 router.get('/sites/:siteId', templateAiController.getSite);
 router.get('/sites/:siteId/preview', templateAiController.previewSite);
+router.post('/sites/:siteId/package', templateAiController.packageSite);
 router.post('/sites/:siteId/deploy', templateAiController.deploySite);
 
 // Legacy compatibility route. New callers must use GET /api/deployments/settings.

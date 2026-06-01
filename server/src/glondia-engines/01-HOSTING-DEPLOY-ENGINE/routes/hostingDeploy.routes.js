@@ -29,6 +29,7 @@ router.get('/settings', hostingDeployController.getSettings);
 router.post('/zip', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), hostingDeployController.createZipDeployment);
 router.post('/zip/validate', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), hostingDeployController.validateZipDeployment);
 router.post('/github', hostingDeployController.createGithubDeployment);
+router.post('/generated-site', hostingDeployController.createGeneratedSiteDeployment);
 router.post('/render', validateDeploymentInput, hostingDeployController.createRenderDeployment);
 router.post('/', validateDeploymentInput, hostingDeployController.createDeployment);
 router.get('/:deploymentId', deploymentSessionMiddleware, hostingDeployController.getDeployment);
