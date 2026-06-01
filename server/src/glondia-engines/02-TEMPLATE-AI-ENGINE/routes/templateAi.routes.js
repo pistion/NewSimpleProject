@@ -51,6 +51,7 @@ router.get('/sites/:siteId', templateAiController.getSite);
 router.get('/sites/:siteId/preview', templateAiController.previewSite);
 router.post('/sites/:siteId/deploy', templateAiController.deploySite);
 
+// Legacy compatibility route. New callers must use GET /api/deployments/settings.
 router.get('/zip/settings', (_req, res) => {
   try {
     res.json(getZipDeployConfigStatus());
@@ -59,6 +60,7 @@ router.get('/zip/settings', (_req, res) => {
   }
 });
 
+// Legacy compatibility route. New callers must use POST /api/deployments/zip.
 router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (req, res) => {
   try {
     if (!req.file) {
@@ -90,6 +92,7 @@ function codeToStage(code = '') {
   return 'zip_deploy';
 }
 
+// Legacy compatibility route. New callers must use POST /api/deployments/zip/validate.
 router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async (req, res) => {
   try {
     if (!req.file) {

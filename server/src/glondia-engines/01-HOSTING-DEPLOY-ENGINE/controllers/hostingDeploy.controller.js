@@ -1,4 +1,5 @@
 import deploymentService from '../../../services/deploymentService.js';
+import { getZipDeployConfigStatus, validateZipSite } from '../pipelines/base64ZipToRender.pipeline.js';
 import { run as runGithubLinkToRender } from '../pipelines/githubLinkToRender.pipeline.js';
 import { run as runZipToRender } from '../pipelines/zipToRender.pipeline.js';
 
@@ -45,6 +46,34 @@ const hostingDeployController = {
       res.status(202).json({ data: deployment, message: 'ZIP deployment session started.', requestId: req.id });
     } catch (error) {
       if (!error.stage) error.stage = 'zip_upload';
+      next(error);
+    }
+  },
+
+  getSettings: async (_req, res, next) => {
+    try {
+      res.ok(getZipDeployConfigStatus());
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  validateZipDeployment: async (req, res, next) => {
+    try {
+      const file = req.file || req.files?.siteZip?.[0] || req.files?.zip?.[0] || req.files?.file?.[0];
+      if (!file) {
+        const error = new Error('siteZip file is required.');
+        error.status = 400;
+        error.code = 'ZIP_MISSING_FILE';
+        error.stage = 'zip_upload';
+        throw error;
+      }
+      res.ok(await validateZipSite({
+        fileName: file.originalname,
+        fileBase64: file.buffer.toString('base64'),
+      }));
+    } catch (error) {
+      if (!error.stage) error.stage = 'zip_validation';
       next(error);
     }
   },
