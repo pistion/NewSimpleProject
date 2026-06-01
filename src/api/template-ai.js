@@ -50,6 +50,7 @@ export function getTailoredTemplatePreviewUrl(siteId, page = 0) {
   return liveApiUrl(path);
 }
 
+// Legacy compatibility only. New code should use src/api/hosting-deploy.js.
 export async function getZipDeploySettings() {
   return liveApiRequest('/template-ai/zip/settings', { method: 'GET' });
 }
@@ -62,6 +63,8 @@ export async function deployTailoredTemplate(siteId, deploymentSettings = {}) {
 }
 
 /**
+ * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
+ *
  * Deploy a ZIP file to the Render hosting pipeline.
  * Parses all backend error shapes: { error }, { message }, { error: { message } },
  * { code, error, details }, and non-JSON / HTML responses.

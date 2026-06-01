@@ -1,9 +1,13 @@
-// BuilderImport.jsx — GitHub repository import + ZIP drag/drop deploy flow.
+// BuilderImport.jsx - GitHub repository import + ZIP drag/drop Hosting handoff flow.
 import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { Badge } from '../../../components';
 import { importBuilderSiteFromGithub, parseGithubRepo } from '../../../api';
-import { deployZipTemplate, getZipDeploySettings } from '../../../api/template-ai.js';
+import {
+  createGithubHostingDeployment,
+  createZipHostingDeployment,
+  getHostingDeploySettings,
+} from '../../../api/hosting-deploy.js';
 
 // ── Presets ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +20,7 @@ const DEPLOY_PRESETS = [
   { id: 'node-web-app', label: 'Node Web App', description: 'Generic Node web service.', serviceType: 'web_service', runtime: 'node', buildCommand: 'npm install && npm run build', startCommand: 'npm start' },
 ];
 
-// ── Deploy Doctor ──────────────────────────────────────────────────────────────
+// ── Handoff Doctor ─────────────────────────────────────────────────────────────
 
 function getDeployDoctorChecks(config = {}, context = {}) {
   const checks = [];
@@ -73,7 +77,7 @@ function DeployDoctorCard({ config, context, onApplyFix }) {
   return (
     <div className="card" style={{ padding: 14, background: 'var(--bg-deep)' }}>
       <div className="row between">
-        <div><div className="eyebrow">Deploy Doctor</div><h3 style={{ margin: '4px 0 0' }}>Deployment readiness</h3></div>
+        <div><div className="eyebrow">Handoff Doctor</div><h3 style={{ margin: '4px 0 0' }}>Handoff readiness</h3></div>
         <div className="row" style={{ gap: 8 }}>
           <Badge tone={errors ? 'danger' : warnings ? 'warn' : 'success'} dot={false}>{errors ? `${errors} issue${errors > 1 ? 's' : ''}` : warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : 'Ready'}</Badge>
           <Badge tone={score >= 100 ? 'success' : score >= 70 ? 'warn' : 'danger'} dot={false}>{score}%</Badge>
@@ -100,8 +104,8 @@ function DeploymentPreviewCard({ config }) {
   const isStatic = (config.serviceType || 'static_site') === 'static_site';
   return (
     <div className="card" style={{ padding: 14, background: 'var(--bg-deep)' }}>
-      <div className="eyebrow">Deployment preview</div>
-      <h3 style={{ margin: '4px 0 10px' }}>Render will use these settings</h3>
+      <div className="eyebrow">Suggested hosting handoff</div>
+      <h3 style={{ margin: '4px 0 10px' }}>Suggested settings for Hosting</h3>
       <div className="kv" style={{ gridTemplateColumns: '120px 1fr' }}>
         <dt>Service name</dt><dd className="mono">{config.serviceName || 'auto'}</dd>
         <dt>Type</dt><dd>{config.serviceType || 'static_site'}</dd>
@@ -133,10 +137,10 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
     idle: 'Choose GitHub import or drag a ZIP file on the left.',
     checking: 'Checking repository format...',
     detected: 'Repository detected. Click Import to pull files.',
-    zip_ready: 'ZIP selected. Click Deploy ZIP to upload and deploy.',
+    zip_ready: 'ZIP selected. Click Send ZIP to Hosting to create a handoff.',
     pulling: 'Pulling files from GitHub...',
-    uploading: 'Uploading ZIP package...',
-    building: 'Preparing deployment...',
+    uploading: 'Sending to Hosting...',
+    building: 'Preparing handoff...',
     complete: 'Import complete. Opening next screen...',
     error: 'Import needs attention.',
   }[phase] || 'Ready when you are.';
@@ -146,7 +150,7 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
     <div className={`bld-preview-frame import-loader-frame ${!isImporting ? 'import-loader-frame--still' : ''}`}>
       <div className="import-loader-shell">
         <div className="import-loader-copy">
-          <div className="eyebrow">Import pipeline</div>
+          <div className="eyebrow">Preparation pipeline</div>
           <h2>{title}</h2>
           <div className="muted">
             {zipFile ? <span className="mono">{formatFileSize(zipFile.size)} ZIP package selected</span> : repo ? <span className="mono">{repo.url} - {branch}</span> : activeLabel}
@@ -155,13 +159,13 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
         {showLoader ? (
           <div className="loader" aria-live="polite" aria-label={activeLabel}>{Array.from({ length: 9 }).map((_, index) => <div className="text" key={index}><span>{loaderText}</span></div>)}<div className="line" /></div>
         ) : (
-          <div className="import-loader-standby">{zipFile ? <ICN.Box size={18} /> : <ICN.Git size={18} />}<span>{zipFile ? 'ZIP ready for deploy' : repo ? 'Repository detected' : 'Waiting for project'}</span></div>
+          <div className="import-loader-standby">{zipFile ? <ICN.Box size={18} /> : <ICN.Git size={18} />}<span>{zipFile ? 'ZIP ready for handoff' : repo ? 'Repository detected' : 'Waiting for project'}</span></div>
         )}
         <div className="term import-loader-term">
           <div><span className="ts">now</span> <span className={error ? 'err' : 'info'}>{error || activeLabel}</span></div>
           {repo && <div><span className="ts">repo</span> <span className="dim">{repo.owner}/{repo.repo}</span></div>}
           {zipFile && <div><span className="ts">zip</span> <span className="ok">Selected: {zipFile.name} ({formatFileSize(zipFile.size)})</span></div>}
-          <div><span className="ts">next</span> <span className="ok">Hosting detail opens after deploy record is created</span></div>
+          <div><span className="ts">next</span> <span className="ok">Hosting detail opens after the handoff record is created</span></div>
         </div>
       </div>
     </div>
@@ -271,7 +275,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   React.useEffect(() => () => clearTimeout(phaseTimer.current), []);
   React.useEffect(() => setActiveMode(mode === 'zip' ? 'zip' : 'github'), [mode]);
-  React.useEffect(() => { if (activeMode !== 'zip') return; getZipDeploySettings().then((cfg) => setZipConfig(cfg)).catch(() => {}); }, [activeMode]);
+  React.useEffect(() => { if (activeMode !== 'zip') return; getHostingDeploySettings().then((cfg) => setZipConfig(cfg)).catch(() => {}); }, [activeMode]);
 
   const selectZip = (file) => {
     setZipNotice('');
@@ -279,7 +283,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
     setZipError(null);
     if (!/\.zip$/i.test(file.name)) { setZipError('Please upload a .zip file.'); setImportPhase('error'); return; }
     setZipFile(file);
-    setZipNotice(`${file.name} selected successfully. Click Deploy ZIP to upload it.`);
+    setZipNotice(`${file.name} selected successfully. Click Send ZIP to Hosting to create a handoff.`);
     setImportPhase('zip_ready');
   };
   const clearZip = () => { setZipFile(null); setZipNotice(''); setZipError(null); setImportPhase('idle'); if (fileInputRef.current) fileInputRef.current.value = ''; };
@@ -301,10 +305,10 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   const handleZipDeploy = async () => {
     if (!zipFile) { setZipError('Choose or drop a ZIP file first.'); return; }
-    setZipBusy(true); setZipError(null); setZipNotice('Uploading ZIP package...'); setImportPhase('uploading'); clearTimeout(phaseTimer.current); phaseTimer.current = setTimeout(() => setImportPhase('building'), 1000);
+    setZipBusy(true); setZipError(null); setZipNotice('Sending to Hosting...'); setImportPhase('uploading'); clearTimeout(phaseTimer.current); phaseTimer.current = setTimeout(() => setImportPhase('building'), 1000);
     try {
       const effectiveZipName = renderConfig.serviceName.trim() || zipFile.name.replace(/\.zip$/i, '');
-      const result = await deployZipTemplate(zipFile, {
+      const result = await createZipHostingDeployment(zipFile, {
         // Identity
         siteName: effectiveZipName, slug: effectiveZipName, serviceName: effectiveZipName,
         // Hosting handoff settings
@@ -319,7 +323,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
         // Env vars (JSON-stringified — route parses it back)
         // Disk (web services only, JSON-stringified)
       });
-      clearTimeout(phaseTimer.current); setImportPhase('complete'); setZipNotice('ZIP uploaded. Opening Hosting detail...'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId } }), 700);
+      clearTimeout(phaseTimer.current); setImportPhase('complete'); setZipNotice('ZIP handoff created. Opening Hosting detail...'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId } }), 700);
     } catch (err) { setZipError(err.message || 'ZIP upload failed.'); setZipNotice(''); setImportPhase('error'); } finally { setZipBusy(false); }
   };
 
@@ -327,9 +331,9 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   return (
     <>
-      <div className="page-head"><div><a className="page-eyebrow" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'builder-gallery' }); }}>Back to site builder</a><h1>Import your own work</h1><p className="sub">Deploy from GitHub or drag-and-drop a ZIP package. ZIP upload creates a Hosting record and starts Render when provider settings are configured.</p></div></div>
+      <div className="page-head"><div><a className="page-eyebrow" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'builder-gallery' }); }}>Back to site builder</a><h1>Prepare an existing site</h1><p className="sub">Prepare source from GitHub or a ZIP package, then send the handoff to Hosting. Hosting owns the live deployment controls.</p></div></div>
       <div className="tabs" style={{ marginBottom: 14 }}><button className={activeMode === 'github' ? 'active' : ''} onClick={() => { setActiveMode('github'); setImportPhase(repoUrl ? (detectedRepo ? 'detected' : 'checking') : 'idle'); }}><ICN.Git size={14} /> GitHub</button><button className={activeMode === 'zip' ? 'active' : ''} onClick={() => { setActiveMode('zip'); setImportPhase(zipFile ? 'zip_ready' : 'idle'); }}><ICN.Box size={14} /> ZIP upload</button></div>
-      <div className="card card-flush builder-import-workspace" style={{ overflow: 'hidden' }}><div className="bld-split"><div className="github-pull-toggle"><div className="github-pull-head"><div className="github-pull-icon">{activeMode === 'zip' ? <ICN.Box size={18} /> : <ICN.Github size={18} />}</div><div><div className="eyebrow">{activeMode === 'zip' ? 'ZIP upload' : 'GitHub pull'}</div><h2>{activeMode === 'zip' ? 'Drag and drop to deploy' : 'Import from repository'}</h2></div></div>
+      <div className="card card-flush builder-import-workspace" style={{ overflow: 'hidden' }}><div className="bld-split"><div className="github-pull-toggle"><div className="github-pull-head"><div className="github-pull-icon">{activeMode === 'zip' ? <ICN.Box size={18} /> : <ICN.Github size={18} />}</div><div><div className="eyebrow">{activeMode === 'zip' ? 'ZIP preparation' : 'GitHub preparation'}</div><h2>{activeMode === 'zip' ? 'Drag and drop to prepare' : 'Import from repository'}</h2></div></div>
         {activeMode === 'github' ? (
           <div className="builder-import-pane"><div className="label">Repository URL</div><div className="input-group"><input autoFocus className="input mono" placeholder="https://github.com/your-org/your-site" value={repoUrl} onChange={(e) => updateRepoUrl(e.target.value)} onPaste={(e) => { const pasted = e.clipboardData?.getData('text'); if (pasted) { e.preventDefault(); updateRepoUrl(pasted); } }} onKeyDown={(e) => e.key === 'Enter' && handleGitConnect()} /><button className="btn btn-primary" onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo}><ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening' : gitBusy ? 'Importing' : 'Import'}</button></div><div style={{ marginTop: 12 }}><div className="label">Branch</div><input className="input mono" placeholder="main" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} /></div>{repoUrl.trim() && !detectedRepo && <div style={{ marginTop: 10, color: 'var(--warning)', fontSize: 13 }}>Paste a GitHub repository URL, for example https://github.com/owner/repo.</div>}{gitError && <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{gitError}</div>}</div>
         ) : (
@@ -343,7 +347,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
             {zipFile && <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', border: '1px solid var(--accent)' }}><div className="row between" style={{ gap: 10 }}><div><div style={{ fontWeight: 700 }}>Selected file</div><div className="mono muted" style={{ fontSize: 12 }}>{zipFile.name} · {formatFileSize(zipFile.size)}</div></div><button className="btn btn-sm btn-outline" onClick={clearZip} disabled={zipBusy}>Remove</button></div></div>}
             {zipConfig && (
               <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>Deploy config status</div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Hosting handoff status</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? '✓' : '✗'}</span> Render API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
                   <div><span style={{ color: (zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? 'var(--accent)' : 'var(--danger)' }}>{(zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? '✓' : '✗'}</span> Source repo: {zipConfig.renderSourceRepoConfigured ? 'configured' : renderConfig.repoUrl.trim() ? 'set below' : 'not configured'}</div>
@@ -355,7 +359,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
               <div style={{ marginTop: 12, padding: 12, border: '2px solid var(--warning, #e6a817)', borderRadius: 'var(--r-md)', background: 'var(--bg-deep)' }}>
                 <div className="label" style={{ fontWeight: 600, color: 'var(--warning, #e6a817)' }}>Generated-sites source repo URL *</div>
                 <input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" style={{ marginTop: 6 }} />
-                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Required for Render deployment. Render deploys from this repo, not from uploaded files directly.</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Required for Hosting handoff. Hosting deploys from this repo, not from uploaded files directly.</div>
               </div>
             )}
             {zipNotice && <div style={{ marginTop: 10, color: 'var(--accent)', fontSize: 13 }}>{zipNotice}</div>}
@@ -400,7 +404,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
           {settingsMode === 'advanced' && (<>
             <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Source Settings</h3>
             <div className="render-config-grid">
-              {activeMode === 'zip' && <label><span>Source repository</span><input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" /><span className="muted" style={{ fontSize: 11 }}>Render deploys from this repo. Leave blank to use server default.</span></label>}
+              {activeMode === 'zip' && <label><span>Source repository</span><input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" /><span className="muted" style={{ fontSize: 11 }}>Hosting deploys from this repo. Leave blank to use server default.</span></label>}
               {activeMode === 'github' && <label><span>Source repository</span><input className="input mono" value={repoUrl} disabled style={{ opacity: 0.7 }} /></label>}
               <label><span>Branch</span><input className="input mono" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} placeholder="main" /></label>
               <label><span>Root directory</span><input className="input mono" value={isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory} onChange={(e) => updateRenderConfig(isStaticSite ? 'frontendRootDirectory' : 'backendRootDirectory', e.target.value)} placeholder={isStaticSite ? './' : 'server'} /><span className="muted" style={{ fontSize: 11 }}>Must be a repo path, not /opt/render/project/...</span></label>
@@ -453,7 +457,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
             </>)}
           </>)}
 
-          {/* Deploy Doctor */}
+          {/* Handoff Doctor */}
           <div style={{ marginTop: 14 }}>
             <DeployDoctorCard config={flatConfig} context={doctorContext} onApplyFix={applyDeployFix} />
           </div>
