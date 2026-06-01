@@ -24,10 +24,6 @@ function hoursLeft(dueAt) {
   return Math.round((ms / 3_600_000) * 10) / 10;
 }
 
-function YesNo({ ok }) {
-  return <span style={{ color: ok ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 600 }}>{ok ? 'Yes' : 'No'}</span>;
-}
-
 export default function BillingPage() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +41,6 @@ export default function BillingPage() {
   const pricing = summary?.pricing;
   const orders = summary?.orders || [];
   const deployments = summary?.deployments || [];
-  const provider = summary?.provider;
   const depByOrder = Object.fromEntries(deployments.filter((d) => d.checkoutOrderId).map((d) => [d.checkoutOrderId, d]));
   const depById = Object.fromEntries(deployments.map((d) => [d.deploymentId, d]));
 
@@ -66,26 +61,10 @@ export default function BillingPage() {
 
       {/* Pricing + payment rule */}
       <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-        <div className="row between" style={{ alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 8, maxWidth: 520 }}>
-              Deploy first, pay within {pricing?.graceHours || 12} hours. Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
-            </div>
-          </div>
-          {provider && (
-            <div className="card" style={{ padding: 12, background: 'var(--bg-deep)', minWidth: 230 }}>
-              <div className="page-eyebrow" style={{ marginBottom: 8 }}>Provider status</div>
-              <div className="kv" style={{ gridTemplateColumns: '1fr auto', gap: '4px 12px', fontSize: 13 }}>
-                <dt>Render configured</dt><dd><YesNo ok={provider.renderConfigured} /></dd>
-                <dt>RENDER_API_KEY</dt><dd><YesNo ok={provider.renderApiKeyPresent} /></dd>
-                <dt>RENDER_OWNER_ID</dt><dd><YesNo ok={provider.renderOwnerIdPresent} /></dd>
-                <dt>PayPal configured</dt><dd><YesNo ok={provider.paypalConfigured} /></dd>
-                <dt>Manual receipts</dt><dd><YesNo ok={provider.manualReceiptUpload} /></dd>
-              </div>
-            </div>
-          )}
+        <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 8, maxWidth: 520 }}>
+          Deploy first, pay within {pricing?.graceHours || 12} hours. Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
         </div>
       </div>
 
