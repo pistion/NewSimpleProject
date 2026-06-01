@@ -12,12 +12,15 @@ const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 /**
  * Resolve the JWT signing secret. In production a real secret MUST be supplied;
  * we refuse to fall back to the insecure dev default there.
+ *
+ * Accepts JWT_SECRET (canonical) or JWT_ACCESS_SECRET (common alternate name)
+ * so a naming mismatch can't silently take down auth in production.
  */
 export function getJwtSecret() {
-  const secret = process.env.JWT_SECRET;
+  const secret = process.env.JWT_SECRET || process.env.JWT_ACCESS_SECRET;
   if (secret) return secret;
   if (isProd) {
-    throw httpError('JWT_SECRET is not configured.', 500);
+    throw httpError('JWT_SECRET (or JWT_ACCESS_SECRET) is not configured.', 500);
   }
   return DEV_JWT_SECRET;
 }
