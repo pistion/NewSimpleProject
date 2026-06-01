@@ -1,24 +1,19 @@
 // BuilderImport.jsx - GitHub repository import + ZIP drag/drop Hosting handoff flow.
 import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
-import { Badge } from '../../../components';
-import { importBuilderSiteFromGithub, parseGithubRepo } from '../../../api';
+import { parseGithubRepo } from '../../../api';
 import {
   createGithubHostingDeployment,
   createZipHostingDeployment,
   getHostingDeploySettings,
 } from '../../../api/hosting-deploy.js';
+import { GithubPreparePanel } from '../prepare/GithubPreparePanel.jsx';
+import { HandoffReadinessCard, getHandoffReadinessChecks } from '../prepare/HandoffReadinessCard.jsx';
+import { HandoffSummaryCard } from '../prepare/HandoffSummaryCard.jsx';
+import { ZipPreparePanel } from '../prepare/ZipPreparePanel.jsx';
+import { DEPLOY_PRESETS } from '../prepare/deployPresets.js';
 
 // ── Presets ────────────────────────────────────────────────────────────────────
-
-const DEPLOY_PRESETS = [
-  { id: 'static-html', label: 'Static HTML', description: 'Plain HTML/CSS/JS website.', serviceType: 'static_site', buildCommand: 'bash glondia-render-build.sh', publishDirectory: '.' },
-  { id: 'vite-react', label: 'Vite React', description: 'Modern React static site built with Vite.', serviceType: 'static_site', buildCommand: 'bash glondia-render-build.sh', publishDirectory: 'dist' },
-  { id: 'create-react-app', label: 'Create React App', description: 'React app with react-scripts.', serviceType: 'static_site', buildCommand: 'bash glondia-render-build.sh', publishDirectory: 'build' },
-  { id: 'nextjs', label: 'Next.js', description: 'Next.js server-rendered app.', serviceType: 'web_service', runtime: 'node', buildCommand: 'npm install && npm run build', startCommand: 'npm start' },
-  { id: 'express-api', label: 'Express API', description: 'Node/Express backend service.', serviceType: 'web_service', runtime: 'node', buildCommand: 'npm install', startCommand: 'npm start' },
-  { id: 'node-web-app', label: 'Node Web App', description: 'Generic Node web service.', serviceType: 'web_service', runtime: 'node', buildCommand: 'npm install && npm run build', startCommand: 'npm start' },
-];
 
 // ── Handoff Doctor ─────────────────────────────────────────────────────────────
 
@@ -176,6 +171,21 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
 
 export function BuilderImport({ mode = 'github', navigate }) {
   const [activeMode, setActiveMode] = useStateB(mode === 'zip' ? 'zip' : 'github');
+  const [handoffDraft, setHandoffDraft] = useStateB({
+    siteName: '',
+    sourceType: mode === 'zip' ? 'zip' : 'github',
+    sourceReference: '',
+    branch: 'main',
+    detectedFramework: '',
+    projectType: '',
+    recommended: {
+      serviceType: 'static_site',
+      buildCommand: 'npm run build',
+      publishDirectory: 'dist',
+      startCommand: '',
+      rootDirectory: '',
+    },
+  });
   const [repoUrl, setRepoUrl] = useStateB('');
   const [repoBranch, setRepoBranch] = useStateB('main');
   const [gitBusy, setGitBusy] = useStateB(false);
@@ -193,10 +203,6 @@ export function BuilderImport({ mode = 'github', navigate }) {
     serviceType: 'static_site', plan: 'starter', region: 'oregon',
     runtime: 'node', healthCheckPath: '/', repoUrl: '', pullRequestPreviews: 'no',
   });
-  // Environment variables: array of { key, value } pairs
-  const [envVars, setEnvVars] = useStateB([]);
-  // Disk settings (web services only)
-  const [disk, setDisk] = useStateB({ enabled: false, name: 'data', mountPath: '/data', sizeGB: 1 });
   const [zipConfig, setZipConfig] = useStateB(null);
   const [settingsMode, setSettingsMode] = useStateB('basic');
   const [activePreset, setActivePreset] = useStateB(null);
@@ -231,7 +237,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
     recommendedStartCommand: 'npm start',
   }), [activeMode, zipConfig, isStaticSite]);
 
-  const doctorChecks = React.useMemo(() => getDeployDoctorChecks(flatConfig, doctorContext), [flatConfig, doctorContext]);
+  const doctorChecks = React.useMemo(() => getHandoffReadinessChecks(flatConfig, doctorContext), [flatConfig, doctorContext]);
   const hasErrors = doctorChecks.some((c) => c.status === 'error');
 
   const updateRepoUrl = (value) => { setRepoUrl(value); setGitError(null); if (!gitBusy) setImportPhase(value.trim() ? (parseGithubRepo(value) ? 'detected' : 'checking') : 'idle'); };
@@ -276,6 +282,24 @@ export function BuilderImport({ mode = 'github', navigate }) {
   React.useEffect(() => () => clearTimeout(phaseTimer.current), []);
   React.useEffect(() => setActiveMode(mode === 'zip' ? 'zip' : 'github'), [mode]);
   React.useEffect(() => { if (activeMode !== 'zip') return; getHostingDeploySettings().then((cfg) => setZipConfig(cfg)).catch(() => {}); }, [activeMode]);
+  React.useEffect(() => {
+    const isStatic = renderConfig.serviceType === 'static_site';
+    setHandoffDraft({
+      siteName: renderConfig.serviceName,
+      sourceType: activeMode,
+      sourceReference: activeMode === 'github' ? repoUrl : renderConfig.repoUrl,
+      branch: repoBranch || 'main',
+      detectedFramework: activePreset || '',
+      projectType: renderConfig.serviceType,
+      recommended: {
+        serviceType: renderConfig.serviceType,
+        buildCommand: isStatic ? renderConfig.frontendBuildCommand : renderConfig.backendBuildCommand,
+        publishDirectory: isStatic ? renderConfig.frontendPublishDirectory : '',
+        startCommand: isStatic ? '' : renderConfig.backendStartCommand,
+        rootDirectory: isStatic ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory,
+      },
+    });
+  }, [activeMode, activePreset, renderConfig, repoBranch, repoUrl]);
 
   const selectZip = (file) => {
     setZipNotice('');
@@ -298,8 +322,27 @@ export function BuilderImport({ mode = 'github', navigate }) {
       const buildCommand = isStaticSite ? renderConfig.frontendBuildCommand : renderConfig.backendBuildCommand;
       const outputDirectory = isStaticSite ? renderConfig.frontendPublishDirectory : '';
       const effectiveName = renderConfig.serviceName.trim() || (detectedRepo ? detectedRepo.repo : 'glondia-site');
-      const site = await importBuilderSiteFromGithub({ repoUrl, branch: repoBranch || 'main', rootDirectory, buildCommand, outputDirectory, renderConfig: { provider: 'render', serviceType: renderConfig.serviceType, plan: renderConfig.plan, region: renderConfig.region, serviceName: effectiveName, frontend: { rootDirectory: renderConfig.frontendRootDirectory, buildCommand: renderConfig.frontendBuildCommand, publishDirectory: renderConfig.frontendPublishDirectory }, backend: { rootDirectory: renderConfig.backendRootDirectory, buildCommand: renderConfig.backendBuildCommand, startCommand: renderConfig.backendStartCommand, runtime: renderConfig.runtime, healthCheckPath: renderConfig.healthCheckPath }, selected: isStaticSite ? { rootDirectory: renderConfig.frontendRootDirectory, buildCommand: renderConfig.frontendBuildCommand, publishDirectory: renderConfig.frontendPublishDirectory } : { rootDirectory: renderConfig.backendRootDirectory, buildCommand: renderConfig.backendBuildCommand, startCommand: renderConfig.backendStartCommand, runtime: renderConfig.runtime, healthCheckPath: renderConfig.healthCheckPath } } });
-      clearTimeout(phaseTimer.current); setImportPhase('complete'); window.setTimeout(() => navigate({ view: 'builder-editor', params: { id: site.templateId || null, siteId: site.id } }), 700);
+      const result = await createGithubHostingDeployment({
+        ...handoffDraft,
+        siteName: effectiveName,
+        slug: effectiveName,
+        name: effectiveName,
+        repoUrl,
+        repositoryUrl: repoUrl,
+        branch: repoBranch || 'main',
+        rootDirectory,
+        buildCommand,
+        publishDirectory: outputDirectory,
+        outputDirectory,
+        serviceType: renderConfig.serviceType,
+        plan: renderConfig.plan,
+        region: renderConfig.region,
+        startCommand: isStaticSite ? '' : renderConfig.backendStartCommand,
+        runtime: isStaticSite ? '' : renderConfig.runtime,
+        source: 'github-link',
+        sourceReference: repoUrl,
+      });
+      clearTimeout(phaseTimer.current); setImportPhase('complete'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId || result.id } }), 700);
     } catch (err) { setGitError(err.message || 'Failed to connect repository.'); setImportPhase('error'); } finally { setGitBusy(false); }
   };
 
@@ -335,7 +378,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
       <div className="tabs" style={{ marginBottom: 14 }}><button className={activeMode === 'github' ? 'active' : ''} onClick={() => { setActiveMode('github'); setImportPhase(repoUrl ? (detectedRepo ? 'detected' : 'checking') : 'idle'); }}><ICN.Git size={14} /> GitHub</button><button className={activeMode === 'zip' ? 'active' : ''} onClick={() => { setActiveMode('zip'); setImportPhase(zipFile ? 'zip_ready' : 'idle'); }}><ICN.Box size={14} /> ZIP upload</button></div>
       <div className="card card-flush builder-import-workspace" style={{ overflow: 'hidden' }}><div className="bld-split"><div className="github-pull-toggle"><div className="github-pull-head"><div className="github-pull-icon">{activeMode === 'zip' ? <ICN.Box size={18} /> : <ICN.Github size={18} />}</div><div><div className="eyebrow">{activeMode === 'zip' ? 'ZIP preparation' : 'GitHub preparation'}</div><h2>{activeMode === 'zip' ? 'Drag and drop to prepare' : 'Import from repository'}</h2></div></div>
         {activeMode === 'github' ? (
-          <div className="builder-import-pane"><div className="label">Repository URL</div><div className="input-group"><input autoFocus className="input mono" placeholder="https://github.com/your-org/your-site" value={repoUrl} onChange={(e) => updateRepoUrl(e.target.value)} onPaste={(e) => { const pasted = e.clipboardData?.getData('text'); if (pasted) { e.preventDefault(); updateRepoUrl(pasted); } }} onKeyDown={(e) => e.key === 'Enter' && handleGitConnect()} /><button className="btn btn-primary" onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo}><ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening' : gitBusy ? 'Importing' : 'Import'}</button></div><div style={{ marginTop: 12 }}><div className="label">Branch</div><input className="input mono" placeholder="main" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} /></div>{repoUrl.trim() && !detectedRepo && <div style={{ marginTop: 10, color: 'var(--warning)', fontSize: 13 }}>Paste a GitHub repository URL, for example https://github.com/owner/repo.</div>}{gitError && <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{gitError}</div>}</div>
+          <GithubPreparePanel repoUrl={repoUrl} repoBranch={repoBranch} detectedRepo={detectedRepo} gitBusy={gitBusy} gitError={gitError} importPhase={importPhase} onRepoUrlChange={updateRepoUrl} onBranchChange={setRepoBranch} onImport={handleGitConnect} />
         ) : (
           <div className="builder-import-pane">
             <div onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragEnter={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()} style={{ border: `2px dashed ${zipFile ? 'var(--accent)' : dragging ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--r-lg)', padding: 28, textAlign: 'center', background: zipFile ? 'var(--accent-soft)' : dragging ? 'var(--accent-soft)' : 'var(--bg-deep)', cursor: 'pointer' }}>
@@ -459,12 +502,12 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
           {/* Handoff Doctor */}
           <div style={{ marginTop: 14 }}>
-            <DeployDoctorCard config={flatConfig} context={doctorContext} onApplyFix={applyDeployFix} />
+            <HandoffReadinessCard config={flatConfig} context={doctorContext} onApplyFix={applyDeployFix} />
           </div>
 
           {/* Deployment Preview */}
           <div style={{ marginTop: 10 }}>
-            <DeploymentPreviewCard config={flatConfig} />
+            <HandoffSummaryCard config={flatConfig} />
           </div>
 
           {/* Action buttons */}

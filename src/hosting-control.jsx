@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ICN } from './icons';
 import { Badge, Empty, StatusBadge, Tabs } from './components';
+
+// Render Hosting Hub owns live-site controls: logs, settings, env vars,
+// secret files, headers, routes, disks, domains, billing, and lifecycle actions.
 import {
   getDeploymentLogStreamUrl,
   getHostingPaymentStatus,

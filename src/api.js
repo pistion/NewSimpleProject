@@ -177,6 +177,8 @@ export async function updateProject(projectId, input) { return projectApi.update
 export async function archiveProject(projectId) { return projectApi.archiveProject(projectId); }
 export async function createDeployment(projectId, input) { return projectApi.createDeployment(projectId, input); }
 
+// Hosting Deploy handoff helpers are migrating to src/api/hosting-deploy.js.
+// Keep this export for older callers while new builder flows use the gateway.
 export async function createRenderDeployment(input) {
   const path = isLiveMode()
     ? (isDirectGithubDeployment(input) ? '/deployments/github' : '/deployments/render')
@@ -211,6 +213,8 @@ export const redeployDeployment = redeployRenderDeployment;
 export async function getRenderDeploymentLogs(deploymentId) { return hostingRequest(`/deployments/${deploymentId}/logs`); }
 export function getDeploymentLogStreamUrl(deploymentId) { return liveApiUrl(`/deployments/${encodeURIComponent(deploymentId)}/logs/stream`); }
 
+// Hosting Control helpers below manage live services after a deploymentId exists.
+// These belong to Render Hosting Hub screens, not Site Builder handoff screens.
 export async function listHostingDeployments() { return hostingRequest('/hosting'); }
 export const listHostingApps = listHostingDeployments;
 export async function getHostingService(deploymentId) { return hostingRequest(`/hosting/${deploymentId}`); }
