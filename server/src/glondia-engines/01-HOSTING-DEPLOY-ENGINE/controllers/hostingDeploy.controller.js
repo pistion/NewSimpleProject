@@ -6,12 +6,18 @@ import { run as runZipToRender } from '../pipelines/zipToRender.pipeline.js';
 import { createDeploymentOrder } from '../../../services/deploymentBillingService.js';
 
 /**
- * Attach a pending K100 billing order to a freshly created deployment.
+ * Attach a pending deployment billing order to a freshly created deployment.
  * Deployment happens first; billing must never block the deploy response, so a
  * failure here is logged and the deploy still succeeds (cleanup job is a safety
  * net only for deployments that actually carry an order).
+ *
+ * A deployment that hard-failed (e.g. repo not found, ZIP invalid) never
+ * produced a live service, so it is NOT billed — the customer only owes the
+ * flat fee once a deployment is actually created/queued.
  */
 async function attachBilling(deployment, req, kind) {
+  if (!deployment || deployment.deploymentId == null) return null;
+  if (deployment.status === 'failed') return null;
   try {
     return await createDeploymentOrder({ deployment, user: req.user || {}, kind });
   } catch (error) {
