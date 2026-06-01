@@ -1,44 +1,67 @@
 /**
  * AuthController
- * Handles identity and session management as defined in 04_AUTH_WORKSPACE_ROUTES.md
+ * Real identity + session management for the paid MVP.
+ * Uses bcrypt password hashing, JWT access tokens, and DB-backed rotating
+ * refresh tokens (see services/authService.js).
  */
 
+import {
+  getUserById,
+  loginUser,
+  logoutUser,
+  refreshSession,
+  registerUser,
+} from '../services/authService.js';
+
 const AuthController = {
-  register: async (req, res) => {
-    const { email, password, name } = req.body;
-    // Implementation placeholder
-    res.created({
-      id: "u_1",
-      email,
-      name,
-      createdAt: new Date().toISOString()
-    });
+  register: async (req, res, next) => {
+    try {
+      const { email, password, name } = req.body || {};
+      const session = await registerUser({ email, password, name });
+      res.created(session);
+    } catch (error) {
+      next(error);
+    }
   },
 
-  login: async (req, res) => {
-    const { email, password } = req.body;
-    // Implementation placeholder
-    res.ok({
-      token: "jwt_token_placeholder",
-      user: { id: "u_1", email, name: "Sarah Kora" }
-    });
+  login: async (req, res, next) => {
+    try {
+      const { email, password } = req.body || {};
+      const session = await loginUser({ email, password });
+      res.ok(session);
+    } catch (error) {
+      next(error);
+    }
   },
 
-  logout: async (req, res) => {
-    res.ok({ message: "Logged out successfully" });
+  refreshToken: async (req, res, next) => {
+    try {
+      const rawToken = req.body?.refreshToken || req.body?.token;
+      const session = await refreshSession(rawToken);
+      res.ok(session);
+    } catch (error) {
+      next(error);
+    }
   },
 
-  refreshToken: async (req, res) => {
-    res.ok({ token: "new_jwt_token_placeholder" });
+  logout: async (req, res, next) => {
+    try {
+      await logoutUser(req.body?.refreshToken || req.body?.token);
+      res.ok({ message: 'Logged out successfully.' });
+    } catch (error) {
+      next(error);
+    }
   },
 
-  forgotPassword: async (req, res) => {
-    res.ok({ message: "Password reset link sent" });
+  me: async (req, res, next) => {
+    try {
+      const user = await getUserById(req.user?.id);
+      if (!user) return res.error('NOT_FOUND', 'User not found.', 404);
+      res.ok({ user });
+    } catch (error) {
+      next(error);
+    }
   },
-
-  resetPassword: async (req, res) => {
-    res.ok({ message: "Password reset successfully" });
-  }
 };
 
 export default AuthController;

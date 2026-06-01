@@ -29,6 +29,7 @@ import { useBilling } from './use-billing';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
+import { isViewComingSoon } from './app/features.js';
 import LoginPage from './features/auth/LoginPage.jsx';
 import SignupPage from './features/auth/SignupPage.jsx';
 
@@ -157,6 +158,9 @@ export default function App() {
   const renderView = () => {
     if (isAuthBlocked) return <LoginPage navigate={navigate} />;
 
+    // Non-MVP surfaces are gated behind Coming Soon instead of broken pages.
+    if (isViewComingSoon(route.view)) return <ComingSoon navigate={navigate} />;
+
     switch (route.view) {
       case "login":             return authed ? (() => { navigate({ view: 'overview' }); return null; })() : <LoginPage navigate={navigate} />;
       case "signup":            return authed ? (() => { navigate({ view: 'overview' }); return null; })() : <SignupPage navigate={navigate} />;
@@ -280,6 +284,30 @@ export default function App() {
         <TweakButton onClick={() => navigate({ view: "builder-templates" })}>Template gallery</TweakButton>
         <TweakButton onClick={() => navigate({ view: "builder-templates" })}>Builder editor</TweakButton>
       </TweaksPanel>
+    </>
+  );
+}
+
+function ComingSoon({ navigate }) {
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <div className="page-eyebrow">Coming soon</div>
+          <h1>Not available yet</h1>
+          <p className="sub">This feature is being prepared and will unlock soon.</p>
+        </div>
+      </div>
+      <Empty
+        icon="Sparkles"
+        title="Coming soon"
+        body="We're focused on shipping core hosting first. This area will be available in an upcoming release."
+        action={
+          <button className="btn btn-primary" onClick={() => navigate({ view: "hosting-list" })}>
+            Go to hosting
+          </button>
+        }
+      />
     </>
   );
 }

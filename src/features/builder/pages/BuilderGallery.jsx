@@ -1,6 +1,7 @@
 // BuilderGallery.jsx — guided Site Builder start screen.
 import React from 'react';
 import { ICN } from '../../../icons';
+import { isFeatureEnabled } from '../../../app/features.js';
 
 function ChoiceCard({ icon: Icon, eyebrow, title, body, points = [], action, onClick, tone = 'default', disabled = false }) {
   return (
@@ -52,6 +53,10 @@ function ChoiceCard({ icon: Icon, eyebrow, title, body, points = [], action, onC
 }
 
 export function BuilderGallery({ navigate }) {
+  const showAi = isFeatureEnabled('aiBuilder');
+  const showTemplates = isFeatureEnabled('templateMarketplace');
+  const visibleCount = 1 + (showAi ? 1 : 0) + (showTemplates ? 1 : 0);
+
   return (
     <>
       <div className="page-head">
@@ -59,7 +64,7 @@ export function BuilderGallery({ navigate }) {
           <div className="page-eyebrow">Site builder</div>
           <h1>How do you want to create your website?</h1>
           <p className="sub">
-            Start with RoxanneAI, choose a real template, or import an existing project. This screen guides clients before they enter the build flow.
+            Import an existing project from GitHub or a ZIP upload to get it hosted on Glondia.
           </p>
         </div>
       </div>
@@ -70,36 +75,40 @@ export function BuilderGallery({ navigate }) {
             <ICN.Sparkles size={16} />
           </div>
           <div>
-            <div style={{ fontWeight: 700 }}>Recommended client path</div>
+            <div style={{ fontWeight: 700 }}>Recommended path</div>
             <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
-              New clients should usually start with templates. Developers can import from GitHub. ZIP upload is shown as the next import method to finish.
+              Bring your own project into Glondia. Import directly from a GitHub repository or upload a ZIP of your site.
             </div>
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
-        <ChoiceCard
-          icon={ICN.Sparkles}
-          eyebrow="AI first"
-          title="Create with RoxanneAI"
-          body="Start from a guided AI website session. RoxanneAI collects the business idea first, then helps route the client into the right website build path."
-          points={['Guided business questions', 'Good for clients with no content', 'Can connect to templates next']}
-          action="Start with RoxanneAI"
-          onClick={() => navigate({ view: 'builder-roxanne' })}
-          tone="ai"
-        />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${visibleCount}, minmax(0, 1fr))`, gap: 16 }}>
+        {showAi && (
+          <ChoiceCard
+            icon={ICN.Sparkles}
+            eyebrow="AI first"
+            title="Create with RoxanneAI"
+            body="Start from a guided AI website session. RoxanneAI collects the business idea first, then helps route the client into the right website build path."
+            points={['Guided business questions', 'Good for clients with no content', 'Can connect to templates next']}
+            action="Start with RoxanneAI"
+            onClick={() => navigate({ view: 'builder-roxanne' })}
+            tone="ai"
+          />
+        )}
 
-        <ChoiceCard
-          icon={ICN.Layers}
-          eyebrow="Template first"
-          title="Choose templates"
-          body="Preview real parent templates like Pulse Works and Forge, then use RoxanneAI to customize the copied version for the client."
-          points={['Shows only real templates', 'Preview before AI editing', 'Best current production flow']}
-          action="Choose a template"
-          onClick={() => navigate({ view: 'builder-templates' })}
-          tone="templates"
-        />
+        {showTemplates && (
+          <ChoiceCard
+            icon={ICN.Layers}
+            eyebrow="Template first"
+            title="Choose templates"
+            body="Preview real parent templates like Pulse Works and Forge, then use RoxanneAI to customize the copied version for the client."
+            points={['Shows only real templates', 'Preview before AI editing', 'Best current production flow']}
+            action="Choose a template"
+            onClick={() => navigate({ view: 'builder-templates' })}
+            tone="templates"
+          />
+        )}
 
         <div className="card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 260 }}>
           <div className="row between" style={{ alignItems: 'flex-start', gap: 12 }}>

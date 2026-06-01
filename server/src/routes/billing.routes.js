@@ -1,14 +1,13 @@
 import express from 'express';
 import BillingController from '../controllers/billing.controller.js';
 import UsageController from '../controllers/usage.controller.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router({ mergeParams: true });
 
-// Billing
-router.get('/summary', BillingController.getSummary);
+// Billing — simple plan catalog + the user's current plan/quota.
+router.get('/summary', authMiddleware, BillingController.getSummary);
 router.get('/plans', BillingController.listPlans);
-router.get('/invoices', BillingController.listInvoices);
-router.post('/checkout-session', BillingController.createCheckoutSession);
 
 // Usage
 router.get('/usage/summary', UsageController.getSummary);

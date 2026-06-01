@@ -1,33 +1,43 @@
 /**
  * BillingController
- * Handles subscriptions and invoices as defined in 11_BILLING_SETTINGS_NOTIFICATIONS_CONTROLLER.md
+ * Simple plan-based billing for the paid MVP. No fake invoice/subscription data:
+ * the summary answers the questions the launch surface actually needs —
+ * current plan, available plans, whether the user can deploy, and site quota.
  */
 
+import { listPlans } from '../config/plans.js';
+import { countUserSites, resolveUserPlan } from '../middleware/planGate.js';
+
 const BillingController = {
-  getSummary: async (req, res) => {
-    res.ok({
-      plan: { name: "Growth", status: "active", renewsAt: "2026-06-24T00:00:00Z" },
-      usage: { projects: 4, limits: { projects: 10 } },
-      invoices: [
-        { id: "INV-2406", date: "2026-06-01", amount: "$72.47", status: "paid" }
-      ]
-    });
+  getSummary: async (req, res, next) => {
+    try {
+      const plan = await resolveUserPlan(req.user?.id);
+      const sitesUsed = await countUserSites(req.user?.id);
+      res.ok({
+        currentPlan: {
+          id: plan.id,
+          name: plan.name,
+          priceMonthlyCents: plan.priceMonthlyCents,
+          currency: plan.currency,
+        },
+        availablePlans: listPlans(),
+        canDeploy: plan.canDeploy,
+        siteQuota: plan.siteQuota,
+        sitesUsed,
+        sitesRemaining: Math.max(0, plan.siteQuota - sitesUsed),
+      });
+    } catch (error) {
+      next(error);
+    }
   },
 
-  listPlans: async (req, res) => {
-    res.ok([
-      { id: "starter", name: "Starter", price: 0 },
-      { id: "growth", name: "Growth", price: 19 }
-    ]);
+  listPlans: async (req, res, next) => {
+    try {
+      res.ok(listPlans());
+    } catch (error) {
+      next(error);
+    }
   },
-
-  listInvoices: async (req, res) => {
-    res.ok([{ id: "INV-2406", amount: 72.47, status: "paid" }]);
-  },
-
-  createCheckoutSession: async (req, res) => {
-    res.created({ url: "https://www.paypal.com/checkoutnow?token=placeholder" });
-  }
 };
 
 export default BillingController;
