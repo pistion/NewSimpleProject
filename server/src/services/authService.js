@@ -125,6 +125,11 @@ export async function loginUser({ email, password }) {
   // Always run a compare to reduce user-enumeration timing differences.
   const ok = await verifyPassword(password, user?.passwordHash);
   if (!user || !ok) throw httpError('Invalid email or password.', 401);
+  // Account lifecycle: disabled/deleted/suspended accounts cannot log in (MVP).
+  const status = user.accountStatus || 'active';
+  if (status !== 'active') {
+    throw httpError('This account is not active. Please contact support.', 403);
+  }
   return buildSession(user);
 }
 
@@ -149,6 +154,17 @@ export async function getUserById(userId) {
   if (!userId) return null;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   return user ? toPublicUser(user) : null;
+}
+
+/**
+ * Lightweight account-status lookup for per-request enforcement in authMiddleware.
+ * Returns the accountStatus string, or null when no matching DB row exists
+ * (e.g. the dev/local-user fallback, which is intentionally allowed through).
+ */
+export async function getUserAccountStatus(userId) {
+  if (!userId || userId === 'local-user') return null;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true } });
+  return user ? (user.accountStatus || 'active') : null;
 }
 
 function httpError(message, status = 400) {

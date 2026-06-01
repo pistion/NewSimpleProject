@@ -20,11 +20,24 @@ model User {
   name          String?
   role          String         @default("owner")
   planId        String         @default("free") @map("plan_id")
+  // Profile + identity (managed by the customer and admins).
+  phone          String?
+  profileDetails String   @default("{}") @map("profile_details") // JSON as TEXT
+  idPhotoPath    String?  @map("id_photo_path")
+  // Account lifecycle: active | suspended | disabled | deleted. Users are never
+  // hard-deleted — payment/deployment history must survive a soft delete.
+  accountStatus  String   @default("active") @map("account_status")
+  disabledAt     DateTime? @map("disabled_at")
+  disabledReason String?  @map("disabled_reason")
+  deletedAt      DateTime? @map("deleted_at")
+  reactivatedAt  DateTime? @map("reactivated_at")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
   refreshTokens RefreshToken[]
 
+  @@index([accountStatus])
+  @@index([createdAt])
   @@map("users")
 }
 

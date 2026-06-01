@@ -159,7 +159,7 @@ export async function liveApiRequest(path, options = {}) {
   return result?.data ?? result;
 }
 
-function liveApiUrl(path) {
+export function liveApiUrl(path) {
   const configured = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
   if (!configured) return `/api${path}`;
   return `${configured}${path}`;

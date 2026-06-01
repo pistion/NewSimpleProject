@@ -11,6 +11,16 @@ import {
   rejectReceipt,
   markDeploymentPaid,
   deleteDeployment,
+  suspendDeployment,
+  reactivateDeployment,
+  approveDeploymentBilling,
+  getAdminUser,
+  disableUser,
+  reactivateUser,
+  deleteUser,
+  viewReceipt,
+  downloadReceipt,
+  getUserIdPhotoUrl,
 } from '../../api/admin.js';
 
 const { useState, useEffect, useCallback } = React;
@@ -31,9 +41,9 @@ function when(value) {
 }
 function StatusPill({ value }) {
   const v = String(value || '').toLowerCase();
-  const tone = ['paid', 'approved', 'live'].includes(v) ? 'success'
+  const tone = ['paid', 'approved', 'live', 'active'].includes(v) ? 'success'
     : ['pending', 'payment_uploaded', 'building'].includes(v) ? 'warn'
-    : ['expired', 'rejected', 'payment_expired', 'deleted', 'overdue_suspended', 'suspended'].includes(v) ? 'danger'
+    : ['expired', 'rejected', 'payment_expired', 'deleted', 'overdue_suspended', 'suspended', 'disabled'].includes(v) ? 'danger'
     : 'info';
   const colors = {
     success: ['var(--accent-soft)', 'var(--accent)'],
@@ -55,6 +65,7 @@ export function AdminPage() {
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState('');
+  const [detailUserId, setDetailUserId] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
@@ -83,6 +94,12 @@ export function AdminPage() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  // File actions don't refresh the tables; they just surface errors.
+  const fileAct = async (id, fn, label) => {
+    setBusyId(id); setError(null);
+    try { await fn(); } catch (err) { setError(err.message || `${label} failed.`); } finally { setBusyId(null); }
   };
 
   return (
@@ -146,7 +163,7 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'receipts' && (
-        <Table cols={['Created', 'User', 'Order', 'Amount', 'File', 'Status', 'Actions']}>
+        <Table cols={['Created', 'User', 'Order', 'Amount', 'File', 'Type', 'Status', 'Actions']}>
           {receipts.map((r) => (
             <tr key={r.id}>
               <td>{when(r.createdAt)}</td>
@@ -154,16 +171,21 @@ export function AdminPage() {
               <td className="mono">{r.checkoutOrderId?.slice(0, 8)}</td>
               <td>{money(r.amountCents, r.currency)}</td>
               <td className="mono" title={r.fileName}>{r.fileName?.slice(0, 22)}</td>
+              <td className="mono" style={{ fontSize: 11 }}>{r.fileType || '—'}</td>
               <td><StatusPill value={r.status} /></td>
               <td style={{ whiteSpace: 'nowrap' }}>
-                {r.status === 'pending' ? (
+                <button className="btn btn-sm btn-outline" disabled={busyId === r.id}
+                  onClick={() => fileAct(r.id, () => viewReceipt(r.id), 'View receipt')}>View</button>{' '}
+                <button className="btn btn-sm btn-outline" disabled={busyId === r.id}
+                  onClick={() => fileAct(r.id, () => downloadReceipt(r.id, r.fileName), 'Download receipt')}>Download</button>{' '}
+                {r.status === 'pending' && (
                   <>
                     <button className="btn btn-sm btn-primary" disabled={busyId === r.id}
                       onClick={() => act(r.id, () => approveReceipt(r.id), 'Approve receipt')}>Approve</button>{' '}
                     <button className="btn btn-sm btn-outline" disabled={busyId === r.id}
                       onClick={() => act(r.id, () => rejectReceipt(r.id, 'Rejected by admin'), 'Reject receipt')}>Reject</button>
                   </>
-                ) : <span className="muted">{r.reviewedAt ? when(r.reviewedAt) : '—'}</span>}
+                )}
               </td>
             </tr>
           ))}
@@ -182,9 +204,19 @@ export function AdminPage() {
               <td style={{ fontSize: 12 }}>{when(d.billingDueAt)}</td>
               <td style={{ fontSize: 12 }}>{when(d.paidAt)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
+                {d.liveUrl && (
+                  <><a className="btn btn-sm btn-outline" href={d.liveUrl} target="_blank" rel="noopener noreferrer">Open</a>{' '}</>
+                )}
                 {d.paymentStatus !== 'paid' && (
-                  <button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
-                    onClick={() => act(d.deploymentId, () => markDeploymentPaid(d.deploymentId), 'Mark paid')}>Mark paid</button>
+                  <><button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
+                    onClick={() => act(d.deploymentId, () => approveDeploymentBilling(d.deploymentId), 'Approve billing')}>Approve billing</button>{' '}</>
+                )}
+                {d.status === 'suspended' ? (
+                  <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
+                    onClick={() => act(d.deploymentId, () => reactivateDeployment(d.deploymentId), 'Reactivate deployment')}>Reactivate</button>
+                ) : (
+                  <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
+                    onClick={() => act(d.deploymentId, () => suspendDeployment(d.deploymentId, 'admin_suspended'), 'Suspend deployment')}>Suspend</button>
                 )}{' '}
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
                   onClick={() => act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment')}>Delete</button>
@@ -211,19 +243,154 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'users' && (
-        <Table cols={['Created', 'Email', 'Name', 'Role', 'Plan']}>
+        <Table cols={['Created', 'Email', 'Name', 'Phone', 'Account', 'Role', 'Actions']}>
           {users.map((u) => (
             <tr key={u.id}>
               <td>{when(u.createdAt)}</td>
               <td>{u.email}</td>
               <td>{u.name || '—'}</td>
+              <td>{u.phone || '—'}</td>
+              <td><StatusPill value={u.accountStatus || 'active'} /></td>
               <td><StatusPill value={u.role} /></td>
-              <td className="mono">{u.planId}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                <button className="btn btn-sm btn-outline" onClick={() => setDetailUserId(u.id)}>View</button>{' '}
+                {(u.accountStatus === 'disabled' || u.accountStatus === 'deleted') ? (
+                  <button className="btn btn-sm btn-primary" disabled={busyId === u.id}
+                    onClick={() => act(u.id, () => reactivateUser(u.id), 'Reactivate user')}>Reactivate</button>
+                ) : (
+                  <button className="btn btn-sm btn-outline" disabled={busyId === u.id}
+                    onClick={() => act(u.id, () => disableUser(u.id, 'admin_disabled'), 'Disable user')}>Disable</button>
+                )}{' '}
+                <button className="btn btn-sm btn-outline" disabled={busyId === u.id}
+                  onClick={() => { if (window.confirm('Soft-delete this user? History is preserved.')) act(u.id, () => deleteUser(u.id, 'admin_deleted'), 'Delete user'); }}>Delete</button>
+              </td>
             </tr>
           ))}
         </Table>
       )}
+
+      {detailUserId && (
+        <UserDetailModal userId={detailUserId} onClose={() => setDetailUserId(null)} />
+      )}
     </>
+  );
+}
+
+function UserDetailModal({ userId, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [photoUrl, setPhotoUrl] = useState(null);
+
+  useEffect(() => {
+    let revoked = false;
+    let currentPhoto = null;
+    (async () => {
+      try {
+        const detail = await getAdminUser(userId);
+        setData(detail);
+        if (detail?.user?.hasIdPhoto) {
+          try { currentPhoto = await getUserIdPhotoUrl(userId); if (!revoked) setPhotoUrl(currentPhoto); } catch { /* photo optional */ }
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to load user.');
+      }
+    })();
+    return () => { revoked = true; if (currentPhoto) URL.revokeObjectURL(currentPhoto); };
+  }, [userId]);
+
+  const u = data?.user;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 24, zIndex: 1000, overflow: 'auto' }}>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 820, width: '100%', padding: 20 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h2 style={{ margin: 0 }}>User detail</h2>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>Close</button>
+        </div>
+
+        {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
+        {!data && !error && <div>Loading…</div>}
+
+        {u && (
+          <>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
+              <div style={{ flex: '1 1 320px' }}>
+                <div><b>Email:</b> {u.email}</div>
+                <div><b>Name:</b> {u.name || '—'}</div>
+                <div><b>Phone:</b> {u.phone || '—'}</div>
+                <div className="row" style={{ gap: 6 }}><b>Account:</b> <StatusPill value={u.accountStatus} /></div>
+                <div className="row" style={{ gap: 6 }}><b>Role:</b> <StatusPill value={u.role} /></div>
+                <div><b>Created:</b> {when(u.createdAt)}</div>
+                {u.disabledReason && <div><b>Disabled reason:</b> {u.disabledReason}</div>}
+                <div style={{ marginTop: 8 }}>
+                  <b>Profile details:</b>
+                  <pre style={{ background: 'var(--bg-deep)', padding: 8, borderRadius: 6, fontSize: 12, overflow: 'auto', maxHeight: 140 }}>
+                    {JSON.stringify(u.profileDetails || {}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+              <div style={{ flex: '0 0 200px' }}>
+                <b>ID photo</b>
+                <div style={{ marginTop: 6 }}>
+                  {photoUrl
+                    ? <img src={photoUrl} alt="ID" style={{ maxWidth: 200, borderRadius: 6, border: '1px solid var(--border)' }} />
+                    : <span className="muted">{u.hasIdPhoto ? 'Loading…' : 'None on file'}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span><b>Paid:</b> {data.totals?.paid ?? 0}</span>
+              <span><b>Pending:</b> {data.totals?.pending ?? 0}</span>
+              <span><b>Uploaded:</b> {data.totals?.uploaded ?? 0}</span>
+              <span><b>Expired:</b> {data.totals?.expired ?? 0}</span>
+            </div>
+
+            <MiniSection title={`Deployments (${data.deployments?.length || 0})`}>
+              {(data.deployments || []).map((d) => (
+                <div key={d.deploymentId} className="row" style={{ gap: 8, justifyContent: 'space-between', padding: '4px 0' }}>
+                  <span className="mono" style={{ fontSize: 12 }}>{d.serviceName || d.deploymentId?.slice(0, 12)}</span>
+                  <span className="row" style={{ gap: 6 }}><StatusPill value={d.status} /><StatusPill value={d.paymentStatus} /></span>
+                </div>
+              ))}
+            </MiniSection>
+
+            <MiniSection title={`Orders (${data.orders?.length || 0})`}>
+              {(data.orders || []).map((o) => (
+                <div key={o.id} className="row" style={{ gap: 8, justifyContent: 'space-between', padding: '4px 0' }}>
+                  <span className="mono" style={{ fontSize: 12 }}>{o.id.slice(0, 8)}</span>
+                  <span>{money(o.totalAmountCents, o.currency)}</span>
+                  <StatusPill value={o.status} />
+                </div>
+              ))}
+            </MiniSection>
+
+            <MiniSection title={`Receipts (${data.receipts?.length || 0})`}>
+              {(data.receipts || []).map((r) => (
+                <div key={r.id} className="row" style={{ gap: 8, justifyContent: 'space-between', padding: '4px 0' }}>
+                  <span className="mono" style={{ fontSize: 12 }} title={r.fileName}>{r.fileName?.slice(0, 24)}</span>
+                  <span>{money(r.amountCents, r.currency)}</span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <StatusPill value={r.status} />
+                    <button className="btn btn-sm btn-outline" onClick={() => viewReceipt(r.id)}>View</button>
+                  </span>
+                </div>
+              ))}
+            </MiniSection>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniSection({ title, children }) {
+  const rows = React.Children.toArray(children);
+  return (
+    <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+      <h4 style={{ margin: '0 0 6px' }}>{title}</h4>
+      {rows.length ? rows : <span className="muted">None.</span>}
+    </div>
   );
 }
 

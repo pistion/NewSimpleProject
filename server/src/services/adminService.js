@@ -6,8 +6,9 @@
  * Deployments are read from the JSON hosting store; everything else is Prisma.
  */
 import { prisma } from './db.js';
-import { readHostingStore } from './hostingStore.js';
+import { readHostingStore, nowIso } from './hostingStore.js';
 import { writeAuditLog } from './auditLogService.js';
+import renderApiService from './renderApiService.js';
 import {
   findDeploymentRecord,
   getOrderForDeployment,
@@ -15,6 +16,50 @@ import {
   expireDeployment,
 } from './deploymentBillingService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
+
+const VALID_ROLES = new Set(['owner', 'admin', 'member']);
+const VALID_ACCOUNT_STATUS = new Set(['active', 'suspended', 'disabled', 'deleted']);
+
+function httpError(message, status = 400) {
+  return Object.assign(new Error(message), { status, expose: true });
+}
+
+/** Public, path-free shape of a user record (never exposes passwordHash / raw idPhotoPath). */
+function userView(u) {
+  if (!u) return null;
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name || null,
+    phone: u.phone || null,
+    role: u.role,
+    planId: u.planId,
+    accountStatus: u.accountStatus || 'active',
+    profileDetails: safeJson(u.profileDetails),
+    hasIdPhoto: Boolean(u.idPhotoPath),
+    disabledAt: u.disabledAt || null,
+    disabledReason: u.disabledReason || null,
+    deletedAt: u.deletedAt || null,
+    reactivatedAt: u.reactivatedAt || null,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+  };
+}
+
+/** Strip the raw SSD filePath out of a receipt row before it leaves the server. */
+function receiptListView(r) {
+  if (!r) return null;
+  const { filePath, ...rest } = r;
+  return rest;
+}
+
+/** Revoke all live refresh tokens for a user (forces re-login / logout everywhere). */
+async function revokeUserRefreshTokens(userId) {
+  return prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
 
 function deploymentView(d, orderByDeployment = {}) {
   const order = d.checkoutOrderId ? orderByDeployment[d.checkoutOrderId] : orderByDeployment[`dep:${d.deploymentId}`];
@@ -113,7 +158,10 @@ export async function getOverview() {
 
 export async function listUsers() {
   return prisma.user.findMany({
-    select: { id: true, email: true, name: true, role: true, planId: true, createdAt: true },
+    select: {
+      id: true, email: true, name: true, phone: true, role: true, planId: true,
+      accountStatus: true, createdAt: true,
+    },
     orderBy: { createdAt: 'desc' },
   });
 }
@@ -142,11 +190,13 @@ export async function listOrders() {
 }
 
 export async function listReceipts() {
-  return prisma.paymentReceipt.findMany({
+  const rows = await prisma.paymentReceipt.findMany({
     orderBy: { createdAt: 'desc' },
     take: 500,
     include: { checkoutOrder: { select: { id: true, status: true, deploymentId: true, userId: true, totalAmountCents: true, currency: true } } },
   });
+  // Never leak the raw SSD filePath in list responses.
+  return rows.map(receiptListView);
 }
 
 export async function approveReceipt(receiptId, adminUserId) {
@@ -222,6 +272,259 @@ export async function adminDeleteDeployment(deploymentId, adminUserId) {
   return expireDeployment({ deployment, order, action: 'delete', reason: 'admin_deleted', actorUserId: adminUserId });
 }
 
+// ─── User detail + account lifecycle ──────────────────────────────────────────
+
+/** Full admin view of a single user: profile + their deployments, orders, receipts. */
+export async function getUserDetail(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const [orders, receiptRows, store] = await Promise.all([
+    prisma.checkoutOrder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+    prisma.paymentReceipt.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+    readHostingStore(),
+  ]);
+
+  const deployments = (store.deployments || [])
+    .filter((d) => d.userId === userId)
+    .map((d) => deploymentView(d))
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+  // Totals derived from order status (payment_uploaded → "uploaded").
+  const totals = { paid: 0, pending: 0, uploaded: 0, expired: 0 };
+  for (const o of orders) {
+    if (o.status === 'paid') totals.paid += 1;
+    else if (o.status === 'pending') totals.pending += 1;
+    else if (o.status === 'payment_uploaded') totals.uploaded += 1;
+    else if (o.status === 'expired') totals.expired += 1;
+  }
+
+  return {
+    user: userView(user),
+    deployments,
+    orders,
+    receipts: receiptRows.map(receiptListView),
+    totals,
+  };
+}
+
+/** Update a limited, validated set of profile/account fields. */
+export async function updateUser(userId, patch = {}, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const data = {};
+  if (patch.name !== undefined) data.name = patch.name ? String(patch.name).slice(0, 200) : null;
+  if (patch.phone !== undefined) data.phone = patch.phone ? String(patch.phone).slice(0, 50) : null;
+  if (patch.profileDetails !== undefined) {
+    const details = typeof patch.profileDetails === 'string' ? safeJson(patch.profileDetails) : patch.profileDetails;
+    data.profileDetails = JSON.stringify(details || {});
+  }
+  if (patch.role !== undefined) {
+    if (!VALID_ROLES.has(String(patch.role))) throw httpError('Invalid role.', 400);
+    data.role = String(patch.role);
+  }
+  if (patch.accountStatus !== undefined) {
+    if (!VALID_ACCOUNT_STATUS.has(String(patch.accountStatus))) throw httpError('Invalid account status.', 400);
+    data.accountStatus = String(patch.accountStatus);
+  }
+
+  const updated = await prisma.user.update({ where: { id: userId }, data });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.updated',
+    entityType: 'user',
+    entityId: userId,
+    result: { fields: Object.keys(data) },
+  });
+
+  return userView(updated);
+}
+
+export async function disableUser(userId, reason = null, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      accountStatus: 'disabled',
+      disabledAt: new Date(),
+      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_disabled',
+    },
+  });
+  await revokeUserRefreshTokens(userId);
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.disabled',
+    entityType: 'user',
+    entityId: userId,
+    result: { reason: reason || 'admin_disabled' },
+  });
+
+  return userView(updated);
+}
+
+export async function reactivateUser(userId, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      accountStatus: 'active',
+      reactivatedAt: new Date(),
+      disabledReason: null,
+      disabledAt: null,
+      deletedAt: null,
+    },
+  });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.reactivated',
+    entityType: 'user',
+    entityId: userId,
+    result: {},
+  });
+
+  return userView(updated);
+}
+
+/** Soft delete only — the User row is preserved so payment/deployment history survives. */
+export async function deleteUser(userId, reason = null, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const now = new Date();
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      accountStatus: 'deleted',
+      deletedAt: now,
+      disabledAt: now,
+      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_deleted',
+    },
+  });
+  await revokeUserRefreshTokens(userId);
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.deleted',
+    entityType: 'user',
+    entityId: userId,
+    result: { reason: reason || 'admin_deleted', softDelete: true },
+  });
+
+  return userView(updated);
+}
+
+export async function setUserIdPhotoPath(userId, filePath, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const updated = await prisma.user.update({ where: { id: userId }, data: { idPhotoPath: filePath } });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.id_photo_uploaded',
+    entityType: 'user',
+    entityId: userId,
+    result: {},
+  });
+
+  return userView(updated);
+}
+
+// ─── Deployment lifecycle (suspend / reactivate / approve billing) ────────────
+
+export async function suspendDeployment(deploymentId, adminUserId = null, reason = null) {
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw httpError('Deployment not found.', 404);
+
+  let renderResult = 'skipped';
+  if (deployment.renderServiceId && renderApiService.configured()) {
+    try {
+      await renderApiService.suspendService(deployment.renderServiceId);
+      renderResult = 'suspended';
+    } catch (err) {
+      renderResult = `error: ${err.message}`;
+      console.error(`[admin] Render suspend failed for ${deploymentId}:`, err.message);
+    }
+  }
+
+  await updateDeploymentRecord(deploymentId, {
+    status: 'suspended',
+    currentStep: 'Suspended (admin)',
+    suspendedAt: nowIso(),
+    suspendedReason: reason ? String(reason).slice(0, 1000) : 'admin_suspended',
+  });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.deployment.suspended',
+    entityType: 'deployment',
+    entityId: deploymentId,
+    result: { renderResult, reason: reason || 'admin_suspended' },
+  });
+
+  return { deploymentId, status: 'suspended', render: renderResult };
+}
+
+export async function reactivateDeployment(deploymentId, adminUserId = null) {
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw httpError('Deployment not found.', 404);
+
+  let renderResult = 'skipped';
+  if (deployment.renderServiceId && renderApiService.configured()) {
+    try {
+      await renderApiService.resumeService(deployment.renderServiceId);
+      renderResult = 'resumed';
+    } catch (err) {
+      renderResult = `error: ${err.message}`;
+      console.error(`[admin] Render resume failed for ${deploymentId}:`, err.message);
+    }
+  }
+
+  const newStatus = deployment.urlReachable ? 'live' : 'deployed';
+  await updateDeploymentRecord(deploymentId, {
+    status: newStatus,
+    currentStep: 'Live',
+    suspendedAt: null,
+    suspendedReason: null,
+  });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.deployment.reactivated',
+    entityType: 'deployment',
+    entityId: deploymentId,
+    result: { renderResult, status: newStatus },
+  });
+
+  return { deploymentId, status: newStatus, render: renderResult };
+}
+
+/** Approve billing/hosting: mark the deployment + its order paid via admin approval. */
+export async function approveDeploymentBilling(deploymentId, adminUserId = null) {
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw httpError('Deployment not found.', 404);
+
+  const result = await markDeploymentPaid({ deploymentId, actorUserId: adminUserId, via: 'admin_billing_approval' });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.deployment.billing_approved',
+    entityType: 'deployment',
+    entityId: deploymentId,
+    result: { orderId: result?.orderId || null },
+  });
+
+  return { deploymentId, paymentStatus: 'paid', ...result };
+}
+
 export default {
   getOverview,
   listUsers,
@@ -232,4 +535,13 @@ export default {
   rejectReceipt,
   adminMarkDeploymentPaid,
   adminDeleteDeployment,
+  getUserDetail,
+  updateUser,
+  disableUser,
+  reactivateUser,
+  deleteUser,
+  setUserIdPhotoPath,
+  suspendDeployment,
+  reactivateDeployment,
+  approveDeploymentBilling,
 };
