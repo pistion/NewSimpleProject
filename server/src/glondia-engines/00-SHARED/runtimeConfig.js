@@ -33,6 +33,23 @@ export function normalizeRoot(value) {
 }
 
 /**
+ * Sanitize a GitHub token coming from an env var / .env file / dashboard.
+ * Strips surrounding quotes and stray whitespace/newlines that otherwise cause
+ * GitHub to reject the credential with 401 "Bad credentials". PEM private keys
+ * (GitHub App keys) are left intact — their internal newlines are significant.
+ */
+export function cleanGithubToken(value) {
+  let s = String(value ?? '').trim();
+  if (s.length >= 2 && ((s[0] === '"' && s[s.length - 1] === '"') || (s[0] === "'" && s[s.length - 1] === "'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  // Personal-access / installation tokens never contain whitespace; collapse any
+  // stray spaces or newlines. Do NOT touch multi-line PEM keys.
+  if (!s.includes('BEGIN')) s = s.replace(/\s+/g, '');
+  return s;
+}
+
+/**
  * Resolve all runtime configuration from environment variables.
  * Returns a single config object — call once per request, pass around.
  */
@@ -40,7 +57,7 @@ export function getRuntimeConfig() {
   const renderApiKey    = process.env.RENDER_API_KEY;
   const renderOwnerId   = process.env.RENDER_OWNER_ID;
   const generatedRepo   = process.env.RENDER_GENERATED_SITES_REPO_URL;
-  const githubToken     = process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN;
+  const githubToken     = cleanGithubToken(process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN);
 
   return {
     // ── Render ──────────────────────────────────────────────────────────

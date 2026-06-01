@@ -11,6 +11,7 @@
  */
 
 import { getGithubInstallationToken } from '../01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/githubAppAuth.stage.js';
+import { cleanGithubToken } from './runtimeConfig.js';
 
 // ── URL parsing ───────────────────────────────────────────────────────────────
 
@@ -52,12 +53,12 @@ function normalise(owner, repo) {
  * must be exchanged for an installation token before making API calls.
  */
 export function resolveGithubToken() {
-  const raw = (
+  const raw = cleanGithubToken(
     process.env.GITHUB_GENERATED_SITES_TOKEN ||
     process.env.GENERATED_SITES_GITHUB_TOKEN ||
     process.env.GITHUB_TOKEN ||
-    ''
-  ).trim();
+    '',
+  );
 
   if (!raw) {
     return {

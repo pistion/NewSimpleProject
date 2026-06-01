@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { getGithubInstallationToken } from './githubAppAuth.stage.js';
+import { cleanGithubToken } from '../../00-SHARED/runtimeConfig.js';
 
 const DEFAULT_BRANCH = 'main';
 
@@ -14,12 +15,12 @@ const DEFAULT_BRANCH = 'main';
  * Returns { token, error }.  If error is set, do NOT call GitHub API.
  */
 export function resolveGitHubPublisherToken() {
-  const raw = (
+  const raw = cleanGithubToken(
     process.env.GITHUB_GENERATED_SITES_TOKEN ||
     process.env.GENERATED_SITES_GITHUB_TOKEN ||
     process.env.GITHUB_TOKEN ||
-    ''
-  ).trim();
+    '',
+  );
 
   if (!raw) {
     return {

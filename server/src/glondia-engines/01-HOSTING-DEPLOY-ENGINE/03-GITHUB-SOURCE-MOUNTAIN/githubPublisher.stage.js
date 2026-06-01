@@ -6,7 +6,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { hasRealValue } from '../../00-SHARED/runtimeConfig.js';
+import { hasRealValue, cleanGithubToken } from '../../00-SHARED/runtimeConfig.js';
 import { getGithubInstallationToken } from './githubAppAuth.stage.js';
 
 export function parseGithubRepoUrl(url) {
@@ -128,7 +128,9 @@ async function upsertGithubFile({ owner, repo, path: targetPath, branch, token, 
 }
 
 function githubHeaders(token) {
-  return { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'glondiasites-render-deploy-lab' };
+  // Defensive: strip any stray quotes/whitespace so a mis-pasted env value
+  // never produces a 401 "Bad credentials".
+  return { Accept: 'application/vnd.github+json', Authorization: `Bearer ${cleanGithubToken(token)}`, 'User-Agent': 'glondiasites-render-deploy-lab' };
 }
 
 function encodeURIComponentPath(pathValue) {
