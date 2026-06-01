@@ -143,11 +143,13 @@ export function DashSidebar({ active, navigate }) {
         <div className="help">
           <b>Need a hand?</b>
           <div style={{ color: "var(--text-muted)" }}>Docs, status page, and live support are one click away.</div>
-          <button className="btn btn-outline btn-sm" style={{ width: "100%", marginTop: 10 }}>
+          <a href="mailto:johnweslytawa@gmail.com"
+             className="btn btn-outline btn-sm"
+             style={{ width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}>
             <ICN.HelpCircle size={14} /> Help center
-          </button>
+          </a>
           {/* LinkedIn */}
-          <a href="https://www.linkedin.com/company/glondia" target="_blank" rel="noopener noreferrer"
+          <a href="https://www.linkedin.com/company/111230074/" target="_blank" rel="noopener noreferrer"
              className="btn btn-outline btn-sm"
              style={{ width: "100%", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--text-muted)", textDecoration: "none" }}>
             <ICN.LinkedIn size={13} /> Follow on LinkedIn
