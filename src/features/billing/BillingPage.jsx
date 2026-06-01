@@ -10,6 +10,33 @@ import {
 
 const { useState, useEffect, useCallback } = React;
 
+// Bank transfer destination for manual (bank receipt) payments.
+const BANK_DETAILS = [
+  ['Bank', 'Bank South Pacific'],
+  ['Branch', 'Waigani'],
+  ['Account Name', 'John Wesley Tawa'],
+  ['Account Number', '0000242010'],
+];
+
+function BankDetails() {
+  return (
+    <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+      <div className="page-eyebrow" style={{ marginBottom: 8 }}>Send your bank transfer to</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 14px', fontSize: 13 }}>
+        {BANK_DETAILS.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <span className="muted">{label}</span>
+            <span className="mono" style={{ fontWeight: 600 }}>{value}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        After paying, upload your receipt below. An admin will verify and approve it.
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ value }) {
   const v = String(value || '').toLowerCase();
   const [bg, fg] = v === 'paid' ? ['var(--accent-soft)', 'var(--accent)']
@@ -176,6 +203,7 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
           </div>
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Upload bank receipt</div>
+            <BankDetails />
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
               <button className="btn btn-primary btn-sm" disabled={busy === 'upload' || !file} onClick={upload}><ICN.Cloud size={13} /> {busy === 'upload' ? 'Uploading…' : 'Upload receipt'}</button>
