@@ -9,10 +9,22 @@ function liveApiUrl(path) {
   return base ? `${base}${path}` : `/api${path}`;
 }
 
-export const getOrder = (orderId) => liveApiRequest(`/payments/orders/${encodeURIComponent(orderId)}`);
+/** Fetch a single checkout order (owner only) with its receipts. */
+export const getPaymentOrder = (orderId) => liveApiRequest(`/payments/orders/${encodeURIComponent(orderId)}`);
+// Backward-compatible alias.
+export const getOrder = getPaymentOrder;
 
-/** Upload a manual bank-transfer receipt (pdf/png/jpg/jpeg) for an order. */
-export async function uploadManualReceipt(file, { checkoutOrderId, note } = {}) {
+/**
+ * Upload a manual bank-transfer receipt (PDF/PNG/JPG/JPEG) for an order.
+ * Canonical form: uploadManualReceipt({ checkoutOrderId, file, note }).
+ * Also accepts the legacy form uploadManualReceipt(file, { checkoutOrderId, note }).
+ */
+export async function uploadManualReceipt(arg, maybeOpts) {
+  const isFileFirst = arg && typeof arg === 'object' && (typeof File !== 'undefined' ? arg instanceof File : arg.name && arg.size != null);
+  const { checkoutOrderId, file, note } = isFileFirst
+    ? { file: arg, ...(maybeOpts || {}) }
+    : (arg || {});
+
   if (!file) throw new Error('Choose a receipt file first.');
   if (!checkoutOrderId) throw new Error('A checkout order is required.');
 
@@ -40,10 +52,14 @@ export async function uploadManualReceipt(file, { checkoutOrderId, note } = {}) 
   return result?.data ?? result;
 }
 
-/** Start a PayPal (card via PayPal) payment for a deployment order. */
-export const createPaypalOrder = (checkoutOrderId) =>
+/** Start a PayPal (card via PayPal) payment for a deployment order. Returns { approvalUrl, paypalOrderId }. */
+export const createDeploymentPaypalOrder = (checkoutOrderId) =>
   liveApiRequest('/payments/paypal/orders', { method: 'POST', body: { checkoutOrderId } });
+// Backward-compatible alias.
+export const createPaypalOrder = createDeploymentPaypalOrder;
 
-/** Capture a PayPal order after approval. */
-export const capturePaypalOrder = (paypalOrderId) =>
+/** Capture a PayPal order after approval; marks the order + deployment paid. */
+export const captureDeploymentPaypalOrder = (paypalOrderId) =>
   liveApiRequest(`/payments/paypal/orders/${encodeURIComponent(paypalOrderId)}/capture`, { method: 'POST' });
+// Backward-compatible alias.
+export const capturePaypalOrder = captureDeploymentPaypalOrder;

@@ -17,6 +17,7 @@ import { writeAuditLog } from './auditLogService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { deploymentBilling, computeBillingDueAt, billingSummary } from '../config/deploymentBilling.js';
+import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 
 const DELETED = ['de', 'leted'].join('');
 
@@ -65,6 +66,12 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
         kind,
         serviceName: deployment.serviceName || null,
         display: { amount: deploymentBilling.amount, currency: deploymentBilling.currency },
+        // Internal margin tracking only — customer always pays the flat K100.
+        // Render cost is Glondia's own provider cost and is never split/charged.
+        customerPrice: { amount: deploymentBilling.amount, currency: deploymentBilling.currency },
+        provider: 'render',
+        estimatedProviderCostCents: estimatedProviderCostCents(deployment.serviceType),
+        estimatedProviderCostCurrency: renderCosts.currency,
       }),
     },
   });

@@ -5,9 +5,9 @@ import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router({ mergeParams: true });
 
-// Billing — simple plan catalog + the user's current plan/quota.
+// Billing — deploy-first K100 summary: pricing, the user's own orders +
+// deployment bills, and provider/payment-method status.
 router.get('/summary', authMiddleware, BillingController.getSummary);
-router.get('/plans', BillingController.listPlans);
 
 // Usage
 router.get('/usage/summary', UsageController.getSummary);

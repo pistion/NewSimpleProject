@@ -122,8 +122,20 @@ export function AdminPage() {
           <StatCard label="Revenue (paid)" value={overview.revenue?.paidDisplay} />
           <StatCard label="Orders" value={overview.orders?.total} />
           <StatCard label="Cleanup jobs" value={overview.cleanupJobs} />
+          <StatCard label="Est. provider cost" value={overview.providerCost?.display} />
           <div className="card" style={{ gridColumn: '1 / -1', padding: 16 }}>
-            <h3 style={{ marginTop: 0 }}>Deployments by payment status</h3>
+            <h3 style={{ marginTop: 0 }}>K100 orders by status</h3>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+              <span><b>Paid:</b> {overview.orders?.paid ?? 0}</span>
+              <span><b>Pending:</b> {overview.orders?.pending ?? 0}</span>
+              <span><b>Payment uploaded:</b> {overview.orders?.payment_uploaded ?? 0}</span>
+              <span><b>Expired:</b> {overview.orders?.expired ?? 0}</span>
+            </div>
+            <h3 style={{ margin: '0 0 6px' }}>Margin (separate currencies — not netted)</h3>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+              Revenue {overview.revenue?.paidDisplay} · Est. Render cost {overview.providerCost?.display}. {overview.platformMargin?.note}
+            </div>
+            <h3 style={{ margin: '0 0 6px' }}>Deployments by payment status</h3>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {Object.entries(overview.deployments?.byPaymentStatus || {}).map(([k, v]) => (
                 <span key={k} className="row" style={{ gap: 6 }}><StatusPill value={k} /> × {v}</span>

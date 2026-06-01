@@ -26,7 +26,7 @@ import {
 } from './features/builder';
 import { ActivityPage } from './activity';
 import { AdminPage } from './features/admin/AdminPage.jsx';
-import { useBilling } from './use-billing';
+import BillingPage from './features/billing/BillingPage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
@@ -181,7 +181,7 @@ export default function App() {
       case "analytics":         return <SimplePage title="Analytics" body="Cross-project analytics — coming up next." />;
       case "activity":          return <ActivityPage />;
       case "admin":             return <AdminPage navigate={navigate} />;
-      case "billing":           return <BillingPageIntegrated />;
+      case "billing":           return <BillingPage navigate={navigate} />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
       case "vps-create":        return <VpsCreateWizard navigate={navigate} initialPlan={route.params?.plan || ''} initialPlanType={route.params?.planType || ''} />;
@@ -327,138 +327,5 @@ function SimplePage({ title, body }) {
       </div>
       <Empty icon="Sparkles" title="Surface in progress" body="This panel is on the roadmap for the next sprint." />
     </>
-  );
-}
-
-function BillingPageIntegrated() {
-  const { billing, loading, source, error } = useBilling();
-  const plan = billing.subscription.plan;
-  const renewalDate = billing.subscription.currentPeriodEnd
-    ? new Date(billing.subscription.currentPeriodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-    : 'Not scheduled';
-
-  return (
-    <>
-      <div className="page-head">
-        <div>
-          <div className="page-eyebrow">Billing</div>
-          <h1>Plan &amp; invoices</h1>
-          <p className="sub">Manage your subscription, payment method, and download past invoices.</p>
-        </div>
-        <div className="actions">
-          <button className="btn btn-outline">Download invoices</button>
-          <button className="btn btn-primary">Manage plan</button>
-        </div>
-      </div>
-
-      {source === "api" && (
-        <div className="card" style={{ padding: "10px 14px", fontSize: 13 }}>
-          <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Local workspace</span>
-        </div>
-      )}
-      {error && (
-        <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-muted)" }}>
-          Showing local workspace billing.
-        </div>
-      )}
-
-      <div className="grid-side">
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <div className="row between">
-              <div>
-                <div className="page-eyebrow" style={{ marginBottom: 6 }}>Current plan</div>
-                <div className="row" style={{ gap: 12 }}>
-                  <span style={{ fontFamily: "var(--serif)", fontSize: 36, lineHeight: 1 }}>{plan.name}</span>
-                  <Badge tone={billing.subscription.status === "active" ? "success" : "warn"}>{billing.subscription.status}</Badge>
-                </div>
-                <div className="muted" style={{ marginTop: 8 }}>
-                  {formatMoney(plan.priceMonthlyCents, plan.currency)} / month - {billing.subscription.seats} seats - renews {renewalDate}
-                </div>
-              </div>
-              <button className="btn btn-outline">Change plan</button>
-            </div>
-          </div>
-
-          <div className="card card-flush">
-            <div className="card-head"><h2>Invoices</h2></div>
-            <table className="tbl">
-              <thead><tr><th>ID</th><th>Date</th><th>Description</th><th>Amount</th><th>Status</th><th></th></tr></thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={6}>Loading invoices...</td></tr>
-                ) : billing.invoices.map((invoice) => (
-                  <tr key={invoice.id || invoice.number}>
-                    <td className="mono">{invoice.number}</td>
-                    <td>{invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : '-'}</td>
-                    <td>{invoice.description || 'Subscription invoice'}</td>
-                    <td>{formatMoney(invoice.amountPaidCents || invoice.amountDueCents, invoice.currency)}</td>
-                    <td><StatusBadge value={invoice.status} /></td>
-                    <td style={{ textAlign: "right" }}><button className="btn btn-sm btn-ghost"><ICN.ExternalLink size={14} /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <h2 style={{ marginTop: 0 }}>Payment method</h2>
-            <div className="row" style={{ gap: 14, padding: 14, background: "var(--bg-deep)", borderRadius: "var(--r-sm)" }}>
-              <ICN.CreditCard size={20} />
-              <div style={{ flex: 1 }}>
-                <div className="mono">No payment method stored</div>
-                <div className="faint" style={{ fontSize: 12 }}>Payment provider integration is next.</div>
-              </div>
-              <button className="btn btn-sm btn-outline">Update</button>
-            </div>
-          </div>
-
-          <div className="card">
-            <h2 style={{ marginTop: 0 }}>Usage this period</h2>
-            {billing.usage.map((item) => (
-              <UsageBar key={item.metric} label={usageLabel(item.metric)} value={item.value} max={item.limit || 1} unit={usageUnit(item.metric)} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-
-function formatMoney(cents = 0, currency = 'USD') {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format((cents || 0) / 100);
-}
-
-function usageLabel(metric) {
-  return {
-    build_minutes: 'Build minutes',
-    bandwidth_gb: 'Bandwidth',
-    projects: 'Projects',
-    team_members: 'Team members',
-  }[metric] || metric;
-}
-
-function usageUnit(metric) {
-  return {
-    build_minutes: 'min',
-    bandwidth_gb: 'GB',
-  }[metric] || '';
-}
-
-function UsageBar({ label, value, max, unit }) {
-  const pct = Math.min(100, (value / max) * 100);
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div className="row between" style={{ fontSize: 13, marginBottom: 6 }}>
-        <span className="muted">{label}</span>
-        <span className="mono">{value} / {max} {unit}</span>
-      </div>
-      <div style={{ height: 6, background: "var(--bg-deep)", borderRadius: 999, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: pct + "%", background: pct > 80 ? "var(--warning)" : "var(--accent)", borderRadius: 999 }} />
-      </div>
-    </div>
   );
 }

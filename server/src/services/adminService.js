@@ -43,21 +43,35 @@ async function loadDeployments() {
   return (store.deployments || []).filter((d) => d.platformDeployed === true || d.checkoutOrderId);
 }
 
+function safeJson(text) {
+  try { return JSON.parse(text || '{}'); } catch { return {}; }
+}
+
 export async function getOverview() {
   const [users, orders, receiptsPending, cleanupJobs, deployments] = await Promise.all([
     prisma.user.count(),
-    prisma.checkoutOrder.findMany({ where: { type: 'deployment' }, select: { status: true, totalAmountCents: true, currency: true } }),
+    prisma.checkoutOrder.findMany({ where: { type: 'deployment' }, select: { status: true, totalAmountCents: true, currency: true, metadata: true } }),
     prisma.paymentReceipt.count({ where: { status: 'pending' } }),
     prisma.deploymentCleanupJob.count(),
     loadDeployments(),
   ]);
 
-  const ordersByStatus = {};
+  const ordersByStatus = { paid: 0, pending: 0, payment_uploaded: 0, expired: 0 };
   let paidCents = 0;
   let paidCurrency = 'PGK';
+  // Internal provider-cost estimate accrues per PAID order (Render is Glondia's
+  // own cost, never billed to the customer).
+  let estimatedProviderCostCents = 0;
+  let providerCostCurrency = 'USD';
   for (const o of orders) {
     ordersByStatus[o.status] = (ordersByStatus[o.status] || 0) + 1;
-    if (o.status === 'paid') { paidCents += o.totalAmountCents || 0; paidCurrency = o.currency || paidCurrency; }
+    if (o.status === 'paid') {
+      paidCents += o.totalAmountCents || 0;
+      paidCurrency = o.currency || paidCurrency;
+      const meta = safeJson(o.metadata);
+      estimatedProviderCostCents += Number(meta.estimatedProviderCostCents || 0);
+      if (meta.estimatedProviderCostCurrency) providerCostCurrency = meta.estimatedProviderCostCurrency;
+    }
   }
 
   const deploymentsByPayment = {};
@@ -69,10 +83,31 @@ export async function getOverview() {
   return {
     users,
     deployments: { total: deployments.length, byPaymentStatus: deploymentsByPayment },
-    orders: { total: orders.length, byStatus: ordersByStatus },
+    orders: {
+      total: orders.length,
+      byStatus: ordersByStatus,
+      paid: ordersByStatus.paid,
+      pending: ordersByStatus.pending,
+      payment_uploaded: ordersByStatus.payment_uploaded,
+      expired: ordersByStatus.expired,
+    },
     receipts: { pending: receiptsPending },
     cleanupJobs,
     revenue: { paidCents, currency: paidCurrency, paidDisplay: `${paidCurrency} ${(paidCents / 100).toFixed(2)}` },
+    // Internal only: provider cost + platform margin. Currencies differ (customer
+    // pays PGK, Render cost tracked in its own currency) so they are NOT mixed.
+    providerCost: {
+      estimatedCents: estimatedProviderCostCents,
+      currency: providerCostCurrency,
+      display: `${providerCostCurrency} ${(estimatedProviderCostCents / 100).toFixed(2)}`,
+    },
+    platformMargin: {
+      revenueCents: paidCents,
+      revenueCurrency: paidCurrency,
+      estimatedProviderCostCents,
+      providerCostCurrency,
+      note: 'Customer revenue (PGK) and provider cost are tracked in separate currencies and not netted.',
+    },
   };
 }
 

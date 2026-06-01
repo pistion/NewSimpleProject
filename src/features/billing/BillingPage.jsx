@@ -1,89 +1,209 @@
-import { useState } from 'react'
-import PageHeader from '../../components/common/PageHeader.jsx'
-import StatusBadge from '../../components/common/StatusBadge.jsx'
-import DashboardTable from '../../components/dashboard/DashboardTable.jsx'
-import { activeProject, billingRecords } from '../../data/dashboardMockData.js'
+// BillingPage.jsx — live deploy-first K100 billing for the signed-in user.
+import React from 'react';
+import { ICN } from '../../icons';
+import { getBillingSummary } from '../../api/billing.js';
+import {
+  createDeploymentPaypalOrder,
+  captureDeploymentPaypalOrder,
+  uploadManualReceipt,
+} from '../../api/payments.js';
+
+const { useState, useEffect, useCallback } = React;
+
+function StatusPill({ value }) {
+  const v = String(value || '').toLowerCase();
+  const [bg, fg] = v === 'paid' ? ['var(--accent-soft)', 'var(--accent)']
+    : v === 'payment_uploaded' || v === 'pending' ? ['#fdf0d5', '#b8860b']
+    : ['#fde2e1', '#c0392b'];
+  return <span style={{ background: bg, color: fg, padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{value || 'pending'}</span>;
+}
+
+function hoursLeft(dueAt) {
+  if (!dueAt) return null;
+  const ms = new Date(dueAt).getTime() - Date.now();
+  return Math.round((ms / 3_600_000) * 10) / 10;
+}
+
+function YesNo({ ok }) {
+  return <span style={{ color: ok ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 600 }}>{ok ? 'Yes' : 'No'}</span>;
+}
 
 export default function BillingPage() {
-  const [notice, setNotice] = useState('')
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const columns = [
-    { key: 'id', label: 'Invoice number' },
-    { key: 'date', label: 'Date' },
-    { key: 'amount', label: 'Amount' },
-    { key: 'status', label: 'Status', render: (row) => <StatusBadge value={row.status} /> },
-    {
-      key: 'download',
-      label: 'Download',
-      className: 'text-end',
-      headerClassName: 'text-end',
-      render: () => <button className="btn btn-sm btn-outline-secondary" onClick={() => setNotice('Invoice export recorded locally.')} type="button">Download</button>,
-    },
-  ]
+  const refresh = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setSummary(await getBillingSummary()); }
+    catch (e) { setError(e.message || 'Could not load billing.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const pricing = summary?.pricing;
+  const orders = summary?.orders || [];
+  const deployments = summary?.deployments || [];
+  const provider = summary?.provider;
+  const depByOrder = Object.fromEntries(deployments.filter((d) => d.checkoutOrderId).map((d) => [d.checkoutOrderId, d]));
+  const depById = Object.fromEntries(deployments.map((d) => [d.deploymentId, d]));
 
   return (
-    <div className="d-grid gap-4">
-      <PageHeader eyebrow="Billing" title="Plans, invoices, and billing contacts" description="Keep package scope, invoice history, payment details, and add-on requests visible in one place." />
-      {notice ? <div className="alert alert-success">{notice}</div> : null}
-      <div className="row g-4">
-        <div className="col-lg-4 d-grid gap-4">
-          <div className="card border-0 shadow-sm dashboard-panel h-100">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Current package</h2>
-              <p className="mb-2"><strong>{activeProject.packageName}</strong></p>
-              <p className="text-secondary">Includes dashboard access, storefront planning, and launch preparation workflow.</p>
-              <button className="btn btn-success" onClick={() => setNotice('Package review request sent to the Glondia team.')} type="button">Manage package</button>
-            </div>
-          </div>
-          <div className="card border-0 shadow-sm dashboard-panel h-100">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Payment method</h2>
-              <p className="mb-2"><strong>Visa ending 4242</strong></p>
-              <p className="text-secondary small mb-3">Used for monthly hosting, approved add-ons, and ongoing support billing.</p>
-              <ul className="list-unstyled mb-3 d-grid gap-2 small">
-                <li><strong>Billing cycle:</strong> Monthly</li>
-                <li><strong>Next invoice:</strong> 2026-06-01</li>
-                <li><strong>Billing status:</strong> In good standing</li>
-              </ul>
-              <button className="btn btn-outline-secondary" onClick={() => setNotice('Payment method update request recorded locally.')} type="button">Update payment method</button>
-            </div>
-          </div>
+    <>
+      <div className="page-head">
+        <div>
+          <div className="page-eyebrow">Billing</div>
+          <h1>Hosting bills</h1>
+          <p className="sub">Every ZIP or GitHub deployment costs a flat {pricing?.displayAmount || 'K100'}. Your site deploys first — pay within {pricing?.graceHours || 12} hours or it is suspended automatically.</p>
         </div>
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm dashboard-panel h-100">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Invoice history</h2>
-              <DashboardTable columns={columns} rows={billingRecords} />
+        <div className="actions">
+          <button className="btn btn-outline" onClick={refresh} disabled={loading}><ICN.RefreshCw size={14} /> Refresh</button>
+        </div>
+      </div>
+
+      {error && <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger)' }}>{error}</div>}
+
+      {/* Pricing + payment rule */}
+      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+        <div className="row between" style={{ alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K100'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
+            <div className="muted" style={{ fontSize: 13, marginTop: 8, maxWidth: 520 }}>
+              Deploy first, pay within {pricing?.graceHours || 12} hours. Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
             </div>
+          </div>
+          {provider && (
+            <div className="card" style={{ padding: 12, background: 'var(--bg-deep)', minWidth: 230 }}>
+              <div className="page-eyebrow" style={{ marginBottom: 8 }}>Provider status</div>
+              <div className="kv" style={{ gridTemplateColumns: '1fr auto', gap: '4px 12px', fontSize: 13 }}>
+                <dt>Render configured</dt><dd><YesNo ok={provider.renderConfigured} /></dd>
+                <dt>RENDER_API_KEY</dt><dd><YesNo ok={provider.renderApiKeyPresent} /></dd>
+                <dt>RENDER_OWNER_ID</dt><dd><YesNo ok={provider.renderOwnerIdPresent} /></dd>
+                <dt>PayPal configured</dt><dd><YesNo ok={provider.paypalConfigured} /></dd>
+                <dt>Manual receipts</dt><dd><YesNo ok={provider.manualReceiptUpload} /></dd>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="card" style={{ padding: 28 }}>Loading…</div>
+      ) : orders.length === 0 ? (
+        <div className="card" style={{ padding: '40px 24px', textAlign: 'center' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}><ICN.CreditCard size={20} /></div>
+          <h2 style={{ margin: '0 0 6px' }}>No active bills yet</h2>
+          <p className="muted" style={{ margin: 0 }}>No active bills yet. Deploy a ZIP or GitHub project to create a K100 hosting bill.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 14 }}>
+          {orders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              deployment={depByOrder[order.id] || depById[order.deploymentId] || null}
+              pricing={pricing}
+              onChanged={refresh}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function OrderCard({ order, deployment, pricing, onChanged }) {
+  const paid = order.status === 'paid';
+  const expired = order.status === 'expired';
+  const left = hoursLeft(order.dueAt || deployment?.billingDueAt);
+  const amount = `${order.currency || pricing?.deploymentCurrency || 'PGK'} ${((order.totalAmountCents || 0) / 100).toFixed(2)}`;
+
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [file, setFile] = useState(null);
+  const [ppOrderId, setPpOrderId] = useState(null);
+
+  const startPaypal = async () => {
+    setBusy('paypal'); setErr(''); setMsg('');
+    try {
+      const res = await createDeploymentPaypalOrder(order.id);
+      if (res?.alreadyPaid) { setMsg('Already paid.'); onChanged(); return; }
+      if (res?.approvalUrl) {
+        setPpOrderId(res.paypalOrderId);
+        window.open(res.approvalUrl, '_blank', 'noopener,noreferrer');
+        setMsg('Approve the payment in the new PayPal tab, then click “I have approved”.');
+      } else {
+        setErr('PayPal is not configured. Upload a bank receipt instead.');
+      }
+    } catch (e) { setErr(e.message || 'Could not start PayPal.'); }
+    finally { setBusy(''); }
+  };
+
+  const capturePaypal = async () => {
+    if (!ppOrderId) { setErr('Start a PayPal payment first.'); return; }
+    setBusy('capture'); setErr(''); setMsg('');
+    try { await captureDeploymentPaypalOrder(ppOrderId); setMsg('Payment captured — thank you.'); onChanged(); }
+    catch (e) { setErr(e.message || 'Capture failed.'); }
+    finally { setBusy(''); }
+  };
+
+  const upload = async () => {
+    if (!file) { setErr('Choose a receipt file (PDF, PNG, JPG, JPEG).'); return; }
+    setBusy('upload'); setErr(''); setMsg('');
+    try {
+      await uploadManualReceipt({ checkoutOrderId: order.id, file });
+      setMsg('Receipt uploaded. Admin will review and approve it.');
+      setFile(null);
+      onChanged();
+    } catch (e) { setErr(e.message || 'Upload failed.'); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <div className="card" style={{ padding: 18 }}>
+      <div className="row between" style={{ alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{deployment?.serviceName || 'Deployment'} <span className="muted" style={{ fontSize: 13 }}>· {amount}</span></div>
+          <div className="mono muted" style={{ fontSize: 12, marginTop: 2 }}>deployment: {order.deploymentId || '—'}</div>
+          <div className="mono muted" style={{ fontSize: 12 }}>order: {order.id}</div>
+          {deployment?.liveUrl && <a className="mono" style={{ fontSize: 12 }} href={deployment.liveUrl} target="_blank" rel="noopener noreferrer">{deployment.liveUrl.replace(/^https?:\/\//, '')}</a>}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <StatusPill value={order.status} />
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            {paid ? `Paid ${order.paidAt ? new Date(order.paidAt).toLocaleString() : ''}`
+              : expired ? 'Expired'
+              : order.dueAt ? `Due ${new Date(order.dueAt).toLocaleString()}${left != null ? ` (${left}h left)` : ''}` : 'Due pending'}
           </div>
         </div>
       </div>
 
-      <div className="row g-4">
-        <div className="col-lg-6">
-          <div className="card border-0 shadow-sm dashboard-panel h-100">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Add-ons</h2>
-              <div className="d-grid gap-3">
-                <div className="border rounded-3 p-3 d-flex justify-content-between align-items-center"><span>Additional product setup</span><button className="btn btn-sm btn-outline-success" onClick={() => setNotice('Add-on request added to the project queue.')} type="button">Request</button></div>
-                <div className="border rounded-3 p-3 d-flex justify-content-between align-items-center"><span>Extended support window</span><button className="btn btn-sm btn-outline-success" onClick={() => setNotice('Add-on request added to the project queue.')} type="button">Request</button></div>
-              </div>
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</div>}
+      {msg && <div style={{ color: 'var(--accent)', fontSize: 13, marginTop: 10 }}>{msg}</div>}
+
+      {paid ? (
+        <div style={{ marginTop: 12, color: 'var(--accent)', fontWeight: 700 }}><ICN.CheckCircle size={15} /> Payment received.</div>
+      ) : (
+        <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Pay with PayPal / Card</div>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal'} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K100'} with PayPal`}</button>
+              <button className="btn btn-outline btn-sm" disabled={busy === 'capture' || !ppOrderId} onClick={capturePaypal}>{busy === 'capture' ? 'Confirming…' : 'I have approved'}</button>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Upload bank receipt</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <button className="btn btn-primary btn-sm" disabled={busy === 'upload' || !file} onClick={upload}><ICN.Cloud size={13} /> {busy === 'upload' ? 'Uploading…' : 'Upload receipt'}</button>
             </div>
           </div>
         </div>
-        <div className="col-lg-6">
-          <div className="card border-0 shadow-sm dashboard-panel h-100">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Billing contact</h2>
-              <div className="row g-3">
-                <div className="col-md-6"><label className="form-label">Name</label><input className="form-control" defaultValue="Sarah Kora" /></div>
-                <div className="col-md-6"><label className="form-label">Email</label><input className="form-control" defaultValue="billing@glondia.com" /></div>
-                <div className="col-12"><button className="btn btn-outline-secondary" onClick={() => setNotice('Billing contact updated locally.')} type="button">Save contact</button></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
-  )
+  );
 }
