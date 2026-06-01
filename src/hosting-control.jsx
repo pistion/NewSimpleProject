@@ -895,6 +895,7 @@ function BillingTab({ deploymentId, app = {}, onReload }) {
   const paid = paymentStatus === 'paid';
   const expired = paymentStatus === 'expired' || app.status === 'payment_expired';
   const remaining = hoursRemaining(app.billingDueAt);
+  const priceLabel = `K${((app.priceCents ?? 20000) / 100).toFixed(0)}`;
 
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -949,13 +950,13 @@ function BillingTab({ deploymentId, app = {}, onReload }) {
 
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>Hosting fee — K100</h2>
-      <p className="muted" style={{ marginTop: 0 }}>Every deployment costs a fixed <b>K100</b>. Your site is live now; pay within the grace window or it will be suspended automatically.</p>
+      <h2 style={{ marginTop: 0 }}>Hosting fee — {priceLabel}</h2>
+      <p className="muted" style={{ marginTop: 0 }}>Every deployment costs a fixed <b>{priceLabel}</b>. Your site is live now; pay within the grace window or it will be suspended automatically.</p>
       {error && <div style={{ color: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
       {notice && <div style={{ color: 'var(--accent)', marginBottom: 12 }}>{notice}</div>}
 
       <div className="kv" style={{ gridTemplateColumns: '140px 1fr' }}>
-        <dt>Amount</dt><dd><b>K{((app.priceCents ?? 10000) / 100).toFixed(0)}</b> {app.priceCurrency || 'PGK'}</dd>
+        <dt>Amount</dt><dd><b>{priceLabel}</b> {app.priceCurrency || 'PGK'}</dd>
         <dt>Status</dt><dd><Badge tone={paid ? 'success' : expired ? 'danger' : 'warn'}>{paymentStatus}</Badge></dd>
         <dt>Grace period</dt><dd>{remaining != null ? `${remaining} hours remaining` : 'Not calculated'}</dd>
         <dt>Deadline</dt><dd>{app.billingDueAt ? new Date(app.billingDueAt).toLocaleString() : 'Pending'}</dd>
@@ -970,7 +971,7 @@ function BillingTab({ deploymentId, app = {}, onReload }) {
           <div>
             <h3 style={{ margin: '0 0 8px' }}>Pay with PayPal or card</h3>
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-primary" disabled={busy === 'paypal' || !orderId} onClick={handlePaypal}><ICN.CreditCard size={14} /> {busy === 'paypal' ? 'Starting…' : 'Pay K100 with PayPal'}</button>
+              <button className="btn btn-primary" disabled={busy === 'paypal' || !orderId} onClick={handlePaypal}><ICN.CreditCard size={14} /> {busy === 'paypal' ? 'Starting…' : `Pay ${priceLabel} with PayPal`}</button>
               <button className="btn btn-outline" disabled={busy === 'capture'} onClick={handleCapture}>{busy === 'capture' ? 'Confirming…' : 'I have approved'}</button>
             </div>
           </div>

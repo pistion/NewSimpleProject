@@ -1,4 +1,4 @@
-// BillingPage.jsx — live deploy-first K100 billing for the signed-in user.
+// BillingPage.jsx — live deploy-first K200 billing for the signed-in user.
 import React from 'react';
 import { ICN } from '../../icons';
 import { getBillingSummary } from '../../api/billing.js';
@@ -55,7 +55,7 @@ export default function BillingPage() {
         <div>
           <div className="page-eyebrow">Billing</div>
           <h1>Hosting bills</h1>
-          <p className="sub">Every ZIP or GitHub deployment costs a flat {pricing?.displayAmount || 'K100'}. Your site deploys first — pay within {pricing?.graceHours || 12} hours or it is suspended automatically.</p>
+          <p className="sub">Every ZIP or GitHub deployment costs a flat {pricing?.displayAmount || 'K200'}. Your site deploys first — pay within {pricing?.graceHours || 12} hours or it is suspended automatically.</p>
         </div>
         <div className="actions">
           <button className="btn btn-outline" onClick={refresh} disabled={loading}><ICN.RefreshCw size={14} /> Refresh</button>
@@ -69,7 +69,7 @@ export default function BillingPage() {
         <div className="row between" style={{ alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K100'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
             <div className="muted" style={{ fontSize: 13, marginTop: 8, maxWidth: 520 }}>
               Deploy first, pay within {pricing?.graceHours || 12} hours. Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
             </div>
@@ -95,7 +95,7 @@ export default function BillingPage() {
         <div className="card" style={{ padding: '40px 24px', textAlign: 'center' }}>
           <div style={{ width: 44, height: 44, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}><ICN.CreditCard size={20} /></div>
           <h2 style={{ margin: '0 0 6px' }}>No active bills yet</h2>
-          <p className="muted" style={{ margin: 0 }}>No active bills yet. Deploy a ZIP or GitHub project to create a K100 hosting bill.</p>
+          <p className="muted" style={{ margin: 0 }}>No active bills yet. Deploy a ZIP or GitHub project to create a K200 hosting bill.</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 14 }}>
@@ -191,7 +191,7 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Pay with PayPal / Card</div>
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal'} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K100'} with PayPal`}</button>
+              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal'} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K200'} with PayPal`}</button>
               <button className="btn btn-outline btn-sm" disabled={busy === 'capture' || !ppOrderId} onClick={capturePaypal}>{busy === 'capture' ? 'Confirming…' : 'I have approved'}</button>
             </div>
           </div>

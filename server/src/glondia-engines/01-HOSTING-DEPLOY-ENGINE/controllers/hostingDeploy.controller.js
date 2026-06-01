@@ -15,7 +15,7 @@ async function attachBilling(deployment, req, kind) {
   try {
     return await createDeploymentOrder({ deployment, user: req.user || {}, kind });
   } catch (error) {
-    console.error('[billing] Failed to attach K100 order:', error.message);
+    console.error('[billing] Failed to attach deployment billing order:', error.message);
     return null;
   }
 }

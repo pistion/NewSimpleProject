@@ -91,7 +91,7 @@ export function AdminPage() {
         <div>
           <div className="page-eyebrow">Administration</div>
           <h1>Admin — billing &amp; deployments</h1>
-          <p className="sub">Review users, deployments, K100 orders and bank receipts. Approve payments or remove unpaid deployments.</p>
+          <p className="sub">Review users, deployments, deployment orders and bank receipts. Approve payments or remove unpaid deployments.</p>
         </div>
         <div className="actions">
           <button className="btn btn-outline" onClick={refresh} disabled={loading}>
@@ -124,7 +124,7 @@ export function AdminPage() {
           <StatCard label="Cleanup jobs" value={overview.cleanupJobs} />
           <StatCard label="Est. provider cost" value={overview.providerCost?.display} />
           <div className="card" style={{ gridColumn: '1 / -1', padding: 16 }}>
-            <h3 style={{ marginTop: 0 }}>K100 orders by status</h3>
+            <h3 style={{ marginTop: 0 }}>Deployment orders by status</h3>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
               <span><b>Paid:</b> {overview.orders?.paid ?? 0}</span>
               <span><b>Pending:</b> {overview.orders?.pending ?? 0}</span>
