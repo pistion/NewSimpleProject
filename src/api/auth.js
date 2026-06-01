@@ -42,21 +42,31 @@ export function clearAuthSession() {
 // ─── Auth API calls ───────────────────────────────────────────────────────────
 
 export async function login(email, password) {
-  const session = makeSession({ email });
+  if (!isLiveMode()) {
+    const session = makeSession({ email });
+    storeAuthSession(session);
+    return session;
+  }
+  const session = await authPost('/v1/auth/login', { email, password });
   storeAuthSession(session);
   return session;
 }
 
 export async function register({ name, email, password, organizationName }) {
-  const session = makeSession({ name, email, organizationName });
+  if (!isLiveMode()) {
+    const session = makeSession({ name, email, organizationName });
+    storeAuthSession(session);
+    return session;
+  }
+  const session = await authPost('/v1/auth/register', { name, email, password });
   storeAuthSession(session);
   return session;
 }
 
 export async function refreshAccessToken() {
-  const { refreshToken, sessionId } = getStoredAuth();
+  const { refreshToken } = getStoredAuth();
   if (!refreshToken) throw new Error('No refresh token stored.');
-  const data = await authPost('/v1/auth/refresh', { refreshToken, sessionId });
+  const data = await authPost('/v1/auth/refresh-token', { refreshToken });
   storeAuthSession(data);
   return data;
 }

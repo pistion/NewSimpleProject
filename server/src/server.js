@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 
 import { requestId } from './middleware/request-id.middleware.js';
 import { responseHelper } from './middleware/response.middleware.js';
+import { requireFeature, featureFlagsHandler } from './middleware/featureFlag.js';
 
 import frontPageRoutes from './routes/frontPage.routes.js';
 import publicRoutes from './routes/public.routes.js';
@@ -146,6 +147,13 @@ if (existsSync(landingDir)) {
   }));
 }
 app.use('/', frontPageRoutes);
+
+// Public feature-flag snapshot — drives the frontend Coming Soon gating.
+app.get('/api/v1/features', featureFlagsHandler);
+
+// Domain registrar + domain-payment provider surfaces are not part of the MVP.
+app.use('/api/spaceship', requireFeature('DOMAINS'));
+app.use('/api/payments/domain', requireFeature('DOMAINS'));
 
 app.post('/api/builder/import-github', providerApiGuard, async (req, res, next) => {
   try {
@@ -532,7 +540,7 @@ app.get('/sandbox/:siteId/*', (req, res, next) => {
 // Public (unauthenticated)
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/public/sites', publicSalesRoutes);
-app.use('/api/v1/domains', domainPublicRoutes);
+app.use('/api/v1/domains', requireFeature('DOMAINS'), domainPublicRoutes);
 app.use('/api/v1/templates', templateRoutes);
 app.use('/api/template-ai', templateAiRoutes);
 app.use('/api/v1/events', eventsRoutes);
@@ -544,23 +552,23 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/workspaces', workspaceRoutes);
 app.use('/api/v1/workspaces/:workspaceId', workspaceDetailRoutes);
 app.use('/api/v1/workspaces/:workspaceId/projects', projectRoutes);
-app.use('/api/v1/workspaces/:workspaceId/domains', domainRoutes);
+app.use('/api/v1/workspaces/:workspaceId/domains', requireFeature('DOMAINS'), domainRoutes);
 app.use('/api/v1/workspaces/:workspaceId/sites', siteRoutes);
 app.use('/api/v1/workspaces/:workspaceId/commerce', commerceRoutes);
-app.use('/api/v1/workspaces/:workspaceId/analytics', analyticsRoutes);
+app.use('/api/v1/workspaces/:workspaceId/analytics', requireFeature('ANALYTICS'), analyticsRoutes);
 app.use('/api/v1/workspaces/:workspaceId/billing', billingRoutes);
-app.use('/api/v1/workspaces/:workspaceId/settings', settingsRoutes);
+app.use('/api/v1/workspaces/:workspaceId/settings', requireFeature('SETTINGS'), settingsRoutes);
 app.use('/api/v1/workspaces/:workspaceId/events', eventStreamRoutes);
 
-// VPS hosting — Vultr-backed cloud servers
-app.use('/api/v1/vps-hosting', vpsHostingRoutes);
+// VPS hosting — Vultr-backed cloud servers (not part of the MVP).
+app.use('/api/v1/vps-hosting', requireFeature('VPS'), vpsHostingRoutes);
 
 // Render-powered customer hosting surface used by the site builder and hosting dashboard.
 app.use('/api/deployments', deploymentRoutes);
 app.use('/api/hosting', hostingRoutes);
 app.use('/api/hosting', environmentRoutes);
 app.use('/api/hosting', diskRoutes);
-app.use('/api/hosting', domainHostingRoutes);
+app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 
 // ── SPA fallback — serve Vite dist for everything else ──────────────────────
 app.use((req, res) => serveStatic(req, res));

@@ -2,6 +2,7 @@
 import React from 'react';
 import { ICN } from './icons';
 import { clearAuthSession, getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
+import { isFeatureEnabled } from './app/features.js';
 
 const { useState } = React;
 
@@ -66,28 +67,38 @@ export const DASH_NAV = [
     items: [
       { key: "overview",     label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
       { key: "hosting",      label: "Render hosting", icon: "Server",          route: { view: "hosting-list" } },
-      { key: "vps-hosting",  label: "Cloud Servers",  icon: "Cpu",             route: { view: "vps-hosting" } },
-      { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" } },
-      { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true },
-      { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true },
+      { key: "vps-hosting",  label: "Cloud Servers",  icon: "Cpu",             route: { view: "vps-hosting" }, feature: "vps" },
+      { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" }, feature: "domains" },
+      { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },
+      { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true, feature: "domains" },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
   {
     title: "Manage",
     items: [
-      { key: "analytics",  label: "Analytics",      icon: "ChartBar",        route: { view: "analytics" } },
-      { key: "activity",   label: "Activity",       icon: "Activity",        route: { view: "activity" } },
+      { key: "analytics",  label: "Analytics",      icon: "ChartBar",        route: { view: "analytics" }, feature: "analytics" },
+      { key: "activity",   label: "Activity",       icon: "Activity",        route: { view: "activity" }, feature: "activity" },
     ],
   },
   {
     title: "Account",
     items: [
       { key: "billing",    label: "Billing",        icon: "CreditCard",      route: { view: "billing" } },
-      { key: "settings",   label: "Settings",       icon: "Settings",        route: { view: "settings" } },
+      { key: "settings",   label: "Settings",       icon: "Settings",        route: { view: "settings" }, feature: "settings" },
     ],
   },
 ];
+
+// Sidebar groups with disabled-feature items removed (and empty groups dropped).
+function visibleNavGroups() {
+  return DASH_NAV
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.feature || isFeatureEnabled(item.feature)),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export function DashSidebar({ active, navigate }) {
   return (
@@ -96,7 +107,7 @@ export function DashSidebar({ active, navigate }) {
         <Logo compact onClick={() => { window.location.href = "/"; }} />
       </div>
       <nav className="dash-side-nav">
-        {DASH_NAV.map((group) => (
+        {visibleNavGroups().map((group) => (
           <div key={group.title}>
             <div className="dash-side-group-title">{group.title}</div>
             {group.items.map((item) => {

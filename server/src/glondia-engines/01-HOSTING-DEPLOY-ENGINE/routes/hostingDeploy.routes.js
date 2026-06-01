@@ -4,6 +4,8 @@ import hostingDeployController from '../controllers/hostingDeploy.controller.js'
 import authMiddleware from '../../../middleware/authMiddleware.js';
 import deploymentSessionMiddleware from '../../../middleware/deploymentSessionMiddleware.js';
 import { validateDeploymentInput } from '../../../middleware/validationMiddleware.js';
+import { requireActivePlan, requireSiteQuota } from '../../../middleware/planGate.js';
+import { requireFeature } from '../../../middleware/featureFlag.js';
 
 const router = express.Router();
 const upload = multer({
@@ -24,11 +26,30 @@ const upload = multer({
   },
 });
 
+// All deployment routes require a valid session (authMiddleware rejects in prod
+// without a token; allows the local-user fallback only in dev/demo mode).
 router.use(authMiddleware);
 router.get('/settings', hostingDeployController.getSettings);
-router.post('/zip', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), hostingDeployController.createZipDeployment);
+
+// ZIP upload hosting — feature-gated and plan/quota-gated.
+router.post(
+  '/zip',
+  requireFeature('ZIP_HOSTING'),
+  requireActivePlan,
+  requireSiteQuota,
+  upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]),
+  hostingDeployController.createZipDeployment,
+);
 router.post('/zip/validate', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), hostingDeployController.validateZipDeployment);
-router.post('/github', hostingDeployController.createGithubDeployment);
+
+// GitHub upload/import hosting — feature-gated and plan/quota-gated.
+router.post(
+  '/github',
+  requireFeature('GITHUB_HOSTING'),
+  requireActivePlan,
+  requireSiteQuota,
+  hostingDeployController.createGithubDeployment,
+);
 router.post('/generated-site', hostingDeployController.createGeneratedSiteDeployment);
 router.post('/render', validateDeploymentInput, hostingDeployController.createRenderDeployment);
 router.post('/', validateDeploymentInput, hostingDeployController.createDeployment);
