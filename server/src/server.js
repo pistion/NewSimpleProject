@@ -541,7 +541,7 @@ app.get('/sandbox/:siteId/*', (req, res, next) => {
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/public/sites', publicSalesRoutes);
 app.use('/api/v1/domains', requireFeature('DOMAINS'), domainPublicRoutes);
-app.use('/api/v1/templates', templateRoutes);
+app.use('/api/v1/templates', requireFeature('TEMPLATE_MARKETPLACE'), templateRoutes);
 app.use('/api/template-ai', templateAiRoutes);
 app.use('/api/v1/events', eventsRoutes);
 

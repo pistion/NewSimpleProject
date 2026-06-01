@@ -3,8 +3,14 @@ import multer from 'multer';
 import { templateAiController } from '../controllers/templateAi.controller.js';
 import { validateZipSite, getZipDeployConfigStatus } from '../../01-HOSTING-DEPLOY-ENGINE/pipelines/base64ZipToRender.pipeline.js';
 import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templateAiZipRoute.adapter.js';
+import { requireFeature } from '../../../middleware/featureFlag.js';
 
 const router = express.Router();
+
+// RoxanneAI build + Template Choose are gated behind feature flags. The ZIP
+// upload routes below stay open — they are part of the live hosting deploy flow.
+const requireAiBuilder = requireFeature('AI_BUILDER');
+const requireTemplateMarketplace = requireFeature('TEMPLATE_MARKETPLACE');
 const MAX_ZIP_BYTES = Number(process.env.ZIP_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
 
 const upload = multer({
@@ -42,15 +48,16 @@ function handleMulterError(err, _req, res, next) {
   });
 }
 
-router.get('/settings', templateAiController.getSettings);
-router.post('/intake/start', templateAiController.startIntake);
-router.post('/intake/message', templateAiController.sendMessage);
-router.post('/generate', templateAiController.generateTailored);
-router.post('/sites', templateAiController.createSite);
-router.get('/sites/:siteId', templateAiController.getSite);
-router.get('/sites/:siteId/preview', templateAiController.previewSite);
-router.post('/sites/:siteId/package', templateAiController.packageSite);
-router.post('/sites/:siteId/deploy', templateAiController.deploySite);
+// RoxanneAI guided build flow — disabled until AI_BUILDER launches.
+router.get('/settings', requireAiBuilder, templateAiController.getSettings);
+router.post('/intake/start', requireAiBuilder, templateAiController.startIntake);
+router.post('/intake/message', requireAiBuilder, templateAiController.sendMessage);
+router.post('/generate', requireAiBuilder, templateAiController.generateTailored);
+router.post('/sites', requireAiBuilder, templateAiController.createSite);
+router.get('/sites/:siteId', requireAiBuilder, templateAiController.getSite);
+router.get('/sites/:siteId/preview', requireAiBuilder, templateAiController.previewSite);
+router.post('/sites/:siteId/package', requireAiBuilder, templateAiController.packageSite);
+router.post('/sites/:siteId/deploy', requireAiBuilder, templateAiController.deploySite);
 
 // Legacy compatibility route. New callers must use GET /api/deployments/settings.
 router.get('/zip/settings', (_req, res) => {
@@ -115,6 +122,7 @@ router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async 
   }
 });
 
-router.get('/templates/:templateId/preview', templateAiController.getTemplatePreview);
+// Template Choose preview — disabled until TEMPLATE_MARKETPLACE launches.
+router.get('/templates/:templateId/preview', requireTemplateMarketplace, templateAiController.getTemplatePreview);
 
 export default router;
