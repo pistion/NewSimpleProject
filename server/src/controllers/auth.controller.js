@@ -7,11 +7,15 @@
 
 import {
   getUserById,
+  getUserProfile,
+  updateUserProfile,
+  setOwnIdPhotoPath,
   loginUser,
   logoutUser,
   refreshSession,
   registerUser,
 } from '../services/authService.js';
+import { streamUserIdPhoto } from '../services/adminReceiptService.js';
 
 const AuthController = {
   register: async (req, res, next) => {
@@ -58,6 +62,49 @@ const AuthController = {
       const user = await getUserById(req.user?.id);
       if (!user) return res.error('NOT_FOUND', 'User not found.', 404);
       res.ok({ user });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // ── Self-service profile ────────────────────────────────────────────────────
+  getProfile: async (req, res, next) => {
+    try {
+      const profile = await getUserProfile(req.user?.id);
+      if (!profile) return res.error('NOT_FOUND', 'User not found.', 404);
+      res.ok({ profile });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  updateProfile: async (req, res, next) => {
+    try {
+      const profile = await updateUserProfile(req.user?.id, req.body || {});
+      res.ok({ profile });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  uploadIdPhoto: async (req, res, next) => {
+    try {
+      if (!req.file) return res.error('ID_PHOTO_REQUIRED', 'An ID photo file is required.', 400);
+      const profile = await setOwnIdPhotoPath(req.user?.id, req.file.path);
+      res.created({ profile });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  viewIdPhoto: async (req, res, next) => {
+    try {
+      await streamUserIdPhoto({
+        userId: req.user?.id,
+        res,
+        adminUserId: req.user?.id,
+        action: 'user.profile.id_photo_viewed',
+      });
     } catch (error) {
       next(error);
     }

@@ -120,7 +120,7 @@ export async function streamReceipt({ receiptId, disposition = 'inline', res, ad
 }
 
 /** Validate + stream a user's ID photo (inline preview only). */
-export async function streamUserIdPhoto({ userId, res, adminUserId }) {
+export async function streamUserIdPhoto({ userId, res, adminUserId, action = 'admin.user.id_photo_viewed' }) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, idPhotoPath: true } });
   if (!user) throw httpError('User not found.', 404);
   if (!user.idPhotoPath) throw httpError('No ID photo on file.', 404);
@@ -137,7 +137,7 @@ export async function streamUserIdPhoto({ userId, res, adminUserId }) {
   const stat = statSync(absPath);
   await writeAuditLog({
     actorUserId: adminUserId,
-    action: 'admin.user.id_photo_viewed',
+    action,
     entityType: 'user',
     entityId: user.id,
     result: { fileSize: stat.size },

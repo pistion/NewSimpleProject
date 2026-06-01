@@ -27,6 +27,7 @@ import {
 import { ActivityPage } from './activity';
 import { AdminPage } from './features/admin/AdminPage.jsx';
 import BillingPage from './features/billing/BillingPage.jsx';
+import ProfilePage from './features/profile/ProfilePage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
@@ -150,7 +151,7 @@ export default function App() {
   const DASHBOARD_VIEWS = new Set([
     "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
     "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings",
-    "analytics","activity","billing","settings","vps-hosting","vps-create","vps-detail","admin",
+    "analytics","activity","billing","settings","profile","vps-hosting","vps-create","vps-detail","admin",
   ]);
 
   // Render
@@ -182,6 +183,7 @@ export default function App() {
       case "activity":          return <ActivityPage />;
       case "admin":             return <AdminPage navigate={navigate} />;
       case "billing":           return <BillingPage navigate={navigate} />;
+      case "profile":           return <ProfilePage navigate={navigate} />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
       case "vps-create":        return <VpsCreateWizard navigate={navigate} initialPlan={route.params?.plan || ''} initialPlanType={route.params?.planType || ''} />;
@@ -219,6 +221,7 @@ export default function App() {
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
+      case "profile":         return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Profile" }];
       case "admin":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Admin" }];
       case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Cloud Servers" }];
       case "vps-create":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];

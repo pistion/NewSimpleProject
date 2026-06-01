@@ -156,6 +156,55 @@ export async function getUserById(userId) {
   return user ? toPublicUser(user) : null;
 }
 
+// ─── Self-service profile (the signed-in customer) ────────────────────────────
+
+function safeJson(text) {
+  try { return JSON.parse(text || '{}'); } catch { return {}; }
+}
+
+/** Profile shape returned to the account owner — never exposes the raw idPhotoPath. */
+function toProfile(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name || null,
+    phone: user.phone || null,
+    role: user.role,
+    planId: user.planId,
+    accountStatus: user.accountStatus || 'active',
+    profileDetails: safeJson(user.profileDetails),
+    hasIdPhoto: Boolean(user.idPhotoPath),
+    createdAt: user.createdAt,
+  };
+}
+
+export async function getUserProfile(userId) {
+  if (!userId) return null;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  return user ? toProfile(user) : null;
+}
+
+/** Update the caller's own editable profile fields (name, phone, personal details). */
+export async function updateUserProfile(userId, patch = {}) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  const data = {};
+  if (patch.name !== undefined) data.name = patch.name ? String(patch.name).slice(0, 200) : null;
+  if (patch.phone !== undefined) data.phone = patch.phone ? String(patch.phone).slice(0, 50) : null;
+  if (patch.profileDetails !== undefined) {
+    const details = typeof patch.profileDetails === 'string' ? safeJson(patch.profileDetails) : patch.profileDetails;
+    data.profileDetails = JSON.stringify(details || {});
+  }
+  const user = await prisma.user.update({ where: { id: userId }, data });
+  return toProfile(user);
+}
+
+/** Record the SSD path of the caller's own uploaded ID photo. */
+export async function setOwnIdPhotoPath(userId, filePath) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  const user = await prisma.user.update({ where: { id: userId }, data: { idPhotoPath: filePath } });
+  return toProfile(user);
+}
+
 /**
  * Lightweight account-status lookup for per-request enforcement in authMiddleware.
  * Returns the accountStatus string, or null when no matching DB row exists

@@ -229,7 +229,19 @@ function AuthMenu({ navigate }) {
         <div className="card" style={{ position: "absolute", right: 0, top: 44, width: 320, zIndex: 80, boxShadow: "var(--shadow)" }}>
           {signedIn ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div className="label">Signed in</div><div style={{ fontWeight: 600 }}>{displayName}</div><div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div></div>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}
+                title="View and edit your account details"
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+              >
+                <div className="label">Signed in — view profile</div>
+                <div style={{ fontWeight: 600 }}>{displayName}</div>
+                <div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div>
+              </button>
+              <button className="btn btn-outline" onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}>
+                <ICN.User size={14} /> Account details
+              </button>
               <button className="btn btn-outline" onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}>Sign out</button>
             </div>
           ) : (
