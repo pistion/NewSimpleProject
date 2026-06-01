@@ -38,6 +38,7 @@ import diskRoutes from './routes/diskRoutes.js';
 import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
 import { prisma } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
@@ -122,6 +123,29 @@ const corsOrigins = process.env.CORS_ORIGINS
   : (isProd ? false : true); // allow all in dev, same-origin only in production
 
 app.use(cors({ origin: corsOrigins, credentials: true }));
+
+// ── PayPal webhook ───────────────────────────────────────────────────────────
+// MUST be registered before express.json(): PayPal signature verification needs
+// the exact raw request body. Configured webhook URL:
+//   POST /api/v1/payments/paypal/webhook
+app.post('/api/v1/payments/paypal/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+  try {
+    const verification = await verifyPaypalWebhook({ headers: req.headers, rawBody: req.body });
+    if (!verification.ok) {
+      console.error('[paypal:webhook] verification failed:', verification.reason || verification.status);
+      // 400 → PayPal will retry; we do NOT act on unverified events.
+      return res.status(400).json({ received: true, verified: false });
+    }
+    const result = await handlePaypalWebhookEvent(verification.event);
+    console.log('[paypal:webhook]', verification.event?.event_type, JSON.stringify(result));
+    return res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('[paypal:webhook] error:', err.message);
+    // 500 → PayPal retries with backoff (covers transient DB/network errors).
+    return res.status(500).json({ received: false });
+  }
+});
+
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(isProd ? 'combined' : 'dev'));
 app.use(requestId);

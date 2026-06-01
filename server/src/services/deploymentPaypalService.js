@@ -39,6 +39,10 @@ async function getToken() {
   return _token;
 }
 
+/** Exposed for the webhook service: OAuth token + API base for signature verification. */
+export async function getPaypalAccessToken() { return getToken(); }
+export function getPaypalApiBase() { return BASE; }
+
 function assertOwner(order, user) {
   if (user?.role === 'admin') return;
   if (order.userId && order.userId !== user?.id) {
