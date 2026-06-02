@@ -11,7 +11,7 @@ import { prisma } from '../services/db.js';
 import { readHostingStore } from '../services/hostingStore.js';
 import renderApiService from '../services/renderApiService.js';
 import { deploymentBilling, billingTiers, initialRenderPlan } from '../config/deploymentBilling.js';
-import { getPromoUsage } from '../services/deploymentPromoService.js';
+import { getPromoUsage, getUserPromoStatus } from '../services/deploymentPromoService.js';
 
 function dbUserId(userId) {
   return userId && userId !== 'local-user' ? userId : null;
@@ -68,6 +68,7 @@ const BillingController = {
           displayAmount: `${o.currency || 'PGK'} ${((o.totalAmountCents || 0) / 100).toFixed(0)}`,
           billingTierId: meta.billingTierId || null,
           billingTierLabel: meta.billingTierLabel || null,
+          promoApplied: meta.promoApplied === true,
           renderPlanAfterPayment: meta.renderPlanAfterPayment || null,
           dueAt: o.dueAt,
           paidAt: o.paidAt,
@@ -86,7 +87,7 @@ const BillingController = {
         checkoutOrderId: d.checkoutOrderId || null,
       }));
 
-      const promo = await getPromoUsage();
+      const [promo, userPromo] = await Promise.all([getPromoUsage(), getUserPromoStatus(userId)]);
       const tiers = Object.values(billingTiers).map((t) => ({
         id: t.id,
         label: t.label,
@@ -95,7 +96,8 @@ const BillingController = {
         displayAmount: `K${t.amount}`,
         promo: t.promo === true,
         renderPlanAfterPayment: t.renderPlanAfterPayment,
-        available: t.promo ? promo.available : true,
+        // Promo tier is selectable only when THIS user can still claim it.
+        available: t.promo ? userPromo.canClaim : true,
       }));
 
       res.ok({
@@ -106,7 +108,9 @@ const BillingController = {
           graceHours: deploymentBilling.graceHours,
           initialRenderPlan,
           tiers,
-          promo: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
+          // Global stats (analytics) plus this user's promo entitlement.
+          promoUsage: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
+          promo: userPromo,
           freeHostingMessage: 'Your site starts on free hosting for 12 hours. After payment is verified, we upgrade your hosting plan and redeploy.',
         },
         orders,

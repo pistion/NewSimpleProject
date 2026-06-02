@@ -16,6 +16,7 @@ import {
   approveDeploymentBilling,
   setDeploymentRenderPlan,
   getAdminUser,
+  suspendUser,
   disableUser,
   reactivateUser,
   deleteUser,
@@ -83,6 +84,12 @@ export function AdminPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Map userId → email so the deployments table can show the owner.
+  const userEmailById = React.useMemo(
+    () => Object.fromEntries((users || []).map((u) => [u.id, u.email])),
+    [users],
+  );
 
   const act = async (id, fn, label) => {
     setBusyId(id); setNotice('');
@@ -198,11 +205,12 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'deployments' && (
-        <Table cols={['Created', 'Service', 'Tier', 'Plan', 'Status', 'Payment', 'Due', 'Actions']}>
+        <Table cols={['Created', 'Service', 'Owner', 'Tier', 'Plan', 'Status', 'Payment', 'Due', 'Actions']}>
           {deployments.map((d) => (
             <tr key={d.deploymentId}>
               <td>{when(d.createdAt)}</td>
               <td>{d.serviceName || '—'}<div className="mono muted" style={{ fontSize: 11 }}>{d.deploymentId?.slice(0, 12)}</div></td>
+              <td style={{ fontSize: 12 }}>{userEmailById[d.userId] || <span className="mono muted">{d.userId?.slice(0, 8) || '—'}</span>}</td>
               <td style={{ fontSize: 12 }}>
                 {d.billingTierId === 'promo_50' ? 'K50 promo' : d.billingTierId === 'standard_200' ? 'K200' : (d.priceCents != null ? money(d.priceCents, d.priceCurrency) : '—')}
               </td>
@@ -262,29 +270,36 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'users' && (
-        <Table cols={['Created', 'Email', 'Name', 'Phone', 'Account', 'Role', 'Actions']}>
-          {users.map((u) => (
+        <Table cols={['Created', 'Email', 'Name', 'Promo', 'Account', 'Role', 'Actions']}>
+          {users.map((u) => {
+            const inactive = ['suspended', 'disabled', 'deleted'].includes(u.accountStatus);
+            return (
             <tr key={u.id}>
               <td>{when(u.createdAt)}</td>
               <td>{u.email}</td>
               <td>{u.name || '—'}</td>
-              <td>{u.phone || '—'}</td>
+              <td style={{ fontSize: 12 }}><PromoCell user={u} /></td>
               <td><StatusPill value={u.accountStatus || 'active'} /></td>
               <td><StatusPill value={u.role} /></td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <button className="btn btn-sm btn-outline" onClick={() => setDetailUserId(u.id)}>View</button>{' '}
-                {(u.accountStatus === 'disabled' || u.accountStatus === 'deleted') ? (
+                {inactive ? (
+                  // Reactivate = bring the account back; offer to resume its sites too.
                   <button className="btn btn-sm btn-primary" disabled={busyId === u.id}
-                    onClick={() => act(u.id, () => reactivateUser(u.id), 'Reactivate user')}>Reactivate</button>
+                    onClick={() => act(u.id, () => reactivateUser(u.id, window.confirm('Also resume this user’s suspended sites?')), 'Reactivate account')}>Reactivate</button>
                 ) : (
+                  // Suspend = temporary hold (reversible); cascades to the user's sites.
                   <button className="btn btn-sm btn-outline" disabled={busyId === u.id}
-                    onClick={() => act(u.id, () => disableUser(u.id, 'admin_disabled'), 'Disable user')}>Disable</button>
+                    onClick={() => act(u.id, () => suspendUser(u.id, 'admin_suspended'), 'Suspend account')}>Suspend</button>
                 )}{' '}
-                <button className="btn btn-sm btn-outline" disabled={busyId === u.id}
-                  onClick={() => { if (window.confirm('Soft-delete this user? History is preserved.')) act(u.id, () => deleteUser(u.id, 'admin_deleted'), 'Delete user'); }}>Delete</button>
+                {/* Delete = permanent closure; brings down all sites. Distinct from Suspend. */}
+                {u.accountStatus !== 'deleted' && (
+                  <button className="btn btn-sm btn-outline" style={{ color: 'var(--danger)' }} disabled={busyId === u.id}
+                    onClick={() => { if (window.confirm('Delete this account? All the user’s sites are brought down and they can no longer log in. History is preserved.')) act(u.id, () => deleteUser(u.id, 'admin_deleted'), 'Delete account'); }}>Delete Account</button>
+                )}
               </td>
             </tr>
-          ))}
+          );})}
         </Table>
       )}
 
@@ -340,6 +355,10 @@ function UserDetailModal({ userId, onClose }) {
                 <div className="row" style={{ gap: 6 }}><b>Account:</b> <StatusPill value={u.accountStatus} /></div>
                 <div className="row" style={{ gap: 6 }}><b>Role:</b> <StatusPill value={u.role} /></div>
                 <div><b>Created:</b> {when(u.createdAt)}</div>
+                <div><b>Launch promo:</b> {u.promoClaimedAt
+                  ? `claimed ${when(u.promoClaimedAt)}`
+                  : u.promoEligible ? 'eligible (unused)' : 'not eligible'}{u.promoSignupRank ? ` · signup #${u.promoSignupRank}` : ''}</div>
+                {u.promoClaimedDeploymentId && <div className="mono" style={{ fontSize: 12 }}><b>Promo deployment:</b> {u.promoClaimedDeploymentId}</div>}
                 {u.disabledReason && <div><b>Disabled reason:</b> {u.disabledReason}</div>}
                 <div style={{ marginTop: 8 }}>
                   <b>Profile details:</b>
@@ -411,6 +430,19 @@ function MiniSection({ title, children }) {
       {rows.length ? rows : <span className="muted">None.</span>}
     </div>
   );
+}
+
+/** Compact promo summary for the admin users table. */
+function PromoCell({ user }) {
+  if (user.promoClaimedAt) {
+    return <span style={{ color: 'var(--accent)' }} title={`Claimed ${when(user.promoClaimedAt)}${user.promoClaimedDeploymentId ? ` · ${user.promoClaimedDeploymentId}` : ''}`}>
+      <ICN.Tag size={11} /> claimed{user.promoSignupRank ? ` · #${user.promoSignupRank}` : ''}
+    </span>;
+  }
+  if (user.promoEligible) {
+    return <span className="muted">eligible{user.promoSignupRank ? ` · #${user.promoSignupRank}` : ''}</span>;
+  }
+  return <span className="muted">—{user.promoSignupRank ? ` · #${user.promoSignupRank}` : ''}</span>;
 }
 
 function StatCard({ label, value }) {

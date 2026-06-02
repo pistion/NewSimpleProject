@@ -2,7 +2,7 @@
  * Payments API client — deploy-first K100 billing (customer side).
  */
 import { liveApiRequest } from '../api.js';
-import { authHeaders } from './auth.js';
+import { authFetch } from './auth.js';
 
 function liveApiUrl(path) {
   const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -48,9 +48,8 @@ export async function uploadManualReceipt(arg, maybeOpts) {
 
   let response;
   try {
-    response = await fetch(liveApiUrl('/payments/manual-receipts'), {
+    response = await authFetch(liveApiUrl('/payments/manual-receipts'), {
       method: 'POST',
-      headers: { ...authHeaders() },
       body: form,
     });
   } catch (networkError) {

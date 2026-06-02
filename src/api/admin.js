@@ -24,8 +24,9 @@ export const setDeploymentRenderPlan = (deploymentId, plan, redeploy = false) =>
 // ── User detail + account lifecycle ──────────────────────────────────────────
 export const getAdminUser   = (userId)          => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}`);
 export const updateAdminUser = (userId, patch)  => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: patch });
+export const suspendUser    = (userId, reason)  => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST', body: { reason } });
 export const disableUser    = (userId, reason)  => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}/disable`, { method: 'POST', body: { reason } });
-export const reactivateUser = (userId)          => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}/reactivate`, { method: 'POST' });
+export const reactivateUser = (userId, resumeDeployments = false) => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}/reactivate`, { method: 'POST', body: { resumeDeployments } });
 export const deleteUser     = (userId, reason)  => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}/delete`, { method: 'POST', body: { reason } });
 
 // ── Authenticated file fetch (receipts + ID photos) ──────────────────────────

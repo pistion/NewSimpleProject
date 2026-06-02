@@ -5,6 +5,7 @@ import { getBillingSummary } from '../../api/billing.js';
 import {
   createDeploymentPaypalOrder,
   uploadManualReceipt,
+  applyDeploymentOrderTier,
 } from '../../api/payments.js';
 
 const { useState, useEffect, useCallback } = React;
@@ -17,7 +18,7 @@ const BANK_DETAILS = [
   ['Account Number', '0000242010'],
 ];
 
-function BankDetails() {
+function BankDetails({ expectedAmount }) {
   return (
     <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
       <div className="page-eyebrow" style={{ marginBottom: 8 }}>Send your bank transfer to</div>
@@ -28,10 +29,28 @@ function BankDetails() {
             <span className="mono" style={{ fontWeight: 600 }}>{value}</span>
           </React.Fragment>
         ))}
+        {expectedAmount && (
+          <>
+            <span className="muted">Amount</span>
+            <span className="mono" style={{ fontWeight: 700, color: 'var(--accent)' }}>{expectedAmount}</span>
+          </>
+        )}
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
         After paying, upload your receipt below. An admin will verify and approve it.
       </div>
+    </div>
+  );
+}
+
+/** Per-user promo status banner shown near the launch-pricing card. */
+function PromoBanner({ promo }) {
+  if (!promo) return null;
+  const tone = promo.canClaim ? 'var(--accent)' : 'var(--text-muted)';
+  return (
+    <div className="muted" style={{ fontSize: 13, marginTop: 10, color: tone }}>
+      {promo.canClaim ? <ICN.Tag size={13} /> : <ICN.Info size={13} />} {promo.message}
+      {promo.canClaim && promo.signupRank ? <span className="muted" style={{ marginLeft: 6, fontSize: 12 }}>(launch customer #{promo.signupRank})</span> : null}
     </div>
   );
 }
@@ -89,8 +108,8 @@ export default function BillingPage() {
       <div className="card" style={{ padding: 18, marginBottom: 16 }}>
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
-          {typeof pricing?.promo?.remaining === 'number' && (
-            <span className="muted" style={{ fontSize: 12 }}>{pricing.promo.remaining} K50 promo slot{pricing.promo.remaining === 1 ? '' : 's'} left</span>
+          {typeof pricing?.promoUsage?.remaining === 'number' && (
+            <span className="muted" style={{ fontSize: 12 }}>{pricing.promoUsage.remaining} K50 promo slot{pricing.promoUsage.remaining === 1 ? '' : 's'} left</span>
           )}
         </div>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -108,6 +127,7 @@ export default function BillingPage() {
         <div className="muted" style={{ fontSize: 13, marginTop: 4, maxWidth: 560 }}>
           Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
         </div>
+        <PromoBanner promo={pricing?.promo} />
       </div>
 
       {loading ? (
@@ -146,6 +166,24 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
   const [err, setErr] = useState('');
   const [file, setFile] = useState(null);
   const [waiting, setWaiting] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
+
+  const promo = pricing?.promo;
+  const isPromoOrder = order.billingTierId === 'promo_50' || order.promoApplied === true;
+  // Show "Claim K50 Promo" only when this user can still claim and this pending
+  // bill is not already on the promo tier. Eligibility is re-verified server-side.
+  const canClaimHere = !paid && !expired && promo?.canClaim === true && !isPromoOrder;
+
+  const claimPromo = async () => {
+    setBusy('promo'); setErr(''); setMsg('');
+    try {
+      const res = await applyDeploymentOrderTier(order.id, 'promo_50');
+      if (res?.promoApplied) setMsg(`K50 launch promo applied. New amount: ${res.displayAmount}.`);
+      else setMsg(res?.message || 'Standard pricing applies.');
+      onChanged();
+    } catch (e) { setErr(e.message || 'Could not apply the promo.'); }
+    finally { setBusy(''); }
+  };
 
   const startPaypal = async () => {
     setBusy('paypal'); setErr(''); setMsg('');
@@ -210,20 +248,50 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
         <div style={{ marginTop: 12, color: 'var(--accent)', fontWeight: 700 }}><ICN.CheckCircle size={15} /> Payment received.</div>
       ) : (
         <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+          {/* Claim K50 promo (one per eligible user, re-verified server-side). */}
+          {canClaimHere && (
+            <div style={{ padding: 12, border: '1px solid var(--accent)', borderRadius: 8, background: 'var(--accent-soft)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Launch promo available</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Apply the K50 launch promo to this deployment instead of the standard {pricing?.tiers?.find((t) => !t.promo)?.displayAmount || 'K200'}.</div>
+              <button className="btn btn-primary btn-sm" disabled={busy === 'promo'} onClick={claimPromo}><ICN.Tag size={13} /> {busy === 'promo' ? 'Applying…' : 'Claim K50 Promo'}</button>
+            </div>
+          )}
+          {isPromoOrder && !paid && (
+            <div className="muted" style={{ fontSize: 12, color: 'var(--accent)' }}><ICN.Tag size={12} /> K50 launch promo applied to this bill.</div>
+          )}
+
           <div>
             <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Pay with PayPal / Card</div>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal' || waiting} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${pricing?.displayAmount || 'K200'} with PayPal`}</button>
+              <button className="btn btn-primary btn-sm" disabled={busy === 'paypal' || waiting} onClick={startPaypal}><ICN.CreditCard size={13} /> {busy === 'paypal' ? 'Starting…' : `Pay ${amount} with PayPal`}</button>
               {waiting && <span className="muted" style={{ fontSize: 12 }}><ICN.RefreshCw size={12} /> Waiting for PayPal confirmation…</span>}
             </div>
           </div>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Upload bank receipt</div>
-            <BankDetails />
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-              <button className="btn btn-primary btn-sm" disabled={busy === 'upload' || !file} onClick={upload}><ICN.Cloud size={13} /> {busy === 'upload' ? 'Uploading…' : 'Upload receipt'}</button>
-            </div>
+
+          {/* Bank deposit — collapsible accordion with receipt upload inside. */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setBankOpen((o) => !o)}
+              className="row between"
+              style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-deep)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+            >
+              <span><ICN.CreditCard size={13} /> Pay by bank deposit</span>
+              <span className="muted" style={{ fontSize: 12 }}>{bankOpen ? '▲' : '▼'}</span>
+            </button>
+            {bankOpen && (
+              <div style={{ padding: 12 }}>
+                <BankDetails expectedAmount={amount} />
+                <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Upload your receipt</div>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+                  <button className="btn btn-primary btn-sm" disabled={busy === 'upload' || !file} onClick={upload}><ICN.Cloud size={13} /> {busy === 'upload' ? 'Uploading…' : 'Upload receipt'}</button>
+                </div>
+                {order.receipts?.length > 0 && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Receipt uploaded, waiting for admin verification.</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
