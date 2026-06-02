@@ -7,7 +7,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import renderApiService from '../../../services/renderApiService.js';
-import { deployZipSite } from './base64ZipToRender.pipeline.js';
 import { normalizeZipUploadInput } from '../01-ZIP-INTAKE-MOUNTAIN/zipUpload.intake.js';
 import { extractZipSafely } from '../02-UNZIP-AND-DETECT-MOUNTAIN/zipExtractor.stage.js';
 import { detectProject } from '../02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.stage.js';
@@ -209,6 +208,7 @@ export async function run(input = {}, context = {}) {
 }
 
 export async function runFromBase64(input) {
+  const { deployZipSite } = await import('./base64ZipToRender.pipeline.js');
   return deployZipSite(input);
 }
 

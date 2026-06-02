@@ -1,3 +1,6 @@
+/**
+ * Deprecated compatibility only. Do not use for new ZIP deploy flow.
+ */
 import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

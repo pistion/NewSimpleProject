@@ -1,6 +1,5 @@
 /**
- * shared/deployFlowState.middleware.js — clean shared import path.
- * Re-exports the implementation so ZIP and GitHub-link routes share one source.
+ * Deprecated compatibility path. Do not use in new route flow.
  */
-export * from '../deployFlowState.middleware.js';
-export { default } from '../deployFlowState.middleware.js';
+export * from '../../00-SHARED/deployFlowState.middleware.js';
+export { default } from '../../00-SHARED/deployFlowState.middleware.js';

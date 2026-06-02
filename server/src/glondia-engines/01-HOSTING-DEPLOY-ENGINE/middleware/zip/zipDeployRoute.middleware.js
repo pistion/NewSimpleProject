@@ -1,7 +1,5 @@
 /**
- * zip/zipDeployRoute.middleware.js — clean ZIP-owned import path.
- * Re-exports the ZIP deploy step implementations (validateZipUpload,
- * runZipDeployPipeline).
+ * Deprecated compatibility path. Do not use in new route flow.
  */
-export * from '../zipDeployRoute.middleware.js';
-export { default } from '../zipDeployRoute.middleware.js';
+export * from '../../01-ZIP-INTAKE-MOUNTAIN/zipDeployPipeline.middleware.js';
+export { default } from '../../01-ZIP-INTAKE-MOUNTAIN/zipDeployPipeline.middleware.js';

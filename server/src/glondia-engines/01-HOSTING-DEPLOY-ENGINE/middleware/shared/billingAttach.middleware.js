@@ -1,5 +1,5 @@
 /**
- * shared/billingAttach.middleware.js — clean shared import path.
+ * Deprecated compatibility path. Do not use in new route flow.
  */
-export * from '../billingAttach.middleware.js';
-export { default } from '../billingAttach.middleware.js';
+export * from '../../00-SHARED/billingAttach.middleware.js';
+export { default } from '../../00-SHARED/billingAttach.middleware.js';

@@ -1,4 +1,6 @@
 /**
+ * Compatibility adapter only. Do not use in new route flow.
+ *
  * Hosting Deploy Engine handler for /api/template-ai/zip/deploy.
  */
 
