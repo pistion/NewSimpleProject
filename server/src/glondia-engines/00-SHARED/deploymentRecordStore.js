@@ -69,6 +69,7 @@ export async function createDeploymentRecord(input = {}) {
   };
 
   return mutateHostingStore((store) => {
+    normalizeDeploymentStore(store);
     store.sessions.unshift(session);
     store.deployments.unshift(deployment);
     store.logs[deploymentId] = [makeLog('Deployment session created.', 'info')];
@@ -80,6 +81,7 @@ export async function createDeploymentRecord(input = {}) {
 
 export async function updateDeploymentRecord(deploymentId, patch = {}) {
   return mutateHostingStore((store) => {
+    normalizeDeploymentStore(store);
     const deployment = store.deployments.find(
       (d) => d.deploymentId === deploymentId || d.id === deploymentId,
     );
@@ -93,6 +95,7 @@ export async function updateDeploymentRecord(deploymentId, patch = {}) {
 
 export async function addDeploymentLog(deploymentId, message, level = 'info', details = null) {
   return mutateHostingStore((store) => {
+    normalizeDeploymentStore(store);
     store.logs[deploymentId] = [
       makeLog(message, level, details),
       ...(store.logs[deploymentId] || []),
@@ -130,4 +133,16 @@ export function serviceUrl(serviceResponse) {
     serviceResponse?.url ||
     null
   );
+}
+
+function normalizeDeploymentStore(store) {
+  if (!Array.isArray(store.deployments)) store.deployments = [];
+  if (!Array.isArray(store.sessions)) store.sessions = [];
+  if (!store.logs || typeof store.logs !== 'object' || Array.isArray(store.logs)) store.logs = {};
+  if (!store.env || typeof store.env !== 'object' || Array.isArray(store.env)) store.env = {};
+  if (!store.disks || typeof store.disks !== 'object' || Array.isArray(store.disks)) store.disks = {};
+  if (!store.domains || typeof store.domains !== 'object' || Array.isArray(store.domains)) store.domains = {};
+  if (!Array.isArray(store.checkoutOrders)) store.checkoutOrders = [];
+  if (!Array.isArray(store.payments)) store.payments = [];
+  return store;
 }
