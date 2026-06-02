@@ -1647,14 +1647,14 @@ async function createHostingPaymentOrder(input = {}, user = {}) {
   // Legacy flow: deploy-then-pay (kept for compat, no longer called from builder)
   const deploymentPayload = input.deployment || input;
   if (!(deploymentPayload.repoUrl || deploymentPayload.repositoryUrl || deploymentPayload.sourceReference || deploymentPayload.renderServiceId || deploymentPayload.serviceId)) {
-    throw httpError('A repository or existing Render service is required before hosting checkout.', 400);
+    throw httpError('A repository or existing hosting service is required before hosting checkout.', 400);
   }
   const actualAmountCents = hostingActualCostCents(deploymentPayload);
   return createCheckoutOrder({
     type: 'hosting_deployment',
     user,
     source: input,
-    lineItems: [{ type: 'render_deployment', name: deploymentPayload.name || deploymentPayload.serviceName || 'Render deployment', actualAmountCents }],
+    lineItems: [{ type: 'render_deployment', name: deploymentPayload.name || deploymentPayload.serviceName || 'Hosting deployment', actualAmountCents }],
     metadata: { deploymentPayload },
   });
 }
@@ -1810,7 +1810,7 @@ async function createPayPalOrder({ checkoutOrderId, type, totalAmountCents, line
     purchase_units: [{
       reference_id: checkoutOrderId,
       custom_id: `${type}:${checkoutOrderId}`,
-      description: type === 'domain_purchase' ? 'Glondia domain registration' : 'Glondia Render deployment',
+      description: type === 'domain_purchase' ? 'Glondia domain registration' : 'Glondia hosting deployment',
       amount: {
         currency_code: 'USD',
         value: centsToUsd(totalAmountCents),

@@ -95,7 +95,7 @@ class HostingService {
   async suspend(deploymentId) {
     const deployment = await this.findManagedDeployment(deploymentId);
     this.assertRealRenderService(deployment);
-    if (deployment.status === STATUS_DELETED) throw conflict('This Render service has already been removed.');
+    if (deployment.status === STATUS_DELETED) throw conflict('This hosting service has already been removed.');
     if (deployment.status === STATUS_SUSPENDED) return deployment;
 
     const renderResult = await renderApiService.suspendService(deployment.renderServiceId);
@@ -108,7 +108,7 @@ class HostingService {
       stored.lastRenderSyncedAt = nowIso();
       stored.updatedAt = nowIso();
       stored.renderSuspendResponse = renderResult;
-      appendHostingLog(store, stored.deploymentId, 'Render service suspended from Glondiasites.', 'warn');
+      appendHostingLog(store, stored.deploymentId, 'Hosting service suspended.', 'warn');
       return stored;
     });
   }
@@ -200,7 +200,7 @@ class HostingService {
    */
   assertManagedRenderDeployment(deployment) {
     if (!isManagedRenderDeployment(deployment)) {
-      throw conflict('Only Glondiasites-managed Render deployments can be managed here.');
+      throw conflict('Only Glondiasites-managed deployments can be managed here.');
     }
   }
 
@@ -209,7 +209,7 @@ class HostingService {
    */
   assertRealRenderService(deployment) {
     if (!hasRealRenderId(deployment.renderServiceId)) {
-      throw conflict('Render deployment has not started. A real Render service ID is required.');
+      throw conflict('Deployment has not started. A real hosting service ID is required.');
     }
   }
 
@@ -364,7 +364,7 @@ class HostingService {
    */
   async importFromRender() {
     if (!renderApiService.configured()) {
-      return { imported: 0, alreadyTracked: 0, total: 0, error: 'Render API not configured.' };
+      return { imported: 0, alreadyTracked: 0, total: 0, error: 'Hosting API not configured.' };
     }
 
     const [renderServices, store] = await Promise.all([
@@ -449,7 +449,7 @@ class HostingService {
         s.logs[deploymentId] = [{
           id: makeId('log'),
           level: 'info',
-          message: `Imported from Render: ${svc.name || svc.id}`,
+          message: `Imported: ${svc.name || svc.id}`,
           source: 'glondiasites',
           timestamp: now,
           createdAt: now,

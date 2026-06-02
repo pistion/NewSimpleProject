@@ -107,7 +107,7 @@ const BillingController = {
           initialRenderPlan,
           tiers,
           promo: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
-          freeHostingMessage: 'Your site starts on free hosting for 12 hours. After payment is verified, we upgrade your Render plan and redeploy.',
+          freeHostingMessage: 'Your site starts on free hosting for 12 hours. After payment is verified, we upgrade your hosting plan and redeploy.',
         },
         orders,
         deployments,

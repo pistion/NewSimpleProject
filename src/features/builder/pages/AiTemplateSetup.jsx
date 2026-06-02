@@ -39,7 +39,7 @@ function RoxanneGeneratingLoader({ templateName }) {
         </div>
         <div>
           <div style={{ color: '#fff', fontWeight: 700 }}>RoxanneAI is editing your copied template</div>
-          <div style={{ fontSize: 13 }}>Customizing {templateName || 'your selected template'} and preparing it for Render settings.</div>
+          <div style={{ fontSize: 13 }}>Customizing {templateName || 'your selected template'} and preparing it for hosting settings.</div>
         </div>
       </div>
       <div className="roxanne-loader">

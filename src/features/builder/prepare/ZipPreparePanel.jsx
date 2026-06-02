@@ -39,7 +39,7 @@ export function ZipPreparePanel({
         <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Hosting handoff status</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? 'OK' : 'Missing'}</span> Render API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
+            <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? 'OK' : 'Missing'}</span> Hosting API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
             <div><span style={{ color: (zipConfig.renderSourceRepoConfigured || sourceRepo.trim()) ? 'var(--accent)' : 'var(--danger)' }}>{(zipConfig.renderSourceRepoConfigured || sourceRepo.trim()) ? 'OK' : 'Missing'}</span> Source repo: {zipConfig.renderSourceRepoConfigured ? 'configured' : sourceRepo.trim() ? 'set below' : 'not configured'}</div>
           </div>
           {zipConfig.missing?.length > 0 && <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>Missing: {zipConfig.missing.join(', ')}</div>}

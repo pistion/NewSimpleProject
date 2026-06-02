@@ -74,7 +74,7 @@ async function findDeployment(deploymentId) {
   const store = await readHostingStore();
   const deployment = store.deployments.find((item) => item.deploymentId === deploymentId || item.renderServiceId === deploymentId);
   if (!deployment) throw notFound('Hosting service not found.');
-  if (!deployment.renderServiceId) throw validationError('Render deployment has not started. A real Render service ID is required.');
+  if (!deployment.renderServiceId) throw validationError('Deployment has not started. A real hosting service ID is required.');
   return deployment;
 }
 

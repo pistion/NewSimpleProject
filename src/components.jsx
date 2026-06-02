@@ -66,7 +66,7 @@ export const DASH_NAV = [
     title: "Workspace",
     items: [
       { key: "overview",     label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
-      { key: "hosting",      label: "Render hosting", icon: "Server",          route: { view: "hosting-list" } },
+      { key: "hosting",      label: "Hosting",        icon: "Server",          route: { view: "hosting-list" } },
       { key: "vps-hosting",  label: "Cloud Servers",  icon: "Cpu",             route: { view: "vps-hosting" }, feature: "vps" },
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" }, feature: "domains" },
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },

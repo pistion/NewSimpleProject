@@ -27,7 +27,7 @@ class DeploymentService {
     };
 
     if (context.requireRender && !(input.repoUrl || input.repositoryUrl || input.sourceReference || input.renderServiceId || input.serviceId)) {
-      const error = new Error('A GitHub repo URL or existing Render service ID is required to deploy to Render.');
+      const error = new Error('A GitHub repo URL or existing hosting service ID is required to deploy.');
       error.status = 400;
       error.expose = true;
       throw error;
@@ -67,7 +67,7 @@ class DeploymentService {
       providerStatus: deployResponse?.deploy?.status || deployResponse?.status || serviceResponse?.service?.suspended || serviceResponse?.status || 'accepted',
       status: renderDeployId ? 'building' : 'preparing',
       buildStatus: renderDeployId ? 'queued' : 'accepted',
-      currentStep: renderDeployId ? 'Queued' : 'Sending to Render',
+      currentStep: renderDeployId ? 'Queued' : 'Sending to hosting',
       liveUrl,
       verifiedUrl: null,
       urlReachable: false,
@@ -98,8 +98,8 @@ class DeploymentService {
       store.deployments.unshift(deployment);
       store.logs[deploymentId] = [
         makeLog('Deployment session created.', 'info'),
-        makeLog(`Render service ${renderServiceId} selected.`, 'ok'),
-        makeLog(renderDeployId ? `Render deploy ${renderDeployId} started.` : 'Render service created; waiting for Render to report the first deploy.', renderDeployId ? 'ok' : 'info'),
+        makeLog(`Hosting service ${renderServiceId} selected.`, 'ok'),
+        makeLog(renderDeployId ? `Deploy ${renderDeployId} started.` : 'Hosting service created; waiting for the first deploy to be reported.', renderDeployId ? 'ok' : 'info'),
       ];
       return deployment;
     });
@@ -158,7 +158,7 @@ class DeploymentService {
   async redeploy(deploymentId, input = {}) {
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment.renderServiceId) {
-      const error = new Error('This deployment does not have a Render service ID yet.');
+      const error = new Error('This deployment does not have a hosting service ID yet.');
       error.status = 409;
       throw error;
     }

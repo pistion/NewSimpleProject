@@ -506,7 +506,7 @@ function ImportedGithubPreview({ content }) {
     { label: 'Source pulled', done: (content._githubFiles || []).length > 0 },
     { label: 'Dependencies installed', done: logs.some((log) => String(log.command || '').includes('npm install') && log.ok) },
     { label: 'Sandbox prepared', done: content._sandboxStatus === 'ready' },
-    { label: 'Ready for Render publish', done: content._sandboxStatus === 'ready' },
+    { label: 'Ready to publish', done: content._sandboxStatus === 'ready' },
   ];
   return (
     <div className="bld-preview-frame">

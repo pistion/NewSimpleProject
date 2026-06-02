@@ -617,7 +617,7 @@ class RenderApiService {
       action,
       provider: 'render',
       settings: this.settings(),
-      message: 'Render API credentials are not configured. Add RENDER_API_KEY and RENDER_OWNER_ID to enable live Render changes.',
+      message: 'Hosting API credentials are not configured. Add RENDER_API_KEY and RENDER_OWNER_ID to enable live hosting changes.',
     };
   }
 }

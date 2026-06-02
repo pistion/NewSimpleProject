@@ -559,7 +559,7 @@ export async function setDeploymentRenderPlan(deploymentId, plan, { redeploy = f
   }
   const deployment = await findDeploymentRecord(deploymentId);
   if (!deployment) throw httpError('Deployment not found.', 404);
-  if (!deployment.renderServiceId) throw httpError('Deployment has no Render service to update.', 400);
+  if (!deployment.renderServiceId) throw httpError('Deployment has no hosting service to update.', 400);
 
   const isStatic = deployment.serviceType === 'static_site';
   let renderResult = 'skipped';

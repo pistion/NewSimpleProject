@@ -32,7 +32,7 @@ function getDeployDoctorChecks(config = {}, context = {}) {
   checks.push({ status: branch ? 'ok' : 'error', label: branch ? `Branch set to ${branch}` : 'Branch is required', fix: null });
 
   if (rootDirectory.includes('/opt/render/project')) {
-    checks.push({ status: 'error', label: 'Root directory cannot be a local Render filesystem path', fix: context.recommendedRoot ? { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } : null });
+    checks.push({ status: 'error', label: 'Root directory cannot be a local server filesystem path', fix: context.recommendedRoot ? { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } : null });
   } else if (context.recommendedRoot && rootDirectory !== context.recommendedRoot) {
     checks.push({ status: 'warn', label: `Recommended root is ${context.recommendedRoot}`, fix: { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } });
   } else {
@@ -213,13 +213,13 @@ function PricingTierSelector({ pricing, value, onChange }) {
               }}
             >
               <div style={{ fontWeight: 700, fontSize: 16 }}>{t.displayAmount} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{t.label}</span></div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to Render <b>{t.renderPlanAfterPayment}</b> after payment{disabled ? ' · sold out' : ''}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to the <b>{t.renderPlanAfterPayment}</b> hosting plan after payment{disabled ? ' · sold out' : ''}</div>
             </button>
           );
         })}
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-        Your site starts on free hosting for {graceHours} hours. After payment is verified, we upgrade your Render plan and redeploy.
+        Your site starts on free hosting for {graceHours} hours. After payment is verified, we upgrade your hosting plan and redeploy.
       </div>
     </div>
   );
@@ -457,7 +457,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
               <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>Hosting handoff status</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? '✓' : '✗'}</span> Render API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
+                  <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? '✓' : '✗'}</span> Hosting API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
                   <div><span style={{ color: (zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? 'var(--accent)' : 'var(--danger)' }}>{(zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? '✓' : '✗'}</span> Source repo: {zipConfig.renderSourceRepoConfigured ? 'configured' : renderConfig.repoUrl.trim() ? 'set below' : 'not configured'}</div>
                 </div>
                 {zipConfig.missing?.length > 0 && <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>Missing: {zipConfig.missing.join(', ')}</div>}
@@ -515,7 +515,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
               {activeMode === 'zip' && <label><span>Source repository</span><input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" /><span className="muted" style={{ fontSize: 11 }}>Hosting deploys from this repo. Leave blank to use server default.</span></label>}
               {activeMode === 'github' && <label><span>Source repository</span><input className="input mono" value={repoUrl} disabled style={{ opacity: 0.7 }} /></label>}
               <label><span>Branch</span><input className="input mono" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} placeholder="main" /></label>
-              <label><span>Root directory</span><input className="input mono" value={isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory} onChange={(e) => updateRenderConfig(isStaticSite ? 'frontendRootDirectory' : 'backendRootDirectory', e.target.value)} placeholder={isStaticSite ? './' : 'server'} /><span className="muted" style={{ fontSize: 11 }}>Must be a repo path, not /opt/render/project/...</span></label>
+              <label><span>Root directory</span><input className="input mono" value={isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory} onChange={(e) => updateRenderConfig(isStaticSite ? 'frontendRootDirectory' : 'backendRootDirectory', e.target.value)} placeholder={isStaticSite ? './' : 'server'} /><span className="muted" style={{ fontSize: 11 }}>Must be a repo path, not an absolute server path.</span></label>
             </div>
 
             <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Infrastructure</h3>

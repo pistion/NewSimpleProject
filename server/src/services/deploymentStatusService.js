@@ -17,7 +17,7 @@ class DeploymentStatusService {
     if (SUCCESS_STATUSES.has(status)) return { status: 'live', buildStatus: 'succeeded', currentStep: 'Verifying URL' };
     if (FAILED_STATUSES.has(status)) return { status: 'failed', buildStatus: 'failed', currentStep: 'Failed' };
     if (BUILDING_STATUSES.has(status)) return { status: 'building', buildStatus: status || 'building', currentStep: 'Building' };
-    return { status: status || 'queued', buildStatus: status || 'queued', currentStep: status === 'queued' ? 'Queued' : 'Sending to Render' };
+    return { status: status || 'queued', buildStatus: status || 'queued', currentStep: status === 'queued' ? 'Queued' : 'Sending to hosting' };
   }
 
   async refreshDeployment(deployment) {
@@ -37,10 +37,10 @@ class DeploymentStatusService {
           Object.assign(stored, {
             status: isZipPrepared ? 'prepared' : 'failed',
             buildStatus: isZipPrepared ? 'uploaded' : 'not_started',
-            currentStep: isZipPrepared ? 'Render handoff pending' : 'Render deployment not started',
+            currentStep: isZipPrepared ? 'Deploy handoff pending' : 'Deployment not started',
             errorMessage: stored.errorMessage || (isZipPrepared
-              ? stored.render?.skippedReason || 'Render handoff pending — check Hosting logs for configuration status.'
-              : 'Render deployment has not started. A real Render service ID is required.'),
+              ? stored.render?.skippedReason || 'Deploy handoff pending — check Hosting logs for configuration status.'
+              : 'Deployment has not started. A real hosting service ID is required.'),
             updatedAt: nowIso(),
           });
         }
@@ -123,7 +123,7 @@ class DeploymentStatusService {
         recordStatus: stored.recordStatus || 'active',
         status: 'failed',
         buildStatus: 'missing_on_render',
-        currentStep: 'Missing on Render',
+        currentStep: 'Missing on hosting',
         renderMissingAt: stored.renderMissingAt || nowIso(),
         errorMessage: 'Render reports this service no longer exists. Glondiasites kept this record for history, logs, and repair.',
         updatedAt: nowIso(),

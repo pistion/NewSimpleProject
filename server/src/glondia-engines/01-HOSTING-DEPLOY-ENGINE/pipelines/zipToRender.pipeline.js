@@ -121,12 +121,12 @@ export async function run(input = {}, context = {}) {
     }
 
     const renderResult = await createAndTriggerRenderDeploy({ ...renderInput, siteSlug: slug });
-    await addDeploymentLog(deployment.deploymentId, `Render deploy ${renderResult.deployId} started.`, 'ok');
+    await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started.`, 'ok');
     return updateDeploymentRecord(deployment.deploymentId, {
       ...baseUpdate,
       status: 'building',
       buildStatus: 'queued',
-      currentStep: 'Queued in Render',
+      currentStep: 'Queued for deploy',
       renderServiceId: renderResult.serviceId,
       renderDeployId: renderResult.deployId,
       providerStatus: renderResult.providerStatus,

@@ -178,7 +178,7 @@ export async function run(input = {}, context = {}) {
       // Pin the deploy to the freshly published commit when available.
       ...(controlledRepo.commitId ? { commitId: controlledRepo.commitId } : {}),
     });
-    await addDeploymentLog(deployment.deploymentId, `Render deploy ${renderResult.deployId} started from controlled repo.`, 'ok', {
+    await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started.`, 'ok', {
       renderServiceId: renderResult.serviceId,
     });
 
@@ -186,7 +186,7 @@ export async function run(input = {}, context = {}) {
       ...baseUpdate,
       status: 'building',
       buildStatus: 'queued',
-      currentStep: 'Queued in Render',
+      currentStep: 'Queued for deploy',
       renderServiceId: renderResult.serviceId,
       renderDeployId: renderResult.deployId,
       providerStatus: renderResult.providerStatus,

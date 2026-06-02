@@ -103,7 +103,7 @@ export default function BillingPage() {
           {!pricing?.tiers && <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>}
         </div>
         <div className="muted" style={{ fontSize: 13, marginTop: 10, maxWidth: 560 }}>
-          {pricing?.freeHostingMessage || `Your site starts on free hosting for ${pricing?.graceHours || 12} hours. After payment is verified, we upgrade your Render plan and redeploy.`}
+          {pricing?.freeHostingMessage || `Your site starts on free hosting for ${pricing?.graceHours || 12} hours. After payment is verified, we upgrade your hosting plan and redeploy.`}
         </div>
         <div className="muted" style={{ fontSize: 13, marginTop: 4, maxWidth: 560 }}>
           Pay by PayPal / card, or upload a bank transfer receipt for admin approval.

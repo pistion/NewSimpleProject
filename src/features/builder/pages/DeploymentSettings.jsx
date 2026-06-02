@@ -19,7 +19,7 @@ function DeployingOverlay({ siteName }) {
         <div style={{ width: 54, height: 54, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
           <ICN.Rocket size={24} />
         </div>
-        <h2 style={{ margin: '0 0 8px' }}>Uploading to Render</h2>
+        <h2 style={{ margin: '0 0 8px' }}>Uploading to Glondia Hosting</h2>
         <p className="muted" style={{ margin: 0 }}>Preparing {siteName || 'your site'}, generating files, and opening the Hosting dashboard.</p>
         <div className="ai-intake-progress" style={{ marginTop: 20 }}><div className="ai-intake-progress-bar" style={{ width: '72%' }} /></div>
       </div>

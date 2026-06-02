@@ -69,7 +69,7 @@ export function createLocalDbRuntime({ makeSession, ttlToSeconds }) {
         db.hostingServices.unshift(makeHostingServiceFromDeployment(deployment));
         db.logs[deployment.id] = [
           makeLog('Deployment session created.'),
-          makeLog('Preparing Render hosting environment.'),
+          makeLog('Preparing Glondia hosting environment.'),
           makeLog(`Build queued for ${deployment.serviceName}.`),
         ];
         const site = body.siteId ? db.sites.find((item) => item.id === body.siteId) : null;

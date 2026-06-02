@@ -15,7 +15,7 @@ export function getHandoffReadinessChecks(config = {}, context = {}) {
   checks.push({ status: branch ? 'ok' : 'error', label: branch ? `Branch set to ${branch}` : 'Branch is required', fix: null });
 
   if (rootDirectory.includes('/opt/render/project')) {
-    checks.push({ status: 'error', label: 'Root directory cannot be a local Render filesystem path', fix: context.recommendedRoot ? { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } : null });
+    checks.push({ status: 'error', label: 'Root directory cannot be a local server filesystem path', fix: context.recommendedRoot ? { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } : null });
   } else if (context.recommendedRoot && rootDirectory !== context.recommendedRoot) {
     checks.push({ status: 'warn', label: `Recommended root is ${context.recommendedRoot}`, fix: { label: `Use ${context.recommendedRoot}`, patch: { rootDirectory: context.recommendedRoot } } });
   } else {

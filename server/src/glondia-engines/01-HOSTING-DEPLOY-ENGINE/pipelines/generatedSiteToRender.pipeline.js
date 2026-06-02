@@ -145,7 +145,7 @@ export async function run(input = {}, context = {}) {
       outputDirectory: normalized.publishDirectory,
     });
     const renderResult = await createAndTriggerRenderDeploy(renderPayload);
-    await addDeploymentLog(deployment.deploymentId, `Render deploy ${renderResult.deployId} started for ${normalized.slug}.`, 'ok', {
+    await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started for ${normalized.slug}.`, 'ok', {
       renderServiceId: renderResult.serviceId,
     });
 
@@ -153,7 +153,7 @@ export async function run(input = {}, context = {}) {
       ...basePatch,
       status: 'building',
       buildStatus: 'queued',
-      currentStep: 'Queued in Render',
+      currentStep: 'Queued for deploy',
       renderServiceId: renderResult.serviceId,
       renderDeployId: renderResult.deployId,
       providerStatus: renderResult.providerStatus,
@@ -167,12 +167,12 @@ export async function run(input = {}, context = {}) {
       errorMessage: null,
     });
   } catch (error) {
-    await addDeploymentLog(deployment.deploymentId, error.message || 'Render handoff failed.', 'warn', error.details || null);
+    await addDeploymentLog(deployment.deploymentId, error.message || 'Deploy handoff failed.', 'warn', error.details || null);
     return updateDeploymentRecord(deployment.deploymentId, {
       ...basePatch,
       status: 'deployed_unverified',
       buildStatus: 'generated',
-      currentStep: 'Generated and published; Render handoff failed',
+      currentStep: 'Generated and published; deploy handoff failed',
       providerStatus: 'handoff_failed',
       liveUrl: `https://${normalized.slug}.onrender.com`,
       render: {
@@ -180,7 +180,7 @@ export async function run(input = {}, context = {}) {
         attempted: true,
         error: { message: error.message, status: error.status, details: error.details || null },
       },
-      errorMessage: error.message || 'Render handoff failed.',
+      errorMessage: error.message || 'Deploy handoff failed.',
     });
   }
 }

@@ -155,7 +155,7 @@ export function AdminPage() {
             </div>
             <h3 style={{ margin: '0 0 6px' }}>Margin (separate currencies — not netted)</h3>
             <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-              Revenue {overview.revenue?.paidDisplay} · Est. Render cost {overview.providerCost?.display}. {overview.platformMargin?.note}
+              Revenue {overview.revenue?.paidDisplay} · Est. hosting cost {overview.providerCost?.display}. {overview.platformMargin?.note}
             </div>
             <h3 style={{ margin: '0 0 6px' }}>Deployments by payment status</h3>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -231,7 +231,7 @@ export function AdminPage() {
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
                   onClick={() => act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment')}>Delete</button>
                 <div style={{ marginTop: 6 }}>
-                  <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Render plan:</span>
+                  <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Hosting plan:</span>
                   {['free', 'starter', 'standard'].map((p) => (
                     <button key={p} className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId || d.renderPlan === p}
                       onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, p, false), `Set plan ${p}`)}>{p}</button>

@@ -129,7 +129,7 @@ export function BuilderGallery({ navigate }) {
           <div style={{ display: 'grid', gap: 7, marginTop: 'auto' }}>
             <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.CheckCircle size={14} style={{ color: 'var(--accent)' }} />GitHub repository import exists</div>
             <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.AlertCircle size={14} style={{ color: 'var(--warning)' }} />ZIP upload needs final check</div>
-            <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.CheckCircle size={14} style={{ color: 'var(--accent)' }} />Render settings are collected</div>
+            <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.CheckCircle size={14} style={{ color: 'var(--accent)' }} />Hosting settings are collected</div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
