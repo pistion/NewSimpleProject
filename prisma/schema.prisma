@@ -14,30 +14,39 @@ datasource db {
 // ─── Identity (auth) ──────────────────────────────────────────────────────────
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String         @map("password_hash")
-  name          String?
-  role          String         @default("owner")
-  planId        String         @default("free") @map("plan_id")
+  id                       String    @id @default(uuid())
+  email                    String    @unique
+  passwordHash             String    @map("password_hash")
+  name                     String?
+  role                     String    @default("owner")
+  planId                   String    @default("free") @map("plan_id")
   // Profile + identity (managed by the customer and admins).
-  phone          String?
-  profileDetails String   @default("{}") @map("profile_details") // JSON as TEXT
-  idPhotoPath    String?  @map("id_photo_path")
+  phone                    String?
+  profileDetails           String    @default("{}") @map("profile_details") // JSON as TEXT
+  idPhotoPath              String?   @map("id_photo_path")
   // Account lifecycle: active | suspended | disabled | deleted. Users are never
   // hard-deleted — payment/deployment history must survive a soft delete.
-  accountStatus  String   @default("active") @map("account_status")
-  disabledAt     DateTime? @map("disabled_at")
-  disabledReason String?  @map("disabled_reason")
-  deletedAt      DateTime? @map("deleted_at")
-  reactivatedAt  DateTime? @map("reactivated_at")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
+  accountStatus            String    @default("active") @map("account_status")
+  disabledAt               DateTime? @map("disabled_at")
+  disabledReason           String?   @map("disabled_reason")
+  deletedAt                DateTime? @map("deleted_at")
+  reactivatedAt            DateTime? @map("reactivated_at")
+  // Launch promo lifecycle. Eligibility is granted to the first N registered
+  // users (DEPLOYMENT_PROMO_SIGNUP_LIMIT, default 20). The K50 promo can be
+  // claimed once per user; promoClaimedAt is set only after a verified payment.
+  promoEligible            Boolean   @default(false) @map("promo_eligible")
+  promoSignupRank          Int?      @map("promo_signup_rank")
+  promoClaimedAt           DateTime? @map("promo_claimed_at")
+  promoClaimedOrderId      String?   @map("promo_claimed_order_id")
+  promoClaimedDeploymentId String?   @map("promo_claimed_deployment_id")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   refreshTokens RefreshToken[]
 
   @@index([accountStatus])
   @@index([createdAt])
+  @@index([promoSignupRank])
   @@map("users")
 }
 
@@ -163,8 +172,8 @@ model BusinessService {
   organizationId     String    @map("organization_id")
   createdByUserId    String?   @map("created_by_user_id")
   checkoutOrderId    String?   @map("checkout_order_id")
-  type               String    // domain | email | ssl | etc.
-  provider           String    // spaceship | render | etc.
+  type               String // domain | email | ssl | etc.
+  provider           String // spaceship | render | etc.
   providerServiceId  String?   @map("provider_service_id")
   name               String
   status             String    @default("active")
@@ -192,28 +201,28 @@ model BusinessService {
 // ─── Checkout Orders ──────────────────────────────────────────────────────────
 
 model CheckoutOrder {
-  id                String   @id @default(uuid())
-  organizationId    String   @map("organization_id")
-  userId            String?  @map("user_id")
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  userId            String?   @map("user_id")
   type              String
-  provider          String   @default("paypal")
-  providerOrderId   String?  @unique @map("provider_order_id")
-  providerCaptureId String?  @map("provider_capture_id")
-  status            String   @default("pending")
-  currency          String   @default("USD")
-  actualAmountCents Int      @default(0) @map("actual_amount_cents")
-  markupPercent     Float    @default(30) @map("markup_percent")
-  markupAmountCents Int      @default(0) @map("markup_amount_cents")
-  totalAmountCents  Int      @default(0) @map("total_amount_cents")
+  provider          String    @default("paypal")
+  providerOrderId   String?   @unique @map("provider_order_id")
+  providerCaptureId String?   @map("provider_capture_id")
+  status            String    @default("pending")
+  currency          String    @default("USD")
+  actualAmountCents Int       @default(0) @map("actual_amount_cents")
+  markupPercent     Float     @default(30) @map("markup_percent")
+  markupAmountCents Int       @default(0) @map("markup_amount_cents")
+  totalAmountCents  Int       @default(0) @map("total_amount_cents")
   // Deploy-first billing link: which deployment this K100 order pays for.
-  deploymentId      String?  @map("deployment_id")
+  deploymentId      String?   @map("deployment_id")
   dueAt             DateTime? @map("due_at")
   paidAt            DateTime? @map("paid_at")
-  metadata          String   @default("{}") // JSON as TEXT
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  metadata          String    @default("{}") // JSON as TEXT
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  receipts          PaymentReceipt[]
+  receipts PaymentReceipt[]
 
   @@index([organizationId, status])
   @@index([type, createdAt])
@@ -263,7 +272,7 @@ model DeploymentCleanupJob {
   deploymentId    String   @map("deployment_id")
   checkoutOrderId String?  @map("checkout_order_id")
   userId          String?  @map("user_id")
-  action          String   // suspend | delete | skip
+  action          String // suspend | delete | skip
   reason          String?
   renderServiceId String?  @map("render_service_id")
   status          String   @default("done") // done | failed

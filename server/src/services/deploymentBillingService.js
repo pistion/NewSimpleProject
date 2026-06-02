@@ -23,8 +23,9 @@ import {
   getBillingTier,
   initialRenderPlan,
   defaultTierId,
+  promoTierId,
 } from '../config/deploymentBilling.js';
-import { resolveRequestedBillingTier } from './deploymentPromoService.js';
+import { resolveRequestedBillingTier, getUserPromoStatus } from './deploymentPromoService.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 
 const DELETED = ['de', 'leted'].join('');
@@ -55,9 +56,12 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
   const userId = user.id || deployment.userId || null;
   const billingDueAt = computeBillingDueAt();
 
-  // Resolve the tier (applies promo availability: promo_50 → standard_200 when full).
+  // Resolve the tier from the USER's promo status. promo_50 is honoured only
+  // when the user can still claim (eligible, unused, no active promo order);
+  // otherwise it falls back to standard_200 with an explanatory message.
   const requested = billingTierId || defaultTierId;
-  const { tier, promoApplied, promoRemaining, switched, message } = await resolveRequestedBillingTier(requested);
+  const { tier, promoApplied, promoStatus, switched, message, promoWillBeMarkedUsedOnPayment } =
+    await resolveRequestedBillingTier({ userId, requestedTierId: requested, deploymentId: deployment.deploymentId });
 
   const order = await prisma.checkoutOrder.create({
     data: {
@@ -80,6 +84,10 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
         billingTierId: tier.id,
         billingTierLabel: tier.label,
         promoApplied,
+        promoEligibleAtSignup: promoStatus?.eligible === true,
+        promoSignupRank: promoStatus?.signupRank ?? null,
+        promoClaimForUserId: promoApplied ? dbUserId(userId) : null,
+        promoWillBeMarkedUsedOnPayment: promoWillBeMarkedUsedOnPayment === true,
         renderInitialPlan: initialRenderPlan,
         renderPlanAfterPayment: tier.renderPlanAfterPayment,
         display: { amount: tier.amount, currency: tier.currency },
@@ -101,6 +109,8 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     priceCurrency: tier.currency,
     billingTierId: tier.id,
     billingTierLabel: tier.label,
+    promoApplied,
+    promoClaimStatus: promoApplied ? 'pending' : (promoStatus?.used ? 'used' : (promoStatus?.eligible ? 'not_applicable' : 'unavailable')),
     renderPlan: initialRenderPlan,
     renderPlanTargetAfterPayment: tier.renderPlanAfterPayment,
     renderPlanUpgradeStatus: null,
@@ -115,10 +125,10 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     action: 'deployment.billing.order_created',
     entityType: 'checkout_order',
     entityId: order.id,
-    result: { deploymentId: deployment.deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, kind, switched },
+    result: { deploymentId: deployment.deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, kind, switched, promoApplied },
   });
 
-  return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining, switched, message });
+  return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining: promoStatus?.canClaim ? null : 0, switched, message });
 }
 
 /** Find the pending/active order for a deployment (most recent first). */
@@ -172,10 +182,15 @@ export async function markDeploymentPaid({ deploymentId, actorUserId = null, via
   // A failed upgrade must NOT block the paid status — it is flagged for admin.
   const planUpgrade = await upgradeRenderPlanAfterPayment(deployment, order);
 
+  // Finalize the K50 promo claim — but only on a verified payment/approval, and
+  // only once per user (receipt upload alone never marks the promo used).
+  const promoClaim = await markPromoClaimedIfApplicable({ deployment, order, paidAt, actorUserId });
+
   await updateDeploymentRecord(deploymentId, {
     paymentStatus: 'paid',
     paidAt: paidAt.toISOString(),
     deletedReason: null,
+    ...(promoClaim.claimed ? { promoClaimStatus: 'used' } : {}),
     renderPlan: planUpgrade.renderPlan,
     renderPlanTargetAfterPayment: planUpgrade.targetPlan,
     renderPlanUpgradeStatus: planUpgrade.status,
@@ -193,6 +208,47 @@ export async function markDeploymentPaid({ deploymentId, actorUserId = null, via
   });
 
   return { deploymentId, orderId: order?.id || null, resumed, renderPlan: planUpgrade.renderPlan, renderPlanUpgradeStatus: planUpgrade.status, paidAt: paidAt.toISOString() };
+}
+
+/**
+ * Mark the K50 launch promo as claimed/used for the paying user — idempotently.
+ * Only fires when the paid order's tier is promo_50 and the user has not yet
+ * claimed. Never throws; a failure here must not block the paid status.
+ */
+async function markPromoClaimedIfApplicable({ deployment, order, paidAt, actorUserId = null }) {
+  const tierId = (order ? safeJson(order.metadata).billingTierId : null) || deployment.billingTierId || null;
+  if (tierId !== promoTierId) return { claimed: false };
+
+  const userId = dbUserId(deployment.userId) || (order ? order.userId : null);
+  if (!userId) return { claimed: false };
+
+  try {
+    // Conditional update: only set the claim if it is not already set, so a
+    // re-run (or a second promo order) can never double-claim.
+    const result = await prisma.user.updateMany({
+      where: { id: userId, promoClaimedAt: null },
+      data: {
+        promoClaimedAt: paidAt,
+        promoClaimedOrderId: order?.id || null,
+        promoClaimedDeploymentId: deployment.deploymentId,
+      },
+    });
+    if (result.count > 0) {
+      await writeAuditLog({
+        organizationId: orgIdFor(deployment.userId),
+        actorUserId,
+        action: 'deployment.billing.promo_claimed',
+        entityType: 'user',
+        entityId: userId,
+        result: { orderId: order?.id || null, deploymentId: deployment.deploymentId },
+      });
+      return { claimed: true };
+    }
+    return { claimed: false, alreadyClaimed: true };
+  } catch (err) {
+    console.error(`[billing] promo claim marking failed for user ${userId}:`, err.message);
+    return { claimed: false, error: err.message };
+  }
 }
 
 /**

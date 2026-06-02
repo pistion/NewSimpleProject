@@ -110,12 +110,24 @@ router.patch('/users/:userId', async (req, res, next) => {
   try { res.json({ data: await adminService.updateUser(req.params.userId, req.body || {}, req.user.id), requestId: req.id }); } catch (e) { next(e); }
 });
 
+// Suspend = temporary account hold (reversible); cascades a suspend to sites.
+router.post('/users/:userId/suspend', async (req, res, next) => {
+  try { res.json({ data: await adminService.suspendUser(req.params.userId, req.body?.reason, req.user.id), requestId: req.id }); } catch (e) { next(e); }
+});
+
 router.post('/users/:userId/disable', async (req, res, next) => {
   try { res.json({ data: await adminService.disableUser(req.params.userId, req.body?.reason, req.user.id), requestId: req.id }); } catch (e) { next(e); }
 });
 
 router.post('/users/:userId/reactivate', async (req, res, next) => {
-  try { res.json({ data: await adminService.reactivateUser(req.params.userId, req.user.id), requestId: req.id }); } catch (e) { next(e); }
+  try {
+    res.json({
+      data: await adminService.reactivateUser(req.params.userId, req.user.id, {
+        resumeDeployments: req.body?.resumeDeployments === true || req.body?.resumeDeployments === 'true',
+      }),
+      requestId: req.id,
+    });
+  } catch (e) { next(e); }
 });
 
 router.post('/users/:userId/delete', async (req, res, next) => {

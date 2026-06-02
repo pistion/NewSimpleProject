@@ -43,6 +43,12 @@ function userView(u) {
     disabledReason: u.disabledReason || null,
     deletedAt: u.deletedAt || null,
     reactivatedAt: u.reactivatedAt || null,
+    // Launch promo lifecycle (admin visibility).
+    promoEligible: u.promoEligible === true,
+    promoSignupRank: u.promoSignupRank ?? null,
+    promoClaimedAt: u.promoClaimedAt || null,
+    promoClaimedOrderId: u.promoClaimedOrderId || null,
+    promoClaimedDeploymentId: u.promoClaimedDeploymentId || null,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -183,6 +189,8 @@ export async function listUsers() {
     select: {
       id: true, email: true, name: true, phone: true, role: true, planId: true,
       accountStatus: true, createdAt: true,
+      promoEligible: true, promoSignupRank: true, promoClaimedAt: true,
+      promoClaimedOrderId: true, promoClaimedDeploymentId: true,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -364,6 +372,102 @@ export async function updateUser(userId, patch = {}, adminUserId = null) {
   return userView(updated);
 }
 
+/** All deployment records owned by a user (from the JSON hosting store). */
+async function userDeployments(userId) {
+  const store = await readHostingStore();
+  return (store.deployments || []).filter((d) => d.userId === userId);
+}
+
+/**
+ * Suspend every active site a user owns (account-level suspend). Render services
+ * are suspended (reversible); records are marked suspended with the account
+ * reason. Best-effort — individual failures are recorded, never thrown.
+ */
+async function cascadeSuspendUserDeployments(userId, reason) {
+  const deployments = await userDeployments(userId);
+  const results = [];
+  for (const d of deployments) {
+    if (d.status === 'deleted' || d.recordStatus === 'deleted') continue;
+    let render = 'skipped';
+    if (d.renderServiceId && renderApiService.configured()) {
+      try { await renderApiService.suspendService(d.renderServiceId); render = 'suspended'; }
+      catch (err) { render = `error: ${err.message}`; }
+    }
+    await updateDeploymentRecord(d.deploymentId, {
+      status: 'suspended',
+      currentStep: 'Suspended (account suspended)',
+      accountSuspendedAt: nowIso(),
+      suspensionReason: reason || 'account_suspended',
+    });
+    results.push({ deploymentId: d.deploymentId, render });
+  }
+  return results;
+}
+
+/**
+ * Bring down every site a user owns (account closure). Prefer deleting the
+ * Render service; if delete fails, suspend it and flag cleanup. Records are
+ * marked account_deleted but kept for audit/history.
+ */
+async function cascadeBringDownUserDeployments(userId, reason) {
+  const deployments = await userDeployments(userId);
+  const results = [];
+  for (const d of deployments) {
+    if (d.status === 'deleted' || d.recordStatus === 'deleted') continue;
+    let render = 'skipped';
+    let cleanupNeeded = false;
+    if (d.renderServiceId && renderApiService.configured()) {
+      try {
+        await renderApiService.deleteService(d.renderServiceId);
+        render = 'deleted';
+      } catch (err) {
+        try { await renderApiService.suspendService(d.renderServiceId); render = `suspended_delete_failed: ${err.message}`; }
+        catch (err2) { render = `error: ${err2.message}`; }
+        cleanupNeeded = true;
+      }
+    }
+    await updateDeploymentRecord(d.deploymentId, {
+      status: 'account_deleted',
+      currentStep: 'Account closed — site brought down',
+      deletedReason: reason || 'account_deleted',
+      deletedAt: nowIso(),
+      ...(cleanupNeeded ? { cleanupNeeded: true } : {}),
+    });
+    results.push({ deploymentId: d.deploymentId, render, cleanupNeeded });
+  }
+  return results;
+}
+
+/**
+ * Suspend an account (temporary). Distinct from delete: records survive and an
+ * admin can reactivate. Cascades a suspend to all of the user's sites.
+ */
+export async function suspendUser(userId, reason = null, adminUserId = null) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      accountStatus: 'suspended',
+      disabledAt: new Date(),
+      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_suspended',
+    },
+  });
+  await revokeUserRefreshTokens(userId);
+  const deployments = await cascadeSuspendUserDeployments(userId, reason || 'account_suspended');
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.user.suspended',
+    entityType: 'user',
+    entityId: userId,
+    result: { reason: reason || 'admin_suspended', deployments: deployments.length },
+  });
+
+  return { ...userView(updated), deployments };
+}
+
 export async function disableUser(userId, reason = null, adminUserId = null) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw httpError('User not found.', 404);
@@ -389,7 +493,7 @@ export async function disableUser(userId, reason = null, adminUserId = null) {
   return userView(updated);
 }
 
-export async function reactivateUser(userId, adminUserId = null) {
+export async function reactivateUser(userId, adminUserId = null, { resumeDeployments = false } = {}) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw httpError('User not found.', 404);
 
@@ -404,15 +508,37 @@ export async function reactivateUser(userId, adminUserId = null) {
     },
   });
 
+  // Optionally resume the user's suspended sites (only those suspended at the
+  // account level — never auto-revive account_deleted sites).
+  let resumed = [];
+  if (resumeDeployments) {
+    const deployments = await userDeployments(userId);
+    for (const d of deployments) {
+      if (d.status !== 'suspended') continue;
+      let render = 'skipped';
+      if (d.renderServiceId && renderApiService.configured()) {
+        try { await renderApiService.resumeService(d.renderServiceId); render = 'resumed'; }
+        catch (err) { render = `error: ${err.message}`; }
+      }
+      await updateDeploymentRecord(d.deploymentId, {
+        status: d.urlReachable ? 'live' : 'deployed',
+        currentStep: 'Live',
+        accountSuspendedAt: null,
+        suspensionReason: null,
+      });
+      resumed.push({ deploymentId: d.deploymentId, render });
+    }
+  }
+
   await writeAuditLog({
     actorUserId: adminUserId,
     action: 'admin.user.reactivated',
     entityType: 'user',
     entityId: userId,
-    result: {},
+    result: { resumeDeployments, resumed: resumed.length },
   });
 
-  return userView(updated);
+  return { ...userView(updated), resumed };
 }
 
 /** Soft delete only — the User row is preserved so payment/deployment history survives. */
@@ -427,20 +553,22 @@ export async function deleteUser(userId, reason = null, adminUserId = null) {
       accountStatus: 'deleted',
       deletedAt: now,
       disabledAt: now,
-      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_deleted',
+      disabledReason: reason ? String(reason).slice(0, 1000) : 'account_deleted',
     },
   });
   await revokeUserRefreshTokens(userId);
+  // Account closure brings down all of the user's sites (DB rows kept for audit).
+  const deployments = await cascadeBringDownUserDeployments(userId, reason || 'account_deleted');
 
   await writeAuditLog({
     actorUserId: adminUserId,
     action: 'admin.user.deleted',
     entityType: 'user',
     entityId: userId,
-    result: { reason: reason || 'admin_deleted', softDelete: true },
+    result: { reason: reason || 'account_deleted', softDelete: true, deployments: deployments.length },
   });
 
-  return userView(updated);
+  return { ...userView(updated), deployments };
 }
 
 export async function setUserIdPhotoPath(userId, filePath, adminUserId = null) {
@@ -618,6 +746,7 @@ export default {
   adminDeleteDeployment,
   getUserDetail,
   updateUser,
+  suspendUser,
   disableUser,
   reactivateUser,
   deleteUser,

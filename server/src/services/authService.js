@@ -8,6 +8,8 @@ const DEV_JWT_SECRET = 'glondia-dev-insecure-jwt-secret-change-me';
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || '15m';
 const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
+// The first N registered users are eligible for the K50 launch promo.
+const PROMO_SIGNUP_LIMIT = Number(process.env.DEPLOYMENT_PROMO_SIGNUP_LIMIT || process.env.DEPLOYMENT_PROMO_LIMIT || 20);
 
 /**
  * Resolve the JWT signing secret. In production a real secret MUST be supplied;
@@ -109,12 +111,25 @@ export async function registerUser({ email, password, name }) {
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) throw httpError('An account with this email already exists.', 409);
 
-  const user = await prisma.user.create({
-    data: {
-      email: normalizedEmail,
-      passwordHash: await hashPassword(password),
-      name: String(name || '').trim() || null,
-    },
+  const passwordHash = await hashPassword(password);
+
+  // Compute the signup rank and promo eligibility inside a transaction to keep
+  // the rank consistent under concurrent registrations. Promo eligibility is a
+  // registration-order property — the first PROMO_SIGNUP_LIMIT users qualify —
+  // NOT a function of paid orders.
+  const user = await prisma.$transaction(async (tx) => {
+    const priorCount = await tx.user.count();
+    const signupRank = priorCount + 1;
+    const promoEligible = signupRank <= PROMO_SIGNUP_LIMIT;
+    return tx.user.create({
+      data: {
+        email: normalizedEmail,
+        passwordHash,
+        name: String(name || '').trim() || null,
+        promoSignupRank: signupRank,
+        promoEligible,
+      },
+    });
   });
   return buildSession(user);
 }

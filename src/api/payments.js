@@ -17,6 +17,16 @@ export const getOrder = getPaymentOrder;
 /** Launch pricing tiers + promo availability for the deploy tier selector. */
 export const getDeploymentPricing = () => liveApiRequest('/payments/pricing');
 
+/** Per-user billing summary: promo status, pricing, orders, deployments. */
+export const getBillingSummary = () => liveApiRequest('/payments/billing-summary');
+
+/** Apply/change the billing tier (promo_50 | standard_200) on a pending order. */
+export const applyDeploymentOrderTier = (orderId, billingTierId) =>
+  liveApiRequest(`/payments/deployment-orders/${encodeURIComponent(orderId)}/apply-tier`, {
+    method: 'POST',
+    body: { billingTierId },
+  });
+
 /**
  * Upload a manual bank-transfer receipt (PDF/PNG/JPG/JPEG) for an order.
  * Canonical form: uploadManualReceipt({ checkoutOrderId, file, note }).

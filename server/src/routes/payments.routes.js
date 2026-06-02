@@ -18,8 +18,9 @@ import { prisma } from '../services/db.js';
 import { writeAuditLog } from '../services/auditLogService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { findDeploymentRecord } from '../services/deploymentBillingService.js';
-import { deploymentBilling, billingTiers, graceHours, initialRenderPlan } from '../config/deploymentBilling.js';
-import { getPromoUsage } from '../services/deploymentPromoService.js';
+import { readHostingStore } from '../services/hostingStore.js';
+import { deploymentBilling, billingTiers, graceHours, initialRenderPlan, getBillingTier } from '../config/deploymentBilling.js';
+import { getPromoUsage, getUserPromoStatus, resolveRequestedBillingTier } from '../services/deploymentPromoService.js';
 import {
   createDeploymentPaypalOrder,
   captureDeploymentPaypalOrder,
@@ -80,7 +81,10 @@ router.use(authMiddleware);
 // ── Launch pricing + promo availability (for the deploy tier selector) ───────
 router.get('/pricing', async (req, res, next) => {
   try {
-    const promo = await getPromoUsage();
+    const [promo, userPromo] = await Promise.all([
+      getPromoUsage(),
+      getUserPromoStatus(req.user?.id),
+    ]);
     const tiers = Object.values(billingTiers).map((t) => ({
       id: t.id,
       label: t.label,
@@ -90,15 +94,165 @@ router.get('/pricing', async (req, res, next) => {
       displayAmount: `K${t.amount}`,
       promo: t.promo === true,
       renderPlanAfterPayment: t.renderPlanAfterPayment,
-      // The promo tier is only selectable while slots remain.
-      available: t.promo ? promo.available : true,
+      // The promo tier is selectable only when THIS user can still claim it.
+      available: t.promo ? userPromo.canClaim : true,
     }));
     res.json({
       data: {
         tiers,
         graceHours,
         initialRenderPlan,
+        // Global stats (admin/analytics) + this user's promo eligibility.
         promo: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
+        userPromo,
+      },
+      requestId: req.id,
+    });
+  } catch (error) { next(error); }
+});
+
+// ── Per-user billing summary (promo + pricing + orders + deployments) ────────
+router.get('/billing-summary', async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+    const promo = await getUserPromoStatus(userId);
+
+    // Normal users see only their own orders/deployments; admins see all.
+    const orderWhere = isAdmin
+      ? { type: 'deployment' }
+      : { type: 'deployment', userId: userId && userId !== 'local-user' ? userId : '__none__' };
+    const orders = await prisma.checkoutOrder.findMany({
+      where: orderWhere,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { receipts: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+
+    const store = await readHostingStore();
+    const deployments = (store.deployments || [])
+      .filter((d) => isAdmin || d.userId === userId)
+      .map((d) => ({
+        deploymentId: d.deploymentId,
+        serviceName: d.serviceName || null,
+        status: d.status || null,
+        paymentStatus: d.paymentStatus || 'none',
+        billingTierId: d.billingTierId || null,
+        billingTierLabel: d.billingTierLabel || null,
+        promoApplied: d.promoApplied === true,
+        promoClaimStatus: d.promoClaimStatus || null,
+        priceCents: d.priceCents ?? null,
+        priceCurrency: d.priceCurrency || null,
+        checkoutOrderId: d.checkoutOrderId || null,
+        billingDueAt: d.billingDueAt || null,
+        paidAt: d.paidAt || null,
+        renderPlan: d.renderPlan || null,
+        liveUrl: d.liveUrl || null,
+      }));
+
+    const promoTier = getBillingTier('promo_50');
+    const standardTier = getBillingTier('standard_200');
+
+    res.json({
+      data: {
+        promo,
+        pricing: {
+          promo: { amount: promoTier.amount, currency: promoTier.currency, displayAmount: `K${promoTier.amount}` },
+          standard: { amount: standardTier.amount, currency: standardTier.currency, displayAmount: `K${standardTier.amount}` },
+        },
+        graceHours,
+        initialRenderPlan,
+        orders,
+        deployments,
+      },
+      requestId: req.id,
+    });
+  } catch (error) { next(error); }
+});
+
+// ── Apply/change the billing tier on a pending deployment order ───────────────
+// Lets a user deploy first, then choose K50/K200 in billing. Eligibility is
+// re-verified server-side; the frontend is never trusted.
+router.post('/deployment-orders/:orderId/apply-tier', async (req, res, next) => {
+  try {
+    const requestedTierId = String(req.body?.billingTierId || '').trim();
+    if (!['promo_50', 'standard_200'].includes(requestedTierId)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_TIER', message: 'billingTierId must be promo_50 or standard_200.' }, requestId: req.id });
+    }
+
+    const order = await prisma.checkoutOrder.findUnique({ where: { id: req.params.orderId } });
+    if (!order || order.type !== 'deployment') {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Deployment order not found.' }, requestId: req.id });
+    }
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && order.userId && order.userId !== req.user?.id) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'This order belongs to another account.' }, requestId: req.id });
+    }
+    if (order.status !== 'pending') {
+      return res.status(409).json({ success: false, error: { code: 'ORDER_NOT_PENDING', message: `Only pending orders can change tier (current: ${order.status}).` }, requestId: req.id });
+    }
+
+    const ownerId = order.userId || req.user?.id;
+    const { tier, promoApplied, promoStatus, switched, message, promoWillBeMarkedUsedOnPayment } =
+      await resolveRequestedBillingTier({ userId: ownerId, requestedTierId, deploymentId: order.deploymentId });
+
+    const meta = (() => { try { return JSON.parse(order.metadata || '{}'); } catch { return {}; } })();
+    await prisma.checkoutOrder.update({
+      where: { id: order.id },
+      data: {
+        currency: tier.currency,
+        actualAmountCents: tier.amountCents,
+        totalAmountCents: tier.amountCents,
+        metadata: JSON.stringify({
+          ...meta,
+          billingTierId: tier.id,
+          billingTierLabel: tier.label,
+          promoApplied,
+          promoClaimForUserId: promoApplied ? (order.userId || null) : null,
+          promoWillBeMarkedUsedOnPayment: promoWillBeMarkedUsedOnPayment === true,
+          renderPlanAfterPayment: tier.renderPlanAfterPayment,
+          display: { amount: tier.amount, currency: tier.currency },
+        }),
+      },
+    });
+
+    if (order.deploymentId) {
+      const deployment = await findDeploymentRecord(order.deploymentId);
+      if (deployment) {
+        await updateDeploymentRecord(order.deploymentId, {
+          billingTierId: tier.id,
+          billingTierLabel: tier.label,
+          promoApplied,
+          promoClaimStatus: promoApplied ? 'pending' : (promoStatus?.used ? 'used' : (promoStatus?.eligible ? 'not_applicable' : 'unavailable')),
+          priceCents: tier.amountCents,
+          priceCurrency: tier.currency,
+          renderPlanTargetAfterPayment: tier.renderPlanAfterPayment,
+        });
+      }
+    }
+
+    await writeAuditLog({
+      organizationId: order.organizationId,
+      actorUserId: req.user?.id !== 'local-user' ? req.user?.id : null,
+      action: 'deployment.billing.tier_applied',
+      entityType: 'checkout_order',
+      entityId: order.id,
+      result: { requestedTierId, appliedTierId: tier.id, promoApplied, switched },
+    });
+
+    res.json({
+      data: {
+        orderId: order.id,
+        billingTierId: tier.id,
+        billingTierLabel: tier.label,
+        amount: tier.amount,
+        amountCents: tier.amountCents,
+        currency: tier.currency,
+        displayAmount: `K${tier.amount}`,
+        promoApplied,
+        switched,
+        message,
+        promo: promoStatus,
       },
       requestId: req.id,
     });

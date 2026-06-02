@@ -281,6 +281,9 @@ function PricingTierSelector({ pricing, value, onChange }) {
           );
         })}
       </div>
+      {pricing?.userPromo && !pricing.userPromo.canClaim && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{pricing.userPromo.message}</div>
+      )}
       <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
         Your site starts on free hosting for {graceHours} hours. After payment is verified, we upgrade your hosting plan and redeploy.
       </div>
