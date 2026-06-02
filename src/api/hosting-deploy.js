@@ -18,7 +18,20 @@ export async function getHostingDeploySettings() {
 }
 
 export async function createGithubHostingDeployment(input = {}) {
-  return liveApiRequest('/deployments/github', {
+  // New separated route. (Backend also keeps /deployments/github as an alias.)
+  return liveApiRequest('/deployments/github-link/deploy', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+/**
+ * Validate a GitHub repository link before deploying — checks the URL, parses
+ * owner/repo, returns { repoUrl, owner, repo, branch, valid }. Does not import
+ * the repo, create a record, or bill.
+ */
+export async function validateGithubLinkDeployment(input = {}) {
+  return liveApiRequest('/deployments/github-link/validate', {
     method: 'POST',
     body: input,
   });
@@ -77,7 +90,8 @@ export async function createZipHostingDeployment(file, settings = {}) {
 
   let response;
   try {
-    response = await authFetch(liveApiUrl('/deployments/zip'), {
+    // New separated route. (Backend also keeps /deployments/zip as an alias.)
+    response = await authFetch(liveApiUrl('/deployments/zip/deploy'), {
       method: 'POST',
       body: form,
     });
