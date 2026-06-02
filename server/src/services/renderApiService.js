@@ -20,7 +20,14 @@ class RenderApiService {
   async createService(input = {}) {
     this.assertConfigured('create_service');
     const body = this.buildServicePayload(input);
-    return this.request('/services', { method: 'POST', body });
+    try {
+      return await this.request('/services', { method: 'POST', body });
+    } catch (error) {
+      // Attach a secret-free payload summary so a Render 400 is actually
+      // diagnosable (type/repo/rootDir/build/publish/start) without leaking env.
+      error.payloadSummary = summarizeServicePayload(body);
+      throw error;
+    }
   }
 
   async getService(serviceId) {
@@ -697,6 +704,28 @@ function inferServiceType(input = {}) {
 
 function renderSafeName(value) {
   return String(value || 'glondia-site').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'glondia-site';
+}
+
+/** Secret-free summary of a Render service payload for error diagnostics. */
+function summarizeServicePayload(body = {}) {
+  const sd = body.serviceDetails || {};
+  const esd = sd.envSpecificDetails || {};
+  return {
+    type: body.type,
+    name: body.name,
+    repo: body.repo,
+    branch: body.branch,
+    rootDir: body.rootDir || null,
+    autoDeploy: body.autoDeploy,
+    buildCommand: sd.buildCommand || esd.buildCommand || null,
+    publishPath: sd.publishPath || null,
+    startCommand: esd.startCommand || null,
+    runtime: sd.runtime || null,
+    plan: sd.plan || null,
+    region: sd.region || null,
+    // Only the env var KEYS — never values.
+    envVarKeys: Array.isArray(body.envVars) ? body.envVars.map((e) => e.key) : [],
+  };
 }
 
 // ── Helpers: Settings Update Payloads ───────────────────────────────────────

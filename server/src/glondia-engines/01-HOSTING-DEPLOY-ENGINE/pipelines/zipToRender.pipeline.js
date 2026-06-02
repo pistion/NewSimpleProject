@@ -161,6 +161,7 @@ export async function run(input = {}, context = {}) {
       return ready(deployment.deploymentId, baseUpdate, 'Ready - missing Render credentials', `Configure ${cfg.missingRender.join(', ')} to start Render deployment.`);
     }
 
+    await addDeploymentLog(deployment.deploymentId, 'Render configured — creating service and triggering deploy.', 'info');
     // For shared-repo mode the dispatcher needs the root base; for a temporary
     // repo the site lives at the repo root so no root base is sent.
     const renderResult = await createAndTriggerRenderDeploy({
@@ -169,8 +170,11 @@ export async function run(input = {}, context = {}) {
       ...(useTemporaryRepo ? {} : { siteRootDir: rootBase }),
     });
     await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started.`, 'ok');
+    await addDeploymentLog(deployment.deploymentId, `Render service ${renderResult.serviceId} created and deploy ${renderResult.deployId} triggered.`, 'ok');
     const updated = await updateDeploymentRecord(deployment.deploymentId, {
       ...baseUpdate,
+      // Render handoff succeeded → this is a real, billable platform deployment.
+      platformDeployed: true,
       status: 'building',
       buildStatus: 'queued',
       currentStep: 'Queued for deploy',
@@ -191,9 +195,13 @@ export async function run(input = {}, context = {}) {
   } catch (error) {
     await addDeploymentLog(deployment.deploymentId, error.message || 'ZIP deploy failed.', 'error', error.details || null);
     return updateDeploymentRecord(deployment.deploymentId, {
+      // Never reached Render → not billable, no trial timer.
+      platformDeployed: false,
       status: 'failed',
       buildStatus: 'failed',
       currentStep: stageToStep(error.stage),
+      paymentStatus: 'not_billable_yet',
+      subscriptionStatus: 'not_started',
       errorMessage: error.message || 'ZIP deploy failed.',
       errorDetails: error.details || null,
     });
@@ -280,9 +288,13 @@ async function ready(deploymentId, baseUpdate, step, message) {
   await addDeploymentLog(deploymentId, message, 'warn');
   return updateDeploymentRecord(deploymentId, {
     ...baseUpdate,
+    // Prepared but NOT handed off to Render → not billable, no trial timer.
+    platformDeployed: false,
     status: 'ready',
     buildStatus: 'configuration_required',
     currentStep: step,
+    paymentStatus: 'not_billable_yet',
+    subscriptionStatus: 'not_started',
     errorMessage: message,
   });
 }

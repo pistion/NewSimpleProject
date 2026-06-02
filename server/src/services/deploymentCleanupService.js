@@ -50,13 +50,25 @@ export async function runCleanupOnce() {
     if (dep.platformDeployed !== true) continue;
     summary.scanned += 1;
 
-    if (['active', 'renewal_due'].includes(String(dep.subscriptionStatus || '').toLowerCase())) {
+    // Never expire a record that did not actually reach Render or that is not in
+    // a billable state yet. These are admin/config concerns, not unpaid trials.
+    const payStatus = String(dep.paymentStatus || '').toLowerCase();
+    const subStatus = String(dep.subscriptionStatus || '').toLowerCase();
+    const depStatus = String(dep.status || '').toLowerCase();
+    if (!dep.renderServiceId) { summary.skipped += 1; continue; }
+    if (['not_billable_yet', 'billing_error'].includes(payStatus)) { summary.skipped += 1; continue; }
+    if (['not_started'].includes(subStatus)) { summary.skipped += 1; continue; }
+    if (['ready', 'configuration_required'].includes(depStatus)) { summary.skipped += 1; continue; }
+
+    if (['active', 'renewal_due'].includes(subStatus)) {
       summary.skipped += 1;
       continue;
     }
     if (TERMINAL_PAYMENT.has(dep.paymentStatus) || TERMINAL_STATUS.has(dep.status)) { summary.skipped += 1; continue; }
-    // Only enforce records that actually carry a billing order/status.
-    if (!dep.checkoutOrderId && !dep.paymentStatus) { summary.skipped += 1; continue; }
+    // Only enforce records that actually carry a billing order with an outstanding
+    // payment (pending / receipt uploaded).
+    if (!dep.checkoutOrderId) { summary.skipped += 1; continue; }
+    if (!['pending', 'payment_uploaded'].includes(payStatus)) { summary.skipped += 1; continue; }
     if (!isDue(dep)) { summary.skipped += 1; continue; }
 
     try {

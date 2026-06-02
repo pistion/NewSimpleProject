@@ -200,17 +200,20 @@ export async function run(input = {}, context = {}) {
       );
     }
 
+    await addDeploymentLog(deployment.deploymentId, 'Render configured — creating service from controlled repo and triggering deploy.', 'info');
     const renderResult = await createAndTriggerRenderDeploy({
       ...renderPayload,
       // Pin the deploy to the freshly published commit when available.
       ...(controlledRepo.commitId ? { commitId: controlledRepo.commitId } : {}),
     });
-    await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started.`, 'ok', {
+    await addDeploymentLog(deployment.deploymentId, `Render service ${renderResult.serviceId} created and deploy ${renderResult.deployId} triggered.`, 'ok', {
       renderServiceId: renderResult.serviceId,
     });
 
     const updated = await updateDeploymentRecord(deployment.deploymentId, {
       ...baseUpdate,
+      // Render handoff succeeded → real, billable platform deployment.
+      platformDeployed: true,
       status: 'building',
       buildStatus: 'queued',
       currentStep: 'Queued for deploy',
@@ -237,10 +240,14 @@ export async function run(input = {}, context = {}) {
     const cleanup = await cleanupControlledRepoAfterFailure(deployment.deploymentId, controlledRepoRef);
 
     return updateDeploymentRecord(deployment.deploymentId, {
+      // Never reached Render → not billable, no trial timer.
+      platformDeployed: false,
       status: 'failed',
       buildStatus: 'failed',
       recordStatus: 'active',
       currentStep: stageToStep(error.stage),
+      paymentStatus: 'not_billable_yet',
+      subscriptionStatus: 'not_started',
       errorMessage: error.message || 'GitHub import deployment failed.',
       errorDetails: error.details || null,
       controlledRepoCleanupStatus: cleanup.status,
@@ -288,9 +295,13 @@ async function ready(deploymentId, step, message, patch = {}) {
   await addDeploymentLog(deploymentId, message, 'warn');
   return updateDeploymentRecord(deploymentId, {
     ...patch,
+    // Prepared but NOT handed off to Render → not billable, no trial timer.
+    platformDeployed: false,
     status: 'ready',
     buildStatus: 'configuration_required',
     currentStep: step,
+    paymentStatus: 'not_billable_yet',
+    subscriptionStatus: 'not_started',
     errorMessage: message,
   });
 }

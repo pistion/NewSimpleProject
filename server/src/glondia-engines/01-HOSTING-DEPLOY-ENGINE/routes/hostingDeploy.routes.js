@@ -5,6 +5,7 @@ import authMiddleware from '../../../middleware/authMiddleware.js';
 import deploymentSessionMiddleware from '../../../middleware/deploymentSessionMiddleware.js';
 import { validateDeploymentInput } from '../../../middleware/validationMiddleware.js';
 import { requireFeature } from '../../../middleware/featureFlag.js';
+import { requireAdmin } from '../../../middleware/requireAdmin.js';
 import { deploymentOwnership } from '../../../middleware/deploymentOwnership.middleware.js';
 
 const router = express.Router();
@@ -42,7 +43,12 @@ router.post(
   upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]),
   hostingDeployController.createZipDeployment,
 );
-router.post('/zip/validate', upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]), hostingDeployController.validateZipDeployment);
+router.post(
+  '/zip/validate',
+  requireFeature('ZIP_HOSTING'),
+  upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]),
+  hostingDeployController.validateZipDeployment,
+);
 
 // GitHub upload/import hosting — deploy-first K100 billing. Feature-gated only.
 router.post(
@@ -50,9 +56,14 @@ router.post(
   requireFeature('GITHUB_HOSTING'),
   hostingDeployController.createGithubDeployment,
 );
-router.post('/generated-site', hostingDeployController.createGeneratedSiteDeployment);
-router.post('/render', validateDeploymentInput, hostingDeployController.createRenderDeployment);
-router.post('/', validateDeploymentInput, hostingDeployController.createDeployment);
+
+// ── Legacy deployment-creation routes — NOT open to normal users ──────────────
+// /generated-site is gated behind the AI builder feature (returns 403 when off).
+// /render and / are internal/admin-only paths; normal users must use /zip or
+// /github so feature, deploy, billing and ownership rules are always applied.
+router.post('/generated-site', requireFeature('AI_BUILDER'), hostingDeployController.createGeneratedSiteDeployment);
+router.post('/render', requireAdmin, validateDeploymentInput, hostingDeployController.createRenderDeployment);
+router.post('/', requireAdmin, validateDeploymentInput, hostingDeployController.createDeployment);
 router.get('/:deploymentId', deploymentSessionMiddleware, hostingDeployController.getDeployment);
 router.get('/:deploymentId/status', deploymentSessionMiddleware, hostingDeployController.getStatus);
 router.post('/:deploymentId/verify-url', deploymentSessionMiddleware, hostingDeployController.verifyUrl);

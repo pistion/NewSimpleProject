@@ -127,7 +127,34 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     deletedReason: null,
   });
 
-  await ensureTrialSubscription({ deployment, order });
+  // The trial subscription timer matters (it drives cleanup), but it must NOT
+  // undo a created order or fail the deploy if it can't be set up. Record the
+  // failure on the deployment + audit and surface a warning instead.
+  let subscriptionWarning = null;
+  try {
+    await ensureTrialSubscription({ deployment, order });
+  } catch (subErr) {
+    console.error('[billing] trial subscription create failed:', subErr.message);
+    subscriptionWarning = 'Billing order was created, but subscription timer setup failed. Admin support required.';
+    try {
+      await updateDeploymentRecord(deployment.deploymentId, {
+        subscriptionStatus: 'subscription_error',
+        subscriptionErrorMessage: String(subErr.message || '').slice(0, 500),
+        subscriptionErrorAt: new Date().toISOString(),
+      });
+      await writeAuditLog({
+        organizationId: orgIdFor(userId),
+        actorUserId: dbUserId(userId),
+        action: 'deployment.subscription.trial_create_failed',
+        entityType: 'deployment',
+        entityId: deployment.deploymentId,
+        status: 'error',
+        result: { message: String(subErr.message || '').slice(0, 300) },
+      });
+    } catch (recordErr) {
+      console.error('[billing] could not record subscription error:', recordErr.message);
+    }
+  }
 
   await writeAuditLog({
     organizationId: orgIdFor(userId),
@@ -138,7 +165,9 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     result: { deploymentId: deployment.deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, kind, switched, promoApplied },
   });
 
-  // Notify the owner that payment is due within the trial window.
+  // Notify the owner that payment is due within the trial window. Notifications
+  // are fail-soft in notificationService (never throw), so this can't break the
+  // order/subscription — UI convenience only.
   await createUserNotification(userId, {
     type: 'billing',
     title: 'Hosting payment required',
@@ -149,7 +178,9 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     metadata: { checkoutOrderId: order.id, billingDueAt: billingDueAt.toISOString(), amountCents: tier.amountCents, currency: tier.currency },
   });
 
-  return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining: promoStatus?.canClaim ? null : 0, switched, message });
+  const summary = billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining: promoStatus?.canClaim ? null : 0, switched, message });
+  if (subscriptionWarning) summary.warning = subscriptionWarning;
+  return summary;
 }
 
 export async function createDeploymentRenewalOrder({ deploymentId, user = {}, billingTierId = null } = {}) {
