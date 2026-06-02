@@ -206,7 +206,7 @@ export async function listUsers() {
   return rows.map(userView);
 }
 
-export async function listDeployments() {
+export async function listDeployments(ownerUserId = null) {
   const [deployments, orders] = await Promise.all([
     loadDeployments(),
     prisma.checkoutOrder.findMany({ where: { type: 'deployment' } }),
@@ -217,6 +217,8 @@ export async function listDeployments() {
     if (o.deploymentId) byId[`dep:${o.deploymentId}`] = o;
   }
   return deployments
+    .filter((d) => !ownerUserId || d.userId === ownerUserId)
+    .filter((d) => d.status !== 'deleted' && d.recordStatus !== 'deleted')
     .map((d) => deploymentView(d, byId))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }

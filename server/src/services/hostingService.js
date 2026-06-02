@@ -158,6 +158,10 @@ class HostingService {
 
     // ── 3. Purge record + logs from store entirely ────────────────────────
     await mutateHostingStore((store) => {
+      if (!Array.isArray(store.deployments)) store.deployments = [];
+      if (!Array.isArray(store.sessions)) store.sessions = [];
+      if (!store.logs || typeof store.logs !== 'object' || Array.isArray(store.logs)) store.logs = {};
+      if (!store.disks || typeof store.disks !== 'object' || Array.isArray(store.disks)) store.disks = {};
       store.deployments = (store.deployments || []).filter(
         (d) => d.deploymentId !== deployment.deploymentId && d.id !== deployment.deploymentId,
       );
@@ -165,6 +169,7 @@ class HostingService {
         (s) => s.deploymentId !== deployment.deploymentId,
       );
       delete store.logs[deployment.deploymentId];
+      delete store.disks[deployment.deploymentId];
     });
 
     return result;

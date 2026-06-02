@@ -312,7 +312,7 @@ function NotificationBell({ navigate }) {
   };
 
   if (!signedIn) {
-    return <button className="btn btn-icon btn-ghost notification-bell" title="Notifications"><ICN.Bell size={16} /></button>;
+    return <button className="btn btn-icon btn-ghost notification-bell notification-bell--signed-out" title="Notifications" aria-label="Notifications"><ICN.Bell size={16} /></button>;
   }
 
   return (
@@ -461,13 +461,13 @@ function AuthMenu({ navigate }) {
   };
 
   return (
-    <div style={{ position: "relative" }}>
-      <button className="btn btn-ghost" onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })} style={{ height: 36, padding: "0 8px" }}>
+    <div className="auth-menu">
+      <button className="btn btn-ghost auth-menu-trigger" onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })}>
         <Avatar name={signedIn ? displayName : ""} imageUrl={avatarUrl} size={28} fallbackIcon={!signedIn} />
-        <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signedIn ? displayName : "Sign in"}</span>
+        <span className="auth-menu-name">{signedIn ? displayName : "Sign in"}</span>
       </button>
       {open && (
-        <div className="card" style={{ position: "absolute", right: 0, top: 44, width: 320, zIndex: 80, boxShadow: "var(--shadow)" }}>
+        <div className="card auth-menu-panel">
           {signedIn ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <button

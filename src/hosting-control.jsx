@@ -37,6 +37,7 @@ import {
   listHostingDisks,
   attachHostingDisk,
   updateHostingDisk,
+  deleteHostingDisk,
   listHostingDomains,
   addHostingDomain,
   verifyHostingDomain,
@@ -185,7 +186,7 @@ export function HostingDetail({ id, navigate }) {
     {tab === 'Secret Files' && <SecretFilesTab deploymentId={deploymentId} />}
     {tab === 'Headers' && <HeadersTab deploymentId={deploymentId} />}
     {tab === 'Rules' && <RulesTab deploymentId={deploymentId} />}
-    {tab === 'Disks' && <DisksTab app={merged} deploymentId={deploymentId} />}
+    {tab === 'Disks' && <DisksTabV2 app={merged} deploymentId={deploymentId} />}
     {tab === 'Domains' && <DomainsTab app={merged} deploymentId={deploymentId} />}
     {tab === 'Billing' && <BillingTab deploymentId={deploymentId} app={merged} onReload={load} />}
   </>;
@@ -864,6 +865,47 @@ function DisksTab({ app, deploymentId }) {
   useEffect(load, [deploymentId]);
   const add = async () => { await attachHostingDisk(deploymentId, form); load(); };
   return <div className="card"><h2 style={{ marginTop: 0 }}>Persistent disks</h2>{app.serviceType !== 'web_service' && <p className="muted">Disks are only available for web services.</p>}<div className="input-group"><input className="input" placeholder="disk name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /><input className="input mono" placeholder="/data" value={form.mountPath} onChange={(e) => setForm((f) => ({ ...f, mountPath: e.target.value }))} /><input className="input mono" type="number" value={form.sizeGB} onChange={(e) => setForm((f) => ({ ...f, sizeGB: e.target.value }))} /><button className="btn btn-primary" disabled={app.serviceType !== 'web_service'} onClick={add}>Attach</button></div><div className="kv" style={{ marginTop: 14 }}>{items.map((d) => <React.Fragment key={d.diskId}><dt>{d.name}</dt><dd className="mono">{d.mountPath} · {d.sizeGB}GB <button className="btn btn-sm btn-outline" onClick={() => updateHostingDisk(deploymentId, d.diskId, d).then(load)}>Sync</button></dd></React.Fragment>)}</div></div>;
+}
+
+function DisksTabV2({ app, deploymentId }) {
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({ name: '', mountPath: '/var/glondia/data', sizeGB: 1 });
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = () => listHostingDisks(deploymentId).then(setItems).catch((e) => { setMsg(e.message || 'Could not load disks.'); setItems([]); });
+  useEffect(load, [deploymentId]);
+  const add = async () => {
+    setBusy('add'); setMsg('');
+    try {
+      const disk = await attachHostingDisk(deploymentId, form);
+      setItems((rows) => [disk, ...rows.filter((row) => row.diskId !== disk.diskId)]);
+      setForm({ name: '', mountPath: '/var/glondia/data', sizeGB: 1 });
+      setMsg('Disk attached.');
+      load();
+    } catch (e) { setMsg(e.message || 'Could not attach disk.'); }
+    finally { setBusy(''); }
+  };
+  const sync = async (disk) => {
+    setBusy(disk.diskId); setMsg('');
+    try {
+      const updated = await updateHostingDisk(deploymentId, disk.diskId, disk);
+      setItems((rows) => rows.map((row) => row.diskId === disk.diskId ? updated : row));
+      setMsg('Disk synced.');
+    } catch (e) { setMsg(e.message || 'Could not sync disk.'); }
+    finally { setBusy(''); }
+  };
+  const remove = async (disk) => {
+    if (!window.confirm(`Delete disk ${disk.name}? This removes the Render disk attachment.`)) return;
+    setBusy(disk.diskId); setMsg('');
+    try {
+      await deleteHostingDisk(deploymentId, disk.diskId);
+      setItems((rows) => rows.filter((row) => row.diskId !== disk.diskId));
+      setMsg('Disk deleted.');
+      load();
+    } catch (e) { setMsg(e.message || 'Could not delete disk.'); }
+    finally { setBusy(''); }
+  };
+  return <div className="card"><h2 style={{ marginTop: 0 }}>Persistent SSD disks</h2><p className="muted" style={{ fontSize: 13 }}>Render SSD storage is mounted on the service. The platform SSD uses <span className="mono">/var/glondia</span>; app disks should use the mount path your service expects.</p>{app.serviceType !== 'web_service' && <p className="muted">Disks are only available for web services.</p>}<div className="input-group"><input className="input" placeholder="disk name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /><input className="input mono" placeholder="/var/glondia/data" value={form.mountPath} onChange={(e) => setForm((f) => ({ ...f, mountPath: e.target.value }))} /><input className="input mono" type="number" min="1" value={form.sizeGB} onChange={(e) => setForm((f) => ({ ...f, sizeGB: e.target.value }))} /><button className="btn btn-primary" disabled={app.serviceType !== 'web_service' || busy === 'add'} onClick={add}>{busy === 'add' ? 'Attaching...' : 'Attach'}</button></div>{msg && <p className="muted">{msg}</p>}<div className="kv" style={{ marginTop: 14 }}>{items.map((d) => <React.Fragment key={d.diskId}><dt>{d.name}</dt><dd className="mono">{d.mountPath} - {d.sizeGB}GB <StatusBadge value={d.status || 'attached'} /> <button className="btn btn-sm btn-outline" disabled={busy === d.diskId} onClick={() => sync(d)}>Sync</button> <button className="btn btn-sm btn-outline" disabled={busy === d.diskId} onClick={() => remove(d)}>Delete</button></dd></React.Fragment>)}</div></div>;
 }
 
 function DomainsTab({ deploymentId }) {

@@ -94,10 +94,27 @@ export function AdminPage() {
     [users],
   );
 
-  const act = async (id, fn, label) => {
+  const patchDeployment = React.useCallback((deploymentId, patch) => {
+    setDeployments((rows) => rows.map((row) => (
+      row.deploymentId === deploymentId ? { ...row, ...patch } : row
+    )));
+  }, []);
+
+  const removeDeployment = React.useCallback((deploymentId) => {
+    setDeployments((rows) => rows.filter((row) => row.deploymentId !== deploymentId));
+  }, []);
+
+  const patchUser = React.useCallback((userId, patch) => {
+    setUsers((rows) => rows.map((row) => (
+      row.id === userId ? { ...row, ...patch } : row
+    )));
+  }, []);
+
+  const act = async (id, fn, label, afterSuccess = null) => {
     setBusyId(id); setNotice('');
     try {
-      await fn();
+      const result = await fn();
+      afterSuccess?.(result);
       setNotice(`${label} done.`);
       await refresh();
     } catch (err) {
@@ -238,24 +255,24 @@ export function AdminPage() {
                 )}
                 {d.paymentStatus !== 'paid' && (
                   <><button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
-                    onClick={() => act(d.deploymentId, () => approveDeploymentBilling(d.deploymentId), 'Approve billing')}>Approve billing</button>{' '}</>
+                    onClick={() => act(d.deploymentId, () => approveDeploymentBilling(d.deploymentId), 'Approve billing', () => patchDeployment(d.deploymentId, { paymentStatus: 'paid', subscriptionStatus: 'active', paidAt: new Date().toISOString() }))}>Approve billing</button>{' '}</>
                 )}
                 <button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
                   onClick={() => act(d.deploymentId, () => renewDeploymentManually(d.deploymentId), 'Manual renewal')}>Renew manually</button>{' '}
                 {d.status === 'suspended' ? (
                   <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
-                    onClick={() => act(d.deploymentId, () => reactivateDeployment(d.deploymentId), 'Reactivate deployment')}>Reactivate</button>
+                    onClick={() => act(d.deploymentId, () => reactivateDeployment(d.deploymentId), 'Reactivate deployment', () => patchDeployment(d.deploymentId, { status: 'building', currentStep: 'Reactivated' }))}>Reactivate</button>
                 ) : (
                   <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
-                    onClick={() => act(d.deploymentId, () => suspendDeployment(d.deploymentId, 'admin_suspended'), 'Suspend deployment')}>Suspend</button>
+                    onClick={() => act(d.deploymentId, () => suspendDeployment(d.deploymentId, 'admin_suspended'), 'Suspend deployment', () => patchDeployment(d.deploymentId, { status: 'suspended' }))}>Suspend</button>
                 )}{' '}
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
-                  onClick={() => act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment')}>Delete</button>
+                  onClick={() => { if (window.confirm('Delete this deployment from Render and remove it from this admin list?')) act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment', () => removeDeployment(d.deploymentId)); }}>Delete</button>
                 <div style={{ marginTop: 6 }}>
                   <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Hosting plan:</span>
                   {['free', 'starter', 'standard'].map((p) => (
                     <button key={p} className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId || d.renderPlan === p}
-                      onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, p, false), `Set plan ${p}`)}>{p}</button>
+                      onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, p, false), `Set plan ${p}`, () => patchDeployment(d.deploymentId, { renderPlan: p, renderPlanChangedAt: new Date().toISOString() }))}>{p}</button>
                   ))}{' '}
                   <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
                     onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, d.renderPlan || 'free', true), 'Redeploy')}>Redeploy</button>
@@ -301,16 +318,16 @@ export function AdminPage() {
                 {inactive ? (
                   // Reactivate = bring the account back; offer to resume its sites too.
                   <button className="btn btn-sm btn-primary" disabled={busyId === u.id}
-                    onClick={() => act(u.id, () => reactivateUser(u.id, window.confirm('Also resume this user’s suspended sites?')), 'Reactivate account')}>Reactivate</button>
+                    onClick={() => act(u.id, () => reactivateUser(u.id, window.confirm('Also resume this user’s suspended sites?')), 'Reactivate account', () => patchUser(u.id, { accountStatus: 'active' }))}>Reactivate</button>
                 ) : (
                   // Suspend = temporary hold (reversible); cascades to the user's sites.
                   <button className="btn btn-sm btn-outline" disabled={busyId === u.id}
-                    onClick={() => act(u.id, () => suspendUser(u.id, 'admin_suspended'), 'Suspend account')}>Suspend</button>
+                    onClick={() => act(u.id, () => suspendUser(u.id, 'admin_suspended'), 'Suspend account', () => patchUser(u.id, { accountStatus: 'suspended' }))}>Suspend</button>
                 )}{' '}
                 {/* Delete = permanent closure; brings down all sites. Distinct from Suspend. */}
                 {u.accountStatus !== 'deleted' && (
                   <button className="btn btn-sm btn-outline" style={{ color: 'var(--danger)' }} disabled={busyId === u.id}
-                    onClick={() => { if (window.confirm('Delete this account? All the user’s sites are brought down and they can no longer log in. History is preserved.')) act(u.id, () => deleteUser(u.id, 'admin_deleted'), 'Delete account'); }}>Delete Account</button>
+                    onClick={() => { if (window.confirm('Delete this account? All the user’s sites are brought down and they can no longer log in. History is preserved.')) act(u.id, () => deleteUser(u.id, 'admin_deleted'), 'Delete account', () => patchUser(u.id, { accountStatus: 'deleted' })); }}>Delete Account</button>
                 )}
               </td>
             </tr>

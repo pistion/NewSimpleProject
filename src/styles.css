@@ -1985,6 +1985,18 @@ img, video, iframe { max-width: 100%; height: auto; }
 
 /* ── Notifications (Bell dropdown) ────────────────────────────── */
 .notification-bell { position: relative; display: inline-flex; }
+.notification-bell--signed-out { opacity: 1; color: var(--text); }
+.dash-search { position: relative; flex: 1 1 clamp(10rem, 26%, 22rem); min-width: min(100%, 10rem); max-width: 24rem; }
+.dash-search svg { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+.dash-search .input { width: 100% !important; height: 2.25rem !important; padding-left: 2.125rem !important; }
+.auth-menu { position: relative; min-width: 0; }
+.auth-menu-trigger { min-height: 2.25rem; padding: 0 .5rem; max-width: min(12rem, 28vw); }
+.auth-menu-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-menu-panel {
+  position: absolute; right: 0; top: calc(100% + .5rem); z-index: 80;
+  width: min(22rem, calc(100vw - 1.5rem)); max-height: min(85dvh, 42rem);
+  overflow: auto; box-shadow: var(--shadow);
+}
 .notification-badge {
   position: absolute; top: -2px; right: -2px;
   min-width: 16px; height: 16px; padding: 0 4px;
@@ -2028,6 +2040,9 @@ img, video, iframe { max-width: 100%; height: auto; }
 .notification-del:hover { color: var(--danger); }
 
 @media (max-width: 480px) {
+  .dash-search { display: none; }
+  .auth-menu-trigger { max-width: 38vw; }
+  .auth-menu-panel { position: fixed; top: 3.5rem; right: .75rem; left: .75rem; width: auto; }
   .notification-menu {
     position: fixed; top: 56px; right: 12px; left: 12px; width: auto;
     max-height: 70dvh;

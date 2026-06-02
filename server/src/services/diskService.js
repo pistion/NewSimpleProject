@@ -5,6 +5,7 @@ class DiskService {
   async list(deploymentId) {
     const deployment = await findDeployment(deploymentId);
     const store = await readHostingStore();
+    normalizeDiskStore(store);
     return store.disks[deployment.deploymentId] || [];
   }
 
@@ -18,6 +19,7 @@ class DiskService {
     }
     const renderDisk = await renderApiService.createDisk(deployment.renderServiceId, disk);
     return mutateHostingStore((store) => {
+      normalizeDiskStore(store);
       const item = {
         diskId: renderDisk?.disk?.id || renderDisk?.id || makeId('disk'),
         name: disk.name,
@@ -39,6 +41,7 @@ class DiskService {
     const disk = validateDisk(input, false);
     const renderDisk = await renderApiService.updateDisk(deployment.renderServiceId, diskId, disk);
     return mutateHostingStore((store) => {
+      normalizeDiskStore(store);
       const item = (store.disks[deployment.deploymentId] || []).find((row) => row.diskId === diskId);
       if (!item) throw notFound('Disk not found.');
       Object.assign(item, disk, { renderDisk, updatedAt: nowIso() });
@@ -51,6 +54,7 @@ class DiskService {
     const deployment = await findDeployment(deploymentId);
     await renderApiService.deleteDisk(deployment.renderServiceId, diskId);
     return mutateHostingStore((store) => {
+      normalizeDiskStore(store);
       store.disks[deployment.deploymentId] = (store.disks[deployment.deploymentId] || []).filter((row) => row.diskId !== diskId);
       updateDeploymentDisks(store, deployment.deploymentId);
       return { deleted: true, diskId };
@@ -79,10 +83,17 @@ async function findDeployment(deploymentId) {
 }
 
 function updateDeploymentDisks(store, serviceId) {
+  normalizeDiskStore(store);
   const deployment = store.deployments.find((item) => item.deploymentId === serviceId);
   if (!deployment) return;
   deployment.diskMetadata = store.disks[serviceId] || [];
   deployment.updatedAt = nowIso();
+}
+
+function normalizeDiskStore(store) {
+  if (!Array.isArray(store.deployments)) store.deployments = [];
+  if (!store.disks || typeof store.disks !== 'object' || Array.isArray(store.disks)) store.disks = {};
+  return store;
 }
 
 function validationError(message) {
