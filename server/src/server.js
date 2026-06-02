@@ -40,7 +40,7 @@ import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
-import { prisma } from './services/db.js';
+import { prisma, ensureUserColumns } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import deploymentService from './services/deploymentService.js';
 import deploymentStatusService from './services/deploymentStatusService.js';
@@ -2037,6 +2037,9 @@ if (process.env.NODE_ENV !== 'test') {
     // Verify DB is reachable on startup — logs clearly if the file can't be opened.
     prisma.$connect()
       .then(() => console.log('[glondia] Database connection established.'))
+      // Self-heal additive User columns so a DB that predates a schema change
+      // doesn't 500 every auth/profile/billing query (push-based, no migrations).
+      .then(() => ensureUserColumns())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
   // Deploy-first K100 billing: enforce the 12-hour grace window every 5 minutes.

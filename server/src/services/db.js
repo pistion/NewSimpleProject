@@ -57,6 +57,61 @@ export async function connectPrisma() {
   await prisma.$connect();
 }
 
+/**
+ * Self-heal additive columns on the `users` table.
+ *
+ * The project is push-based (no migration files) and `db:push` only runs as a
+ * manual script — not on boot, and the `prisma` CLI is a devDependency so it
+ * cannot run in production. If the live DB predates a schema change, the Prisma
+ * client expects columns the table lacks and EVERY user query throws (500s on
+ * login/me/profile/billing/admin). This adds any missing columns idempotently
+ * via SQLite `ALTER TABLE ADD COLUMN` so the running DB matches the schema.
+ *
+ * Only additive, nullable/defaulted columns — never drops or alters existing
+ * data. No-op on non-SQLite datasources.
+ */
+export async function ensureUserColumns() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return; // SQLite only
+
+  // Column name (snake_case, matching @map) → SQLite definition.
+  const desired = [
+    ['phone', 'TEXT'],
+    ['profile_details', "TEXT NOT NULL DEFAULT '{}'"],
+    ['id_photo_path', 'TEXT'],
+    ['account_status', "TEXT NOT NULL DEFAULT 'active'"],
+    ['disabled_at', 'DATETIME'],
+    ['disabled_reason', 'TEXT'],
+    ['deleted_at', 'DATETIME'],
+    ['reactivated_at', 'DATETIME'],
+    ['promo_eligible', 'BOOLEAN NOT NULL DEFAULT 0'],
+    ['promo_signup_rank', 'INTEGER'],
+    ['promo_claimed_at', 'DATETIME'],
+    ['promo_claimed_order_id', 'TEXT'],
+    ['promo_claimed_deployment_id', 'TEXT'],
+    ['avatar_path', 'TEXT'],
+  ];
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(`PRAGMA table_info('users')`);
+    if (!Array.isArray(rows) || rows.length === 0) return; // table not created yet (fresh DB → db:push handles it)
+    const have = new Set(rows.map((r) => r.name));
+    const added = [];
+    for (const [name, def] of desired) {
+      if (have.has(name)) continue;
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN "${name}" ${def}`);
+        added.push(name);
+      } catch (err) {
+        console.error(`[db] Failed to add users.${name}:`, err.message);
+      }
+    }
+    if (added.length) console.log(`[db] Self-healed missing users columns: ${added.join(', ')}`);
+  } catch (err) {
+    console.error('[db] ensureUserColumns failed:', err.message);
+  }
+}
+
 export async function disconnectPrisma() {
   await prisma.$disconnect();
 }
