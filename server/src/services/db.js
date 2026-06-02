@@ -146,6 +146,40 @@ export async function ensureNotificationsTable() {
   }
 }
 
+/**
+ * Create the `deployment_subscriptions` table if it doesn't exist (same
+ * push-based reason as above). Without it, trial-subscription writes fail and
+ * the deploy-first billing/cleanup timers can't run. Idempotent. SQLite only.
+ */
+export async function ensureDeploymentSubscriptionsTable() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "deployment_subscriptions" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "deployment_id" TEXT NOT NULL UNIQUE,
+        "user_id" TEXT,
+        "checkout_order_id" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'trialing',
+        "current_period_start" DATETIME,
+        "current_period_end" DATETIME,
+        "next_billing_at" DATETIME,
+        "renewal_reminder_at" DATETIME,
+        "last_paid_at" DATETIME,
+        "renewal_count" INTEGER NOT NULL DEFAULT 0,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "deployment_subscriptions_user_id_idx" ON "deployment_subscriptions" ("user_id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "deployment_subscriptions_status_idx" ON "deployment_subscriptions" ("status")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "deployment_subscriptions_next_billing_at_idx" ON "deployment_subscriptions" ("next_billing_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "deployment_subscriptions_renewal_reminder_at_idx" ON "deployment_subscriptions" ("renewal_reminder_at")`);
+  } catch (err) {
+    console.error('[db] ensureDeploymentSubscriptionsTable failed:', err.message);
+  }
+}
+
 export async function disconnectPrisma() {
   await prisma.$disconnect();
 }

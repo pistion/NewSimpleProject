@@ -41,7 +41,7 @@ import adminRoutes from './routes/admin.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
-import { prisma, ensureUserColumns, ensureNotificationsTable } from './services/db.js';
+import { prisma, ensureUserColumns, ensureNotificationsTable, ensureDeploymentSubscriptionsTable } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import deploymentService from './services/deploymentService.js';
 import deploymentStatusService from './services/deploymentStatusService.js';
@@ -2045,6 +2045,7 @@ if (process.env.NODE_ENV !== 'test') {
       // predates a schema change doesn't 500 (push-based, no migrations).
       .then(() => ensureUserColumns())
       .then(() => ensureNotificationsTable())
+      .then(() => ensureDeploymentSubscriptionsTable())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
   // Deploy-first tiered billing: enforce the 12-hour grace window every 5 minutes.
