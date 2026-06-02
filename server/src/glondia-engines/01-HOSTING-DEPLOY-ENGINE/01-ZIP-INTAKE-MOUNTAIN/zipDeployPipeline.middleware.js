@@ -38,6 +38,12 @@ export async function runZipDeployPipeline(req, res, next) {
     next();
   } catch (error) {
     if (!error.stage) error.stage = 'zip_upload';
+    if (error.stage === 'zip_upload' && !error.expose) {
+      error.expose = true;
+      error.status = error.status || 500;
+      error.code = error.code || 'ZIP_UPLOAD_PIPELINE_ERROR';
+      error.message = error.message || 'ZIP upload could not be prepared on the server.';
+    }
     next(error);
   }
 }

@@ -1,19 +1,26 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const rootDir = resolve(process.cwd());
 const fallbackDataDir = join(rootDir, '.glondia-data');
-const dataDir = resolve(process.env.DATA_DIR || fallbackDataDir);
-const storePath = join(dataDir, 'render-hosting.json');
-const storeTmpPath = `${storePath}.tmp`;
-const storeBackupPath = `${storePath}.bak`;
+
+const configuredDataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : null;
+const candidateDataDirs = [
+  configuredDataDir,
+  fallbackDataDir,
+  join(tmpdir(), 'glondia-data'),
+].filter(Boolean);
+
+let activeStorePaths = null;
 
 // ── Mutex — prevents concurrent read-modify-write corruption ───────────────
 let writeLock = Promise.resolve();
 
 export async function readHostingStore() {
   await ensureStore();
+  const { storePath, storeBackupPath } = await getStorePaths();
   const text = await readFile(storePath, 'utf8');
   try {
     return JSON.parse(text);
@@ -48,6 +55,7 @@ export async function readHostingStore() {
  * This prevents partial-write corruption if the process is killed mid-write.
  */
 export async function writeHostingStore(store) {
+  const { storePath, storeTmpPath, storeBackupPath } = await getStorePaths();
   await mkdir(dirname(storePath), { recursive: true });
   const json = JSON.stringify(store, null, 2);
   // Backup current file before overwriting (best-effort)
@@ -95,9 +103,42 @@ function emptyStore() {
 }
 
 async function ensureStore() {
+  const { storePath } = await getStorePaths();
   if (existsSync(storePath)) return;
   await mkdir(dirname(storePath), { recursive: true });
   await writeFile(storePath, JSON.stringify(emptyStore(), null, 2));
+}
+
+async function getStorePaths() {
+  if (activeStorePaths) return activeStorePaths;
+
+  const errors = [];
+  for (const dir of candidateDataDirs) {
+    const path = join(dir, 'render-hosting.json');
+    try {
+      await mkdir(dir, { recursive: true });
+      if (!existsSync(path)) await writeFile(path, JSON.stringify(emptyStore(), null, 2));
+      activeStorePaths = {
+        dataDir: dir,
+        storePath: path,
+        storeTmpPath: `${path}.tmp`,
+        storeBackupPath: `${path}.bak`,
+      };
+      if (configuredDataDir && dir !== configuredDataDir) {
+        console.warn(`[hostingStore] DATA_DIR ${configuredDataDir} is not writable; using fallback ${dir}.`);
+      }
+      return activeStorePaths;
+    } catch (err) {
+      errors.push(`${dir}: ${err.message}`);
+    }
+  }
+
+  const error = new Error(`No writable hosting data directory found. Tried: ${errors.join(' | ')}`);
+  error.status = 500;
+  error.code = 'HOSTING_STORE_UNWRITABLE';
+  error.stage = 'zip_upload';
+  error.expose = true;
+  throw error;
 }
 
 /** Best-effort file copy for backup (avoids importing cp which may not exist). */
