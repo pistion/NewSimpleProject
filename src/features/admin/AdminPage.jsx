@@ -14,6 +14,7 @@ import {
   suspendDeployment,
   reactivateDeployment,
   approveDeploymentBilling,
+  setDeploymentRenderPlan,
   getAdminUser,
   disableUser,
   reactivateUser,
@@ -140,6 +141,10 @@ export function AdminPage() {
           <StatCard label="Orders" value={overview.orders?.total} />
           <StatCard label="Cleanup jobs" value={overview.cleanupJobs} />
           <StatCard label="Est. provider cost" value={overview.providerCost?.display} />
+          <StatCard label="Promo slots used" value={`${overview.promo?.used ?? 0} / ${overview.promo?.limit ?? 20}`} />
+          <StatCard label="Promo slots remaining" value={overview.promo?.remaining ?? 0} />
+          <StatCard label="Paid promo (K50)" value={overview.promo?.paidPromo ?? 0} />
+          <StatCard label="Paid standard (K200)" value={overview.promo?.paidStandard ?? 0} />
           <div className="card" style={{ gridColumn: '1 / -1', padding: 16 }}>
             <h3 style={{ marginTop: 0 }}>Deployment orders by status</h3>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -193,16 +198,21 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'deployments' && (
-        <Table cols={['Created', 'Service', 'User', 'Status', 'Payment', 'Due', 'Paid', 'Actions']}>
+        <Table cols={['Created', 'Service', 'Tier', 'Plan', 'Status', 'Payment', 'Due', 'Actions']}>
           {deployments.map((d) => (
             <tr key={d.deploymentId}>
               <td>{when(d.createdAt)}</td>
               <td>{d.serviceName || '—'}<div className="mono muted" style={{ fontSize: 11 }}>{d.deploymentId?.slice(0, 12)}</div></td>
-              <td className="mono">{d.userId || '—'}</td>
+              <td style={{ fontSize: 12 }}>
+                {d.billingTierId === 'promo_50' ? 'K50 promo' : d.billingTierId === 'standard_200' ? 'K200' : (d.priceCents != null ? money(d.priceCents, d.priceCurrency) : '—')}
+              </td>
+              <td style={{ fontSize: 12 }}>
+                <div><b>{d.renderPlan || '—'}</b>{d.renderPlanTargetAfterPayment ? <span className="muted"> → {d.renderPlanTargetAfterPayment}</span> : ''}</div>
+                {d.renderPlanUpgradeStatus && <StatusPill value={d.renderPlanUpgradeStatus === 'failed' ? 'failed' : d.renderPlanUpgradeStatus} />}
+              </td>
               <td><StatusPill value={d.status} /></td>
               <td><StatusPill value={d.paymentStatus} /></td>
               <td style={{ fontSize: 12 }}>{when(d.billingDueAt)}</td>
-              <td style={{ fontSize: 12 }}>{when(d.paidAt)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {d.liveUrl && (
                   <><a className="btn btn-sm btn-outline" href={d.liveUrl} target="_blank" rel="noopener noreferrer">Open</a>{' '}</>
@@ -220,6 +230,15 @@ export function AdminPage() {
                 )}{' '}
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
                   onClick={() => act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment')}>Delete</button>
+                <div style={{ marginTop: 6 }}>
+                  <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Render plan:</span>
+                  {['free', 'starter', 'standard'].map((p) => (
+                    <button key={p} className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId || d.renderPlan === p}
+                      onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, p, false), `Set plan ${p}`)}>{p}</button>
+                  ))}{' '}
+                  <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
+                    onClick={() => act(d.deploymentId, () => setDeploymentRenderPlan(d.deploymentId, d.renderPlan || 'free', true), 'Redeploy')}>Redeploy</button>
+                </div>
               </td>
             </tr>
           ))}

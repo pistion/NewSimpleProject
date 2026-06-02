@@ -14,6 +14,9 @@ export const getPaymentOrder = (orderId) => liveApiRequest(`/payments/orders/${e
 // Backward-compatible alias.
 export const getOrder = getPaymentOrder;
 
+/** Launch pricing tiers + promo availability for the deploy tier selector. */
+export const getDeploymentPricing = () => liveApiRequest('/payments/pricing');
+
 /**
  * Upload a manual bank-transfer receipt (PDF/PNG/JPG/JPEG) for an order.
  * Canonical form: uploadManualReceipt({ checkoutOrderId, file, note }).

@@ -160,4 +160,17 @@ router.post('/deployments/:deploymentId/approve-billing', async (req, res, next)
   try { res.json({ data: await adminService.approveDeploymentBilling(req.params.deploymentId, req.user.id), requestId: req.id }); } catch (e) { next(e); }
 });
 
+// Manual Render plan override: { plan: 'free'|'starter'|'standard', redeploy: bool }
+router.post('/deployments/:deploymentId/render-plan', async (req, res, next) => {
+  try {
+    res.json({
+      data: await adminService.setDeploymentRenderPlan(req.params.deploymentId, req.body?.plan, {
+        redeploy: req.body?.redeploy === true || req.body?.redeploy === 'true',
+        adminUserId: req.user.id,
+      }),
+      requestId: req.id,
+    });
+  } catch (e) { next(e); }
+});
+
 export default router;

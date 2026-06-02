@@ -19,11 +19,17 @@ async function attachBilling(deployment, req, kind) {
   if (!deployment || deployment.deploymentId == null) return null;
   if (deployment.status === 'failed') return null;
   try {
-    return await createDeploymentOrder({ deployment, user: req.user || {}, kind });
+    const billingTierId = req.body?.billingTierId || req.body?.tierId || null;
+    return await createDeploymentOrder({ deployment, user: req.user || {}, kind, billingTierId });
   } catch (error) {
     console.error('[billing] Failed to attach deployment billing order:', error.message);
     return null;
   }
+}
+
+/** Pipeline context: only an admin may force a non-free initial Render plan. */
+function deployContext(req) {
+  return { userId: req.user?.id, isAdmin: req.user?.role === 'admin' };
 }
 
 const hostingDeployController = {
@@ -54,7 +60,7 @@ const hostingDeployController = {
 
   createGithubDeployment: async (req, res, next) => {
     try {
-      const deployment = await runGithubLinkToRender(req.body || {}, { userId: req.user?.id });
+      const deployment = await runGithubLinkToRender(req.body || {}, deployContext(req));
       const billing = await attachBilling(deployment, req, 'github');
       res.status(202).json({ data: { ...deployment, billing }, billing, message: 'GitHub deployment session started.', requestId: req.id });
     } catch (error) {
@@ -66,7 +72,7 @@ const hostingDeployController = {
   createZipDeployment: async (req, res, next) => {
     try {
       const file = req.file || req.files?.siteZip?.[0] || req.files?.zip?.[0] || req.files?.file?.[0];
-      const deployment = await runZipToRender({ file, fields: req.body || {} }, { userId: req.user?.id });
+      const deployment = await runZipToRender({ file, fields: req.body || {} }, deployContext(req));
       const billing = await attachBilling(deployment, req, 'zip');
       res.status(202).json({ data: { ...deployment, billing }, billing, message: 'ZIP deployment session started.', requestId: req.id });
     } catch (error) {

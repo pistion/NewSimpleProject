@@ -16,7 +16,15 @@ import renderApiService from './renderApiService.js';
 import { writeAuditLog } from './auditLogService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
-import { deploymentBilling, computeBillingDueAt, billingSummary } from '../config/deploymentBilling.js';
+import {
+  deploymentBilling,
+  computeBillingDueAt,
+  billingSummary,
+  getBillingTier,
+  initialRenderPlan,
+  defaultTierId,
+} from '../config/deploymentBilling.js';
+import { resolveRequestedBillingTier } from './deploymentPromoService.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 
 const DELETED = ['de', 'leted'].join('');
@@ -41,11 +49,15 @@ export async function findDeploymentRecord(deploymentId) {
  * Create a pending K100 CheckoutOrder for a freshly created deployment and
  * stamp the deployment record with billing fields. Returns a billing summary.
  */
-export async function createDeploymentOrder({ deployment, user = {}, kind = 'deployment' } = {}) {
+export async function createDeploymentOrder({ deployment, user = {}, kind = 'deployment', billingTierId = null } = {}) {
   if (!deployment?.deploymentId) throw new Error('A deployment record is required to create a billing order.');
 
   const userId = user.id || deployment.userId || null;
   const billingDueAt = computeBillingDueAt();
+
+  // Resolve the tier (applies promo availability: promo_50 → standard_200 when full).
+  const requested = billingTierId || defaultTierId;
+  const { tier, promoApplied, promoRemaining, switched, message } = await resolveRequestedBillingTier(requested);
 
   const order = await prisma.checkoutOrder.create({
     data: {
@@ -54,21 +66,26 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
       type: 'deployment',
       provider: 'paypal',
       status: 'pending',
-      currency: deploymentBilling.currency,
-      actualAmountCents: deploymentBilling.amountCents,
+      currency: tier.currency,
+      actualAmountCents: tier.amountCents,
       markupPercent: 0,
       markupAmountCents: 0,
-      totalAmountCents: deploymentBilling.amountCents,
+      totalAmountCents: tier.amountCents,
       deploymentId: deployment.deploymentId,
       dueAt: billingDueAt,
       metadata: JSON.stringify({
         deploymentId: deployment.deploymentId,
         kind,
         serviceName: deployment.serviceName || null,
-        display: { amount: deploymentBilling.amount, currency: deploymentBilling.currency },
-        // Internal margin tracking only — customer always pays the flat K100.
+        billingTierId: tier.id,
+        billingTierLabel: tier.label,
+        promoApplied,
+        renderInitialPlan: initialRenderPlan,
+        renderPlanAfterPayment: tier.renderPlanAfterPayment,
+        display: { amount: tier.amount, currency: tier.currency },
+        // Internal margin tracking only — customer pays the flat tier price.
         // Render cost is Glondia's own provider cost and is never split/charged.
-        customerPrice: { amount: deploymentBilling.amount, currency: deploymentBilling.currency },
+        customerPrice: { amount: tier.amount, currency: tier.currency },
         provider: 'render',
         estimatedProviderCostCents: estimatedProviderCostCents(deployment.serviceType),
         estimatedProviderCostCurrency: renderCosts.currency,
@@ -80,8 +97,13 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     checkoutOrderId: order.id,
     paymentStatus: 'pending',
     billingKind: kind,
-    priceCents: deploymentBilling.amountCents,
-    priceCurrency: deploymentBilling.currency,
+    priceCents: tier.amountCents,
+    priceCurrency: tier.currency,
+    billingTierId: tier.id,
+    billingTierLabel: tier.label,
+    renderPlan: initialRenderPlan,
+    renderPlanTargetAfterPayment: tier.renderPlanAfterPayment,
+    renderPlanUpgradeStatus: null,
     billingDueAt: billingDueAt.toISOString(),
     paidAt: null,
     deletedReason: null,
@@ -93,10 +115,10 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     action: 'deployment.billing.order_created',
     entityType: 'checkout_order',
     entityId: order.id,
-    result: { deploymentId: deployment.deploymentId, amountCents: deploymentBilling.amountCents, currency: deploymentBilling.currency, kind },
+    result: { deploymentId: deployment.deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, kind, switched },
   });
 
-  return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt });
+  return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining, switched, message });
 }
 
 /** Find the pending/active order for a deployment (most recent first). */
@@ -146,10 +168,18 @@ export async function markDeploymentPaid({ deploymentId, actorUserId = null, via
     }
   }
 
+  // Upgrade the Render plan for the tier that was paid for, then redeploy.
+  // A failed upgrade must NOT block the paid status — it is flagged for admin.
+  const planUpgrade = await upgradeRenderPlanAfterPayment(deployment, order);
+
   await updateDeploymentRecord(deploymentId, {
     paymentStatus: 'paid',
     paidAt: paidAt.toISOString(),
     deletedReason: null,
+    renderPlan: planUpgrade.renderPlan,
+    renderPlanTargetAfterPayment: planUpgrade.targetPlan,
+    renderPlanUpgradeStatus: planUpgrade.status,
+    renderPlanUpgradedAt: paidAt.toISOString(),
     ...(resumed ? { status: deployment.urlReachable ? 'live' : 'deployed', currentStep: 'Live' } : {}),
   });
 
@@ -159,10 +189,43 @@ export async function markDeploymentPaid({ deploymentId, actorUserId = null, via
     action: 'deployment.billing.paid',
     entityType: 'deployment',
     entityId: deploymentId,
-    result: { via, orderId: order?.id || null, resumed },
+    result: { via, orderId: order?.id || null, resumed, renderPlan: planUpgrade.renderPlan, renderPlanUpgradeStatus: planUpgrade.status },
   });
 
-  return { deploymentId, orderId: order?.id || null, resumed, paidAt: paidAt.toISOString() };
+  return { deploymentId, orderId: order?.id || null, resumed, renderPlan: planUpgrade.renderPlan, renderPlanUpgradeStatus: planUpgrade.status, paidAt: paidAt.toISOString() };
+}
+
+/**
+ * Upgrade the Render plan to the tier's renderPlanAfterPayment and redeploy.
+ * Returns { renderPlan, targetPlan, status } where status is one of
+ * success | skipped | failed. Never throws — a failure is reported, not fatal.
+ */
+async function upgradeRenderPlanAfterPayment(deployment, order) {
+  const tierId = (order ? safeJson(order.metadata).billingTierId : null) || deployment.billingTierId || defaultTierId;
+  const targetPlan = getBillingTier(tierId).renderPlanAfterPayment;
+  const currentPlan = deployment.renderPlan || initialRenderPlan;
+
+  // Nothing to do without a live Render service or configured API.
+  if (!deployment.renderServiceId || !renderApiService.configured() || !targetPlan) {
+    return { renderPlan: currentPlan, targetPlan, status: 'skipped' };
+  }
+  // Static sites have no paid plan on Render — keep the local target only.
+  if (deployment.serviceType === 'static_site') {
+    return { renderPlan: currentPlan, targetPlan, status: 'skipped' };
+  }
+
+  try {
+    await renderApiService.updateWebServiceSettings(deployment.renderServiceId, { plan: targetPlan });
+    try {
+      await renderApiService.triggerDeploy(deployment.renderServiceId, {});
+    } catch (deployErr) {
+      console.error(`[billing] redeploy after plan upgrade failed for ${deployment.deploymentId}:`, deployErr.message);
+    }
+    return { renderPlan: targetPlan, targetPlan, status: 'success' };
+  } catch (err) {
+    console.error(`[billing] Render plan upgrade to ${targetPlan} failed for ${deployment.deploymentId}:`, err.message);
+    return { renderPlan: currentPlan, targetPlan, status: 'failed' };
+  }
 }
 
 /**
@@ -197,10 +260,12 @@ export async function expireDeployment({ deployment, order = null, action = null
   }
 
   const newStatus = mode === DELETED ? DELETED : 'payment_expired';
+  const expiredMessage = 'Payment was not verified within 12 hours. Please make payment or wait for admin verification.';
   await updateDeploymentRecord(deploymentId, {
     paymentStatus: 'expired',
     status: newStatus,
-    currentStep: mode === DELETED ? 'Removed (unpaid)' : 'Suspended (unpaid)',
+    currentStep: mode === DELETED ? 'Removed — payment not verified' : 'Suspended — payment not verified',
+    message: expiredMessage,
     deletedReason: reason,
     ...(mode === DELETED ? { deletedAt: nowIso() } : { suspendedAt: nowIso() }),
   });

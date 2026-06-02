@@ -10,10 +10,15 @@
 import { prisma } from '../services/db.js';
 import { readHostingStore } from '../services/hostingStore.js';
 import renderApiService from '../services/renderApiService.js';
-import { deploymentBilling } from '../config/deploymentBilling.js';
+import { deploymentBilling, billingTiers, initialRenderPlan } from '../config/deploymentBilling.js';
+import { getPromoUsage } from '../services/deploymentPromoService.js';
 
 function dbUserId(userId) {
   return userId && userId !== 'local-user' ? userId : null;
+}
+
+function safeJson(text) {
+  try { return JSON.parse(text || '{}'); } catch { return {}; }
 }
 
 function providerStatus() {
@@ -52,17 +57,24 @@ const BillingController = {
         include: { receipts: { orderBy: { createdAt: 'desc' }, select: { id: true, status: true, fileName: true, createdAt: true } } },
       });
 
-      const orders = orderRows.map((o) => ({
-        id: o.id,
-        deploymentId: o.deploymentId,
-        status: o.status,
-        totalAmountCents: o.totalAmountCents,
-        currency: o.currency,
-        dueAt: o.dueAt,
-        paidAt: o.paidAt,
-        provider: o.provider,
-        receipts: o.receipts,
-      }));
+      const orders = orderRows.map((o) => {
+        const meta = safeJson(o.metadata);
+        return {
+          id: o.id,
+          deploymentId: o.deploymentId,
+          status: o.status,
+          totalAmountCents: o.totalAmountCents,
+          currency: o.currency,
+          displayAmount: `${o.currency || 'PGK'} ${((o.totalAmountCents || 0) / 100).toFixed(0)}`,
+          billingTierId: meta.billingTierId || null,
+          billingTierLabel: meta.billingTierLabel || null,
+          renderPlanAfterPayment: meta.renderPlanAfterPayment || null,
+          dueAt: o.dueAt,
+          paidAt: o.paidAt,
+          provider: o.provider,
+          receipts: o.receipts,
+        };
+      });
 
       const deployments = ownDeployments.map((d) => ({
         deploymentId: d.deploymentId,
@@ -74,12 +86,28 @@ const BillingController = {
         checkoutOrderId: d.checkoutOrderId || null,
       }));
 
+      const promo = await getPromoUsage();
+      const tiers = Object.values(billingTiers).map((t) => ({
+        id: t.id,
+        label: t.label,
+        amount: t.amount,
+        currency: t.currency,
+        displayAmount: `K${t.amount}`,
+        promo: t.promo === true,
+        renderPlanAfterPayment: t.renderPlanAfterPayment,
+        available: t.promo ? promo.available : true,
+      }));
+
       res.ok({
         pricing: {
           deploymentAmount: deploymentBilling.amount,
           deploymentCurrency: deploymentBilling.currency,
           displayAmount: `K${deploymentBilling.amount}`,
           graceHours: deploymentBilling.graceHours,
+          initialRenderPlan,
+          tiers,
+          promo: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
+          freeHostingMessage: 'Your site starts on free hosting for 12 hours. After payment is verified, we upgrade your Render plan and redeploy.',
         },
         orders,
         deployments,

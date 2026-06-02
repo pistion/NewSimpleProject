@@ -18,7 +18,8 @@ import { prisma } from '../services/db.js';
 import { writeAuditLog } from '../services/auditLogService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { findDeploymentRecord } from '../services/deploymentBillingService.js';
-import { deploymentBilling } from '../config/deploymentBilling.js';
+import { deploymentBilling, billingTiers, graceHours, initialRenderPlan } from '../config/deploymentBilling.js';
+import { getPromoUsage } from '../services/deploymentPromoService.js';
 import {
   createDeploymentPaypalOrder,
   captureDeploymentPaypalOrder,
@@ -75,6 +76,34 @@ const upload = multer({
 });
 
 router.use(authMiddleware);
+
+// ── Launch pricing + promo availability (for the deploy tier selector) ───────
+router.get('/pricing', async (req, res, next) => {
+  try {
+    const promo = await getPromoUsage();
+    const tiers = Object.values(billingTiers).map((t) => ({
+      id: t.id,
+      label: t.label,
+      amount: t.amount,
+      amountCents: t.amountCents,
+      currency: t.currency,
+      displayAmount: `K${t.amount}`,
+      promo: t.promo === true,
+      renderPlanAfterPayment: t.renderPlanAfterPayment,
+      // The promo tier is only selectable while slots remain.
+      available: t.promo ? promo.available : true,
+    }));
+    res.json({
+      data: {
+        tiers,
+        graceHours,
+        initialRenderPlan,
+        promo: { limit: promo.limit, used: promo.used, remaining: promo.remaining, available: promo.available },
+      },
+      requestId: req.id,
+    });
+  } catch (error) { next(error); }
+});
 
 // ── Order status (owner only) ────────────────────────────────────────────────
 router.get('/orders/:orderId', async (req, res, next) => {

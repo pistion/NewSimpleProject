@@ -87,10 +87,26 @@ export default function BillingPage() {
 
       {/* Pricing + payment rule */}
       <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-        <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>
-        <div className="muted" style={{ fontSize: 13, marginTop: 8, maxWidth: 520 }}>
-          Deploy first, pay within {pricing?.graceHours || 12} hours. Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
+        <div className="row between" style={{ alignItems: 'flex-start' }}>
+          <div className="page-eyebrow" style={{ marginBottom: 6 }}>Launch pricing</div>
+          {typeof pricing?.promo?.remaining === 'number' && (
+            <span className="muted" style={{ fontSize: 12 }}>{pricing.promo.remaining} K50 promo slot{pricing.promo.remaining === 1 ? '' : 's'} left</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+          {(pricing?.tiers || []).map((t) => (
+            <div key={t.id} style={{ opacity: t.available ? 1 : 0.5 }}>
+              <span style={{ fontFamily: 'var(--serif)', fontSize: 30, lineHeight: 1 }}>{t.displayAmount}</span>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>{t.label}{t.promo && !t.available ? ' · sold out' : ''}</span>
+            </div>
+          ))}
+          {!pricing?.tiers && <div style={{ fontFamily: 'var(--serif)', fontSize: 34, lineHeight: 1 }}>{pricing?.displayAmount || 'K200'} <span style={{ fontSize: 14 }} className="muted">per deployment</span></div>}
+        </div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 10, maxWidth: 560 }}>
+          {pricing?.freeHostingMessage || `Your site starts on free hosting for ${pricing?.graceHours || 12} hours. After payment is verified, we upgrade your Render plan and redeploy.`}
+        </div>
+        <div className="muted" style={{ fontSize: 13, marginTop: 4, maxWidth: 560 }}>
+          Pay by PayPal / card, or upload a bank transfer receipt for admin approval.
         </div>
       </div>
 
@@ -172,7 +188,7 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
     <div className="card" style={{ padding: 18 }}>
       <div className="row between" style={{ alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>{deployment?.serviceName || 'Deployment'} <span className="muted" style={{ fontSize: 13 }}>· {amount}</span></div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{deployment?.serviceName || 'Deployment'} <span className="muted" style={{ fontSize: 13 }}>· {amount}{order.billingTierLabel ? ` · ${order.billingTierLabel}` : ''}</span></div>
           <div className="mono muted" style={{ fontSize: 12, marginTop: 2 }}>deployment: {order.deploymentId || '—'}</div>
           <div className="mono muted" style={{ fontSize: 12 }}>order: {order.id}</div>
           {deployment?.liveUrl && <a className="mono" style={{ fontSize: 12 }} href={deployment.liveUrl} target="_blank" rel="noopener noreferrer">{deployment.liveUrl.replace(/^https?:\/\//, '')}</a>}

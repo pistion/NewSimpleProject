@@ -7,6 +7,7 @@ import {
   createZipHostingDeployment,
   getHostingDeploySettings,
 } from '../../../api/hosting-deploy.js';
+import { getDeploymentPricing } from '../../../api/payments.js';
 import { GithubPreparePanel } from '../prepare/GithubPreparePanel.jsx';
 import { HandoffReadinessCard, getHandoffReadinessChecks } from '../prepare/HandoffReadinessCard.jsx';
 import { HandoffSummaryCard } from '../prepare/HandoffSummaryCard.jsx';
@@ -169,6 +170,61 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
+/**
+ * Launch pricing selector: K50 promo (first 20 launch customers) vs K200
+ * standard. The promo option disables itself once slots are gone.
+ */
+function PricingTierSelector({ pricing, value, onChange }) {
+  const tiers = pricing?.tiers || [
+    { id: 'promo_50', label: 'Launch promo (first 20)', displayAmount: 'K50', promo: true, available: false, renderPlanAfterPayment: 'starter' },
+    { id: 'standard_200', label: 'Standard hosting', displayAmount: 'K200', promo: false, available: true, renderPlanAfterPayment: 'standard' },
+  ];
+  const promoRemaining = pricing?.promo?.remaining;
+  const graceHours = pricing?.graceHours || 12;
+
+  // If the selected promo tier is no longer available, fall back to standard.
+  React.useEffect(() => {
+    const selected = tiers.find((t) => t.id === value);
+    if (selected && selected.promo && selected.available === false) onChange('standard_200');
+  }, [pricing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+      <div className="row between" style={{ alignItems: 'center', marginBottom: 10 }}>
+        <div className="eyebrow">Launch hosting price</div>
+        {typeof promoRemaining === 'number' && (
+          <span className="muted" style={{ fontSize: 12 }}>{promoRemaining} promo slot{promoRemaining === 1 ? '' : 's'} left</span>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+        {tiers.map((t) => {
+          const disabled = t.promo && t.available === false;
+          const active = value === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(t.id)}
+              style={{
+                textAlign: 'left', padding: '12px 14px', borderRadius: 'var(--r-md)', cursor: disabled ? 'not-allowed' : 'pointer',
+                border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? 'var(--accent-soft)' : 'var(--bg-deep)', opacity: disabled ? 0.5 : 1,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{t.displayAmount} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{t.label}</span></div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to Render <b>{t.renderPlanAfterPayment}</b> after payment{disabled ? ' · sold out' : ''}</div>
+            </button>
+          );
+        })}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+        Your site starts on free hosting for {graceHours} hours. After payment is verified, we upgrade your Render plan and redeploy.
+      </div>
+    </div>
+  );
+}
+
 export function BuilderImport({ mode = 'github', navigate }) {
   const [activeMode, setActiveMode] = useStateB(mode === 'zip' ? 'zip' : 'github');
   const [handoffDraft, setHandoffDraft] = useStateB({
@@ -207,6 +263,9 @@ export function BuilderImport({ mode = 'github', navigate }) {
   const [settingsMode, setSettingsMode] = useStateB('basic');
   const [activePreset, setActivePreset] = useStateB(null);
   const [presetNotice, setPresetNotice] = useStateB('');
+  // Launch pricing tier selection (K50 promo while slots remain, else K200).
+  const [pricing, setPricing] = useStateB(null);
+  const [billingTierId, setBillingTierId] = useStateB('standard_200');
   const phaseTimer = React.useRef(null);
   const fileInputRef = React.useRef(null);
   const detectedRepo = parseGithubRepo(repoUrl);
@@ -281,6 +340,8 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   React.useEffect(() => () => clearTimeout(phaseTimer.current), []);
   React.useEffect(() => setActiveMode(mode === 'zip' ? 'zip' : 'github'), [mode]);
+  // Load launch pricing once so the tier selector knows promo availability.
+  React.useEffect(() => { getDeploymentPricing().then(setPricing).catch(() => {}); }, []);
   React.useEffect(() => { if (activeMode !== 'zip') return; getHostingDeploySettings().then((cfg) => setZipConfig(cfg)).catch(() => {}); }, [activeMode]);
   React.useEffect(() => {
     const isStatic = renderConfig.serviceType === 'static_site';
@@ -341,6 +402,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
         runtime: isStaticSite ? '' : renderConfig.runtime,
         source: 'github-link',
         sourceReference: repoUrl,
+        billingTierId,
       });
       clearTimeout(phaseTimer.current); setImportPhase('complete'); window.setTimeout(() => navigate({ view: 'hosting-detail', params: { id: result.deploymentId || result.id } }), 700);
     } catch (err) { setGitError(err.message || 'Failed to connect repository.'); setImportPhase('error'); } finally { setGitBusy(false); }
@@ -363,6 +425,8 @@ export function BuilderImport({ mode = 'github', navigate }) {
         repoUrl: renderConfig.repoUrl,
         branch: repoBranch || 'main',
         rootDirectory: isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory,
+        // Launch pricing tier (promo_50 or standard_200)
+        billingTierId,
         // Env vars (JSON-stringified — route parses it back)
         // Disk (web services only, JSON-stringified)
       });
@@ -376,6 +440,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
     <>
       <div className="page-head"><div><a className="page-eyebrow" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: 'builder-gallery' }); }}>Back to site builder</a><h1>Prepare an existing site</h1><p className="sub">Prepare source from GitHub or a ZIP package, then send the handoff to Hosting. Hosting owns the live deployment controls.</p></div></div>
       <div className="tabs" style={{ marginBottom: 14 }}><button className={activeMode === 'github' ? 'active' : ''} onClick={() => { setActiveMode('github'); setImportPhase(repoUrl ? (detectedRepo ? 'detected' : 'checking') : 'idle'); }}><ICN.Git size={14} /> GitHub</button><button className={activeMode === 'zip' ? 'active' : ''} onClick={() => { setActiveMode('zip'); setImportPhase(zipFile ? 'zip_ready' : 'idle'); }}><ICN.Box size={14} /> ZIP upload</button></div>
+      <PricingTierSelector pricing={pricing} value={billingTierId} onChange={setBillingTierId} />
       <div className="card card-flush builder-import-workspace" style={{ overflow: 'hidden' }}><div className="bld-split"><div className="github-pull-toggle"><div className="github-pull-head"><div className="github-pull-icon">{activeMode === 'zip' ? <ICN.Box size={18} /> : <ICN.Github size={18} />}</div><div><div className="eyebrow">{activeMode === 'zip' ? 'ZIP preparation' : 'GitHub preparation'}</div><h2>{activeMode === 'zip' ? 'Drag and drop to prepare' : 'Import from repository'}</h2></div></div>
         {activeMode === 'github' ? (
           <GithubPreparePanel repoUrl={repoUrl} repoBranch={repoBranch} detectedRepo={detectedRepo} gitBusy={gitBusy} gitError={gitError} importPhase={importPhase} onRepoUrlChange={updateRepoUrl} onBranchChange={setRepoBranch} onImport={handleGitConnect} />

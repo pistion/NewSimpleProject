@@ -16,9 +16,11 @@ import {
   expireDeployment,
 } from './deploymentBillingService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
+import { getPromoUsage } from './deploymentPromoService.js';
 
 const VALID_ROLES = new Set(['owner', 'admin', 'member']);
 const VALID_ACCOUNT_STATUS = new Set(['active', 'suspended', 'disabled', 'deleted']);
+const VALID_RENDER_PLANS = new Set(['free', 'starter', 'standard']);
 
 function httpError(message, status = 400) {
   return Object.assign(new Error(message), { status, expose: true });
@@ -75,8 +77,20 @@ function deploymentView(d, orderByDeployment = {}) {
     deletedReason: d.deletedReason || null,
     checkoutOrderId: d.checkoutOrderId || null,
     renderServiceId: d.renderServiceId || null,
+    serviceType: d.serviceType || null,
     liveUrl: d.liveUrl || null,
     platformDeployed: d.platformDeployed === true,
+    // Launch pricing + Render plan lifecycle.
+    billingTierId: d.billingTierId || (order ? safeJson(order.metadata).billingTierId : null) || null,
+    billingTierLabel: d.billingTierLabel || (order ? safeJson(order.metadata).billingTierLabel : null) || null,
+    priceCents: d.priceCents ?? (order ? order.totalAmountCents : null) ?? null,
+    priceCurrency: d.priceCurrency || (order ? order.currency : null) || null,
+    renderPlan: d.renderPlan || null,
+    renderPlanTargetAfterPayment: d.renderPlanTargetAfterPayment || (order ? safeJson(order.metadata).renderPlanAfterPayment : null) || null,
+    renderPlanUpgradeStatus: d.renderPlanUpgradeStatus || null,
+    renderPlanUpgradedAt: d.renderPlanUpgradedAt || null,
+    renderPlanChangedAt: d.renderPlanChangedAt || null,
+    message: d.message || null,
     createdAt: d.createdAt || null,
     updatedAt: d.updatedAt || null,
     order: order ? { id: order.id, status: order.status, totalAmountCents: order.totalAmountCents, currency: order.currency } : null,
@@ -93,12 +107,13 @@ function safeJson(text) {
 }
 
 export async function getOverview() {
-  const [users, orders, receiptsPending, cleanupJobs, deployments] = await Promise.all([
+  const [users, orders, receiptsPending, cleanupJobs, deployments, promo] = await Promise.all([
     prisma.user.count(),
     prisma.checkoutOrder.findMany({ where: { type: 'deployment' }, select: { status: true, totalAmountCents: true, currency: true, metadata: true } }),
     prisma.paymentReceipt.count({ where: { status: 'pending' } }),
     prisma.deploymentCleanupJob.count(),
     loadDeployments(),
+    getPromoUsage(),
   ]);
 
   const ordersByStatus = { paid: 0, pending: 0, payment_uploaded: 0, expired: 0 };
@@ -138,6 +153,13 @@ export async function getOverview() {
     },
     receipts: { pending: receiptsPending },
     cleanupJobs,
+    promo: {
+      limit: promo.limit,
+      used: promo.used,
+      remaining: promo.remaining,
+      paidPromo: promo.paidPromo,
+      paidStandard: promo.paidStandard,
+    },
     revenue: { paidCents, currency: paidCurrency, paidDisplay: `${paidCurrency} ${(paidCents / 100).toFixed(2)}` },
     // Internal only: provider cost + platform margin. Currencies differ (customer
     // pays PGK, Render cost tracked in its own currency) so they are NOT mixed.
@@ -525,6 +547,65 @@ export async function approveDeploymentBilling(deploymentId, adminUserId = null)
   return { deploymentId, paymentStatus: 'paid', ...result };
 }
 
+/**
+ * Admin manual Render plan override (free | starter | standard), optionally
+ * redeploying. Web services apply the plan on Render; static sites have no paid
+ * plan, so we only record the change locally.
+ */
+export async function setDeploymentRenderPlan(deploymentId, plan, { redeploy = false, adminUserId = null } = {}) {
+  const normalizedPlan = String(plan || '').toLowerCase();
+  if (!VALID_RENDER_PLANS.has(normalizedPlan)) {
+    throw httpError('Plan must be one of: free, starter, standard.', 400);
+  }
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw httpError('Deployment not found.', 404);
+  if (!deployment.renderServiceId) throw httpError('Deployment has no Render service to update.', 400);
+
+  const isStatic = deployment.serviceType === 'static_site';
+  let renderResult = 'skipped';
+  let redeployed = false;
+
+  if (renderApiService.configured()) {
+    if (isStatic) {
+      renderResult = 'skipped_static'; // static sites have no paid plan
+    } else {
+      try {
+        await renderApiService.updateWebServiceSettings(deployment.renderServiceId, { plan: normalizedPlan });
+        renderResult = 'updated';
+      } catch (err) {
+        console.error(`[admin] Render plan change failed for ${deploymentId}:`, err.message);
+        throw httpError(`Render plan update failed: ${err.message}`, 502);
+      }
+    }
+    if (redeploy && !isStatic) {
+      try {
+        await renderApiService.triggerDeploy(deployment.renderServiceId, {});
+        redeployed = true;
+      } catch (err) {
+        console.error(`[admin] Redeploy after plan change failed for ${deploymentId}:`, err.message);
+      }
+    }
+  } else {
+    renderResult = 'render_not_configured';
+  }
+
+  await updateDeploymentRecord(deploymentId, {
+    renderPlan: normalizedPlan,
+    renderPlanChangedAt: nowIso(),
+    renderPlanChangedBy: adminUserId || 'admin',
+  });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.deployment.render_plan_changed',
+    entityType: 'deployment',
+    entityId: deploymentId,
+    result: { plan: normalizedPlan, render: renderResult, redeployed },
+  });
+
+  return { deploymentId, renderPlan: normalizedPlan, render: renderResult, redeployed };
+}
+
 export default {
   getOverview,
   listUsers,
@@ -544,4 +625,5 @@ export default {
   suspendDeployment,
   reactivateDeployment,
   approveDeploymentBilling,
+  setDeploymentRenderPlan,
 };

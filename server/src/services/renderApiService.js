@@ -356,7 +356,7 @@ class RenderApiService {
       sourceRepository: { required: true, label: 'Source repository' },
       branch: { required: true, defaultValue: 'main', label: 'Branch' },
       rootDirectory: { required: false, label: 'Root directory' },
-      plan: { required: false, defaultValue: 'starter', label: 'Plan' },
+      plan: { required: false, defaultValue: process.env.RENDER_INITIAL_PLAN || 'free', label: 'Plan' },
       region: { required: false, defaultValue: 'oregon', label: 'Region' },
     };
 
@@ -552,7 +552,9 @@ class RenderApiService {
             // node|python|ruby|go|rust|elixir|docker|image). There is no `env`
             // field; `runtime` is required, so sending `env` drops it entirely.
             runtime,
-            plan: input.plan || 'starter',
+            // Launch-first rule: default to the free plan; paid plans are applied
+            // only after payment is verified (see deploymentBillingService).
+            plan: input.plan || process.env.RENDER_INITIAL_PLAN || 'free',
             region: input.region || 'oregon',
             envSpecificDetails: {
               buildCommand,

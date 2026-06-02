@@ -19,6 +19,7 @@ export const deleteDeployment   = (deploymentId) => liveApiRequest(`/admin/deplo
 export const suspendDeployment  = (deploymentId, reason) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/suspend`, { method: 'POST', body: { reason } });
 export const reactivateDeployment = (deploymentId) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/reactivate`, { method: 'POST' });
 export const approveDeploymentBilling = (deploymentId) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/approve-billing`, { method: 'POST' });
+export const setDeploymentRenderPlan = (deploymentId, plan, redeploy = false) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/render-plan`, { method: 'POST', body: { plan, redeploy } });
 
 // ── User detail + account lifecycle ──────────────────────────────────────────
 export const getAdminUser   = (userId)          => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}`);

@@ -22,7 +22,9 @@ export function buildRenderPayload(input = {}) {
     publishDirectory: input.publishDirectory || input.outputDirectory || null,
     startCommand: input.startCommand || null,
     runtime: input.runtime || input.env || null,
-    plan: input.plan || 'starter',
+    // Launch-first rule: default to the free plan unless an upstream caller
+    // (admin override) explicitly set one. Paid plans apply after payment.
+    plan: input.plan || process.env.RENDER_INITIAL_PLAN || 'free',
     region: input.region || 'oregon',
   };
 }

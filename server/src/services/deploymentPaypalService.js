@@ -10,7 +10,13 @@
  */
 import { prisma } from './db.js';
 import { markDeploymentPaid } from './deploymentBillingService.js';
-import { deploymentBilling } from '../config/deploymentBilling.js';
+import { deploymentBilling, getBillingTier, defaultTierId } from '../config/deploymentBilling.js';
+
+/** Resolve the pricing tier (and its processor charge) for an order. */
+function tierForOrder(order) {
+  const tierId = safeJson(order?.metadata).billingTierId || defaultTierId;
+  return getBillingTier(tierId);
+}
 
 const SANDBOX = String(process.env.PAYPAL_SANDBOX ?? 'true').toLowerCase() !== 'false';
 const BASE = SANDBOX ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
@@ -65,8 +71,10 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
     return { alreadyPaid: true, checkoutOrderId: order.id, paypalOrderId: order.providerOrderId };
   }
 
-  const value = deploymentBilling.processorAmount;
-  const currency = deploymentBilling.processorCurrency;
+  // Charge the processor amount for the order's selected tier (promo K50 vs K200).
+  const tier = tierForOrder(order);
+  const value = tier.processorAmount;
+  const currency = tier.processorCurrency;
   const token = await getToken();
 
   const ppRes = await fetch(`${BASE}/v2/checkout/orders`, {
@@ -76,7 +84,7 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
       intent: 'CAPTURE',
       purchase_units: [{
         reference_id: order.id,
-        description: `Glondia deployment hosting — K${deploymentBilling.amount} (${order.deploymentId || 'deployment'})`,
+        description: `Glondia deployment hosting — K${tier.amount} (${order.deploymentId || 'deployment'})`,
         custom_id: order.deploymentId || order.id,
         amount: {
           currency_code: currency, value,
@@ -84,7 +92,7 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
         },
         items: [{
           name: 'Glondia deployment hosting',
-          description: `Fixed K${deploymentBilling.amount} hosting fee`,
+          description: `K${tier.amount} hosting fee (${tier.label})`,
           quantity: '1',
           unit_amount: { currency_code: currency, value },
           category: 'DIGITAL_GOODS',
@@ -124,7 +132,8 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
     checkoutOrderId: order.id,
     paypalOrderId: ppOrder.id,
     approvalUrl,
-    display: { amount: deploymentBilling.amount, currency: deploymentBilling.currency },
+    billingTierId: tier.id,
+    display: { amount: tier.amount, currency: tier.currency },
     charged: { value, currency },
   };
 }
@@ -163,9 +172,10 @@ export async function captureDeploymentPaypalOrder({ paypalOrderId, user } = {})
     );
   }
 
-  // Verify the processor currency/amount we expected to charge.
-  const expectedCurrency = deploymentBilling.processorCurrency;
-  const expectedValue = deploymentBilling.processorAmount;
+  // Verify the processor currency/amount for this order's tier (promo vs standard).
+  const tier = tierForOrder(order);
+  const expectedCurrency = tier.processorCurrency;
+  const expectedValue = tier.processorAmount;
   if (captureRecord.amount?.currency_code !== expectedCurrency || captureRecord.amount?.value !== expectedValue) {
     console.error(`[paypal:deployment] amount mismatch: expected ${expectedValue} ${expectedCurrency}, got ${captureRecord.amount?.value} ${captureRecord.amount?.currency_code}`);
     throw Object.assign(new Error('Payment amount mismatch. Contact support.'), { status: 400, expose: true });

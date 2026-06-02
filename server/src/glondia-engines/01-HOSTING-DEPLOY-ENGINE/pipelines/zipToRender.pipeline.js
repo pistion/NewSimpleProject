@@ -29,6 +29,12 @@ export async function run(input = {}, context = {}) {
   const { file, fields, siteName, slug, uploadId, siteDir, targetRoot, sourceRepo, branch } = normalized;
   const cfg = getRuntimeConfig();
 
+  // Launch-first rule: every deployment starts on the free plan. Only an admin
+  // may force a non-free initial plan (e.g. internal/staff deploys).
+  const initialPlan = (context.isAdmin === true && fields.plan)
+    ? fields.plan
+    : (process.env.RENDER_INITIAL_PLAN || 'free');
+
   const deployment = await createDeploymentRecord({
     userId: normalized.userId,
     siteId: fields.siteId || null,
@@ -63,7 +69,7 @@ export async function run(input = {}, context = {}) {
     const useTemporaryRepo = shouldUseTemporaryRepo(fields);
     let activeSourceRepo = sourceRepo;
     let activeTargetRoot = targetRoot;
-    let renderInput = buildRenderInput(fields, siteName, serviceType, activeSourceRepo, branch, activeTargetRoot, shell, outputDirectory, detected);
+    let renderInput = buildRenderInput(fields, siteName, serviceType, activeSourceRepo, branch, activeTargetRoot, shell, outputDirectory, detected, initialPlan);
     let baseUpdate = buildBaseUpdate(deployment, serviceType, activeSourceRepo, branch, activeTargetRoot, renderInput, detected, extracted, manifest);
 
     await addDeploymentLog(deployment.deploymentId, `Detected ${detected.framework} (${detected.type}) and prepared ${extracted.files.length} deployable files.`, 'info');
@@ -89,7 +95,7 @@ export async function run(input = {}, context = {}) {
       activeSourceRepo = tempRepo.repoUrl;
       activeTargetRoot = '';
       githubPublish = tempRepo.githubPublish;
-      renderInput = buildRenderInput(fields, siteName, serviceType, activeSourceRepo, tempRepo.branch || branch, activeTargetRoot, shell, outputDirectory, detected);
+      renderInput = buildRenderInput(fields, siteName, serviceType, activeSourceRepo, tempRepo.branch || branch, activeTargetRoot, shell, outputDirectory, detected, initialPlan);
       baseUpdate = buildBaseUpdate(deployment, serviceType, activeSourceRepo, tempRepo.branch || branch, activeTargetRoot, renderInput, detected, extracted, manifest);
       baseUpdate.generatedSite.temporaryRepo = {
         repoUrl: tempRepo.repoUrl,
@@ -153,7 +159,7 @@ class ZipDeploymentPipelineService {
   }
 }
 
-function buildRenderInput(fields, siteName, serviceType, sourceRepo, branch, targetRoot, shell, outputDirectory, detected) {
+function buildRenderInput(fields, siteName, serviceType, sourceRepo, branch, targetRoot, shell, outputDirectory, detected, initialPlan = 'free') {
   return {
     serviceName: renderSafeName(siteName),
     serviceType,
@@ -167,7 +173,7 @@ function buildRenderInput(fields, siteName, serviceType, sourceRepo, branch, tar
     publishDirectory: outputDirectory,
     startCommand: fields.startCommand || detected.startCommand || detected.detectedStartCommand || '',
     runtime: fields.runtime || detected.runtime || '',
-    plan: fields.plan || 'starter',
+    plan: initialPlan,
     region: fields.region || 'oregon',
     framework: detected.framework,
   };

@@ -64,8 +64,9 @@ export async function run(input = {}, context = {}) {
     await addDeploymentLog(deployment.deploymentId, `Imported ${imported.files.length} files from client repository.`, 'ok');
 
     const detected = await detectProject(imported.localDir, imported.files);
-    const shell = await writeRenderBuildScript(imported.localDir, detected);
-    await addDeploymentLog(deployment.deploymentId, `Detected ${detected.framework} (${detected.type}). Build script prepared.`, 'info');
+    const project = applyDeployOverrides(input, detected);
+    const shell = await writeRenderBuildScript(imported.localDir, project);
+    await addDeploymentLog(deployment.deploymentId, `Detected ${detectedLabel(detected)}. Deploying as ${project.serviceType}. Build script prepared.`, 'info');
 
     const githubSource = {
       originalRepoUrl: imported.originalRepoUrl,
@@ -116,6 +117,12 @@ export async function run(input = {}, context = {}) {
       publishedCount: controlledRepo.publishedCount,
     };
 
+    // Launch-first rule: deploy on the free plan. Only an admin may force a
+    // non-free initial plan; a normal user's supplied `plan` is ignored.
+    const initialPlan = (context.isAdmin === true && input.plan)
+      ? input.plan
+      : (process.env.RENDER_INITIAL_PLAN || 'free');
+
     const renderPayload = buildRenderPayload({
       ...input,
       serviceName: normalized.siteName,
@@ -126,19 +133,20 @@ export async function run(input = {}, context = {}) {
       branch: controlledRepo.branch,
       rootDirectory: controlledRepo.rootDirectory || '',
       buildCommand: shell.buildCommand,
-      publishDirectory: detected.publishDirectory,
-      outputDirectory: detected.publishDirectory,
-      startCommand: detected.startCommand || '',
-      runtime: detected.runtime || '',
-      serviceType: detected.serviceType,
-      framework: detected.framework,
+      publishDirectory: project.publishDirectory,
+      outputDirectory: project.publishDirectory,
+      startCommand: project.startCommand || '',
+      runtime: project.runtime || '',
+      serviceType: project.serviceType,
+      framework: project.framework,
+      plan: initialPlan,
     });
 
     const baseUpdate = {
       repoUrl: controlledRepo.controlledRepoUrl,
       githubRepo: controlledRepo.controlledRepoUrl,
       githubBranch: controlledRepo.branch,
-      serviceType: detected.serviceType,
+      serviceType: project.serviceType,
       githubSource,
       controlledSource,
       environmentConfiguration: {
@@ -231,6 +239,47 @@ function stageToStep(stage) {
     render_service_create: 'Render service creation failed',
     render_deploy_trigger: 'Render deploy trigger failed',
   }[stage] || 'Failed';
+}
+
+function applyDeployOverrides(input = {}, detected = {}) {
+  const requestedServiceType = normalizeServiceType(input.serviceType || input.deployServiceType);
+  const serviceType = requestedServiceType || detected.serviceType || 'static_site';
+  const publishDirectory = input.publishDirectory || input.outputDirectory || detected.publishDirectory || '.';
+  const requestedBuildCommand = input.projectBuildCommand || input.detectedBuildCommand || (
+    input.buildCommand && input.buildCommand !== 'bash glondia-render-build.sh'
+      ? input.buildCommand
+      : null
+  );
+
+  return {
+    ...detected,
+    serviceType,
+    detectedServiceType: serviceType,
+    framework: input.framework || detected.framework,
+    publishDirectory,
+    detectedPublishDirectory: publishDirectory,
+    detectedBuildCommand: serviceType === 'static_site'
+      ? (requestedBuildCommand || null)
+      : (requestedBuildCommand || detected.detectedBuildCommand || null),
+    startCommand: serviceType === 'web_service'
+      ? (input.startCommand || detected.startCommand || detected.detectedStartCommand || 'npm start')
+      : null,
+    runtime: serviceType === 'web_service'
+      ? (input.runtime || detected.runtime || 'node')
+      : null,
+  };
+}
+
+function normalizeServiceType(value) {
+  const type = String(value || '').trim().toLowerCase();
+  if (['static', 'static_site', 'static-site'].includes(type)) return 'static_site';
+  if (['web', 'web_service', 'web-service'].includes(type)) return 'web_service';
+  if (type === 'docker') return 'docker';
+  return null;
+}
+
+function detectedLabel(detected = {}) {
+  return `${detected.framework || 'Unknown'} (${detected.type || detected.projectType || 'unknown'})`;
 }
 
 export default new GithubImportPipelineService();
