@@ -6,22 +6,44 @@ import { isFeatureEnabled } from './app/features.js';
 
 const { useState } = React;
 
+// Brand mark served from the app public dir. Falls back to a clean text mark if
+// the asset ever fails to load (never shows a broken-image icon).
+const GLONDIA_ICON_SRC = "/glondia-logo.png";
+
+function BrandMark({ size }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span style={{
+        width: size, height: size, borderRadius: 8,
+        background: "var(--accent)", color: "#fff",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontFamily: "var(--serif)", fontWeight: 600, fontSize: size * 0.55, lineHeight: 1,
+      }}>G</span>
+    );
+  }
+  return (
+    <img
+      src={GLONDIA_ICON_SRC}
+      alt="Glondia"
+      width={size}
+      height={size}
+      onError={() => setFailed(true)}
+      style={{ width: size, height: size, objectFit: "contain", display: "block", borderRadius: 6 }}
+    />
+  );
+}
+
 export function Logo({ compact = false, onClick }) {
+  // "Domains" only appears in the subtitle when the domains feature is on.
+  const subtitle = isFeatureEnabled("domains") ? "Hosting · Domains · Sites" : "Hosting · Sites";
   return (
     <a className="logo" href="#" onClick={(e) => { e.preventDefault(); onClick && onClick(); }}
        style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "inherit" }}>
-      <span style={{
-        width: compact ? 28 : 32, height: compact ? 28 : 32,
-        borderRadius: 8,
-        background: "var(--accent)",
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        color: "#fff",
-        fontFamily: "var(--serif)", fontWeight: 500, fontSize: compact ? 17 : 20, lineHeight: 1,
-        boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.05)",
-      }}>g</span>
+      <BrandMark size={compact ? 28 : 32} />
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
         <span style={{ fontWeight: 700, fontSize: compact ? 14 : 15, letterSpacing: "-0.005em" }}>Glondia</span>
-        {!compact && <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Hosting · Domains · Sites</span>}
+        {!compact && <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{subtitle}</span>}
       </span>
     </a>
   );
@@ -45,19 +67,51 @@ export function StatusBadge({ value }) {
   return <Badge tone="muted">{value}</Badge>;
 }
 
-export function Avatar({ name, size = 28 }) {
-  const initials = name.split(" ").map(s => s[0]).slice(0, 2).join("").toUpperCase();
-  // simple stable hue
-  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+export function Avatar({ name, imageUrl, size = 28, fallbackIcon = false }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const safeName = String(name || "").trim();
+
+  // 1. Profile photo — circular, cropped. Falls back to initials/icon on error.
+  if (imageUrl && !imgFailed) {
+    return (
+      <img
+        src={imageUrl}
+        alt={safeName || "Account"}
+        width={size}
+        height={size}
+        onError={() => setImgFailed(true)}
+        style={{
+          width: size, height: size, borderRadius: "50%",
+          objectFit: "cover", display: "block", border: "1px solid var(--border)",
+        }}
+      />
+    );
+  }
+
+  // 2. Initials when we have a name (and aren't forced to the icon).
+  if (safeName && !fallbackIcon) {
+    const initials = safeName.split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+    let h = 0; for (let i = 0; i < safeName.length; i++) h = (h * 31 + safeName.charCodeAt(i)) % 360;
+    return (
+      <span style={{
+        width: size, height: size, borderRadius: "50%",
+        background: `hsl(${h} 35% 88%)`,
+        color: `hsl(${h} 35% 28%)`,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: size * 0.4, fontWeight: 600, letterSpacing: 0.02 + "em",
+        border: "1px solid var(--border)",
+      }}>{initials}</span>
+    );
+  }
+
+  // 3. No name / signed out — neutral account icon (never fake initials).
   return (
     <span style={{
       width: size, height: size, borderRadius: "50%",
-      background: `hsl(${h} 35% 88%)`,
-      color: `hsl(${h} 35% 28%)`,
+      background: "var(--bg-deep)", color: "var(--text-muted)",
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.4, fontWeight: 600, letterSpacing: 0.02 + "em",
       border: "1px solid var(--border)",
-    }}>{initials}</span>
+    }}><ICN.User size={Math.round(size * 0.55)} /></span>
   );
 }
 
@@ -186,6 +240,15 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
   );
 }
 
+/**
+ * Resolve a SAFE avatar URL from the auth user. Only fields that already hold a
+ * browser-loadable URL are used — never idPhotoPath (a raw server filesystem
+ * path) until the backend exposes a safe image endpoint for it.
+ */
+function getUserAvatarUrl(user) {
+  return user?.profileImageUrl || user?.avatarUrl || user?.photoUrl || user?.headshotUrl || null;
+}
+
 function AuthMenu({ navigate }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState("login");
@@ -202,6 +265,7 @@ function AuthMenu({ navigate }) {
 
   const signedIn = !!auth.accessToken;
   const displayName = auth.user?.name || auth.user?.email || "Account";
+  const avatarUrl = signedIn ? getUserAvatarUrl(auth.user) : null;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -222,7 +286,7 @@ function AuthMenu({ navigate }) {
   return (
     <div style={{ position: "relative" }}>
       <button className="btn btn-ghost" onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })} style={{ height: 36, padding: "0 8px" }}>
-        <Avatar name={displayName} size={28} />
+        <Avatar name={signedIn ? displayName : ""} imageUrl={avatarUrl} size={28} fallbackIcon={!signedIn} />
         <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signedIn ? displayName : "Sign in"}</span>
       </button>
       {open && (
@@ -239,8 +303,12 @@ function AuthMenu({ navigate }) {
                 <div style={{ fontWeight: 600 }}>{displayName}</div>
                 <div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div>
               </button>
-              <button className="btn btn-outline" onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}>
-                <ICN.User size={14} /> Account details
+              <button className="btn btn-outline" onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+                <ICN.Briefcase size={16} />
+                <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+                  <span>Account details</span>
+                  <span className="faint" style={{ fontSize: 11 }}>Business profile and contact details</span>
+                </span>
               </button>
               <button className="btn btn-outline" onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}>Sign out</button>
             </div>

@@ -26,12 +26,9 @@ export function Overview({ navigate }) {
         <div>
           <div className="page-eyebrow">Workspace{userName ? ` · ${userName}` : ''}</div>
           <h1>{greeting()}. {projects.length} project{projects.length === 1 ? '' : 's'} in your workspace.</h1>
-          <p className="sub">A summary of your sites, domains, and recent activity. Jump back into anything in progress.</p>
+          <p className="sub">A summary of your sites, hosting, and recent activity. Jump back into anything in progress.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-outline" onClick={() => navigate({ view: "domains-buy" })}>
-            <ICN.Globe size={14} /> Buy a domain
-          </button>
           <button className="btn btn-primary" onClick={() => navigate({ view: "builder-gallery" })}>
             <ICN.Plus size={14} /> New project
           </button>
@@ -41,7 +38,7 @@ export function Overview({ navigate }) {
       {/* Stat row */}
       <div className="grid-4">
         <Stat k="Projects"      v={String(projects.length)}   d={source === "api" ? "Loaded from backend" : "Connect to backend to load"} />
-        <Stat k="Domains"       v="—"   d="Connect to load domain count" />
+        <Stat k="Hosting"       v={projects.length ? String(projects.length) : "—"}   d="Active hosted sites" />
         <Stat k="Visitors (30d)" v={projects.length ? totalVisitors.toLocaleString() : "—"} d={projects.length ? "across all projects" : "No projects yet"} />
         <Stat k="Build minutes" v="—"   d="Loaded from billing API" />
       </div>
@@ -58,7 +55,7 @@ export function Overview({ navigate }) {
           </div>
           <table className="tbl">
             <thead>
-              <tr><th>Project</th><th>Domain</th><th>Last deploy</th><th>Status</th><th></th></tr>
+              <tr><th>Project</th><th>Live URL</th><th>Last deploy</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
               {projects.length === 0 ? (
@@ -81,7 +78,7 @@ export function Overview({ navigate }) {
                       </span>
                     </a>
                   </td>
-                  <td className="mono">{p.customDomain || p.domain}</td>
+                  <td className="mono">{p.liveUrl || p.customDomain || p.domain || "—"}</td>
                   <td>{p.lastDeploy}</td>
                   <td><StatusBadge value={p.status} /></td>
                   <td style={{ textAlign: "right" }}>
@@ -124,9 +121,9 @@ export function Overview({ navigate }) {
 
       {/* Three product CTAs */}
       <div className="grid-3">
-        <ProductCta icon="Server" title="Hosting" body="Deploy from Git, watch builds, manage env vars and environments." cta="Open hosting" onClick={() => navigate({ view: "hosting-list" })} />
-        <ProductCta icon="Globe" title="Domains" body="Search 340+ TLDs, register, transfer, and point them at any project." cta="Search a domain" onClick={() => navigate({ view: "domains-buy" })} />
-        <ProductCta icon="Layers" title="Site builder" body="Pick a starter template and publish a Home/About/Contact site in minutes." cta="Browse templates" onClick={() => navigate({ view: "builder-gallery" })} />
+        <ProductCta icon="Server" title="Hosting" body="Deploy from ZIP or GitHub and manage live sites." cta="Open hosting" onClick={() => navigate({ view: "hosting-list" })} />
+        <ProductCta icon="Layers" title="Site builder" body="Prepare, organize, and publish sites." cta="Browse templates" onClick={() => navigate({ view: "builder-gallery" })} />
+        <ProductCta icon="CreditCard" title="Billing" body="View K50/K200 launch bills and upload bank receipts." cta="Open billing" onClick={() => navigate({ view: "billing" })} />
       </div>
     </>
   );
