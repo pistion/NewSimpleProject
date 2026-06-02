@@ -5,7 +5,7 @@ import { parseGithubRepoUrl } from './githubLink.intake.js';
 import { appendDeployStep } from '../00-SHARED/deployFlowState.middleware.js';
 
 function pickRepoUrl(body = {}) {
-  return body.repoUrl || body.repositoryUrl || body.githubUrl;
+  return body.repoUrl || body.repositoryUrl || body.sourceRepository || body.sourceReference || body.githubUrl;
 }
 
 export function validateGithubLinkRequest(req, res, next) {
