@@ -1,9 +1,10 @@
 import { isLiveMode, modeBlockedResult } from '../app/config.js';
+import { authFetch } from './auth.js';
 
 export async function triggerRenderDeploy(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch(renderApiUrl('/deployments/render'), {
+    const response = await authFetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -23,7 +24,7 @@ export async function triggerRenderDeploy(input = {}) {
 export async function testRenderDeploy(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch(renderApiUrl('/deployments/render'), {
+    const response = await authFetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...input, dryRun: true }),
@@ -43,7 +44,7 @@ export async function testRenderDeploy(input = {}) {
 export async function activateRenderRepo(input = {}) {
   if (!isLiveMode()) return modeBlockedResult('render');
   try {
-    const response = await fetch(renderApiUrl('/deployments/render'), {
+    const response = await authFetch(renderApiUrl('/deployments/render'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -67,7 +68,7 @@ export async function getRenderSettings() {
     };
   }
   try {
-    const response = await fetch(renderApiUrl('/render/settings'));
+    const response = await authFetch(renderApiUrl('/render/settings'));
     if (!response.ok) throw new Error(`Hosting settings returned ${response.status}.`);
     return response.json();
   } catch (error) {
@@ -85,7 +86,7 @@ export async function listRenderDeploys(input = {}) {
   if (!isLiveMode()) return { status: 'demo', deploys: [], error: modeBlockedResult('render').message };
   try {
     const qs = input.serviceId ? `?serviceId=${encodeURIComponent(input.serviceId)}` : '';
-    const response = await fetch(renderApiUrl(`/render/deploys${qs}`));
+    const response = await authFetch(renderApiUrl(`/render/deploys${qs}`));
     if (!response.ok) throw new Error(`Deployment list returned ${response.status}.`);
     return response.json();
   } catch (error) {
@@ -96,7 +97,7 @@ export async function listRenderDeploys(input = {}) {
 export async function listLiveRenderServices() {
   if (!isLiveMode()) return [];
   try {
-    const response = await fetch(renderApiUrl('/render/services'));
+    const response = await authFetch(renderApiUrl('/render/services'));
     if (!response.ok) throw new Error(`Hosting services returned ${response.status}.`);
     return response.json();
   } catch {

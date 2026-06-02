@@ -6,7 +6,7 @@
  */
 
 import { liveApiRequest } from '../api.js';
-import { authHeaders } from './auth.js';
+import { authFetch } from './auth.js';
 
 function liveApiUrl(path) {
   const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
@@ -43,9 +43,8 @@ export async function validateZipHostingDeployment(file) {
 
   let response;
   try {
-    response = await fetch(liveApiUrl('/deployments/zip/validate'), {
+    response = await authFetch(liveApiUrl('/deployments/zip/validate'), {
       method: 'POST',
-      headers: { ...authHeaders() },
       body: form,
     });
   } catch (networkError) {
@@ -78,9 +77,8 @@ export async function createZipHostingDeployment(file, settings = {}) {
 
   let response;
   try {
-    response = await fetch(liveApiUrl('/deployments/zip'), {
+    response = await authFetch(liveApiUrl('/deployments/zip'), {
       method: 'POST',
-      headers: { ...authHeaders() },
       body: form,
     });
   } catch (networkError) {

@@ -119,6 +119,28 @@ export function authHeaders() {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
+export async function authFetch(input, options = {}) {
+  const response = await fetch(input, withFreshAuthHeaders(options));
+  if (response.status !== 401) return response;
+
+  const { refreshToken } = getStoredAuth();
+  if (!refreshToken) {
+    clearAuthSession();
+    return response;
+  }
+
+  try {
+    await refreshAccessToken();
+  } catch {
+    clearAuthSession();
+    return response;
+  }
+
+  const retry = await fetch(input, withFreshAuthHeaders(options));
+  if (retry.status === 401) clearAuthSession();
+  return retry;
+}
+
 // ─── Demo session factory (kept for non-live mode) ────────────────────────────
 
 export function makeSession(input = {}) {
@@ -163,4 +185,20 @@ async function authPost(path, body) {
 
 function safeParseJson(value) {
   try { return JSON.parse(value); } catch { return null; }
+}
+
+function withFreshAuthHeaders(options = {}) {
+  return {
+    ...options,
+    headers: {
+      ...plainHeaders(options.headers),
+      ...authHeaders(),
+    },
+  };
+}
+
+function plainHeaders(headers) {
+  if (!headers) return {};
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  return { ...headers };
 }

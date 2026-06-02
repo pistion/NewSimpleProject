@@ -11,7 +11,7 @@ import { createBuilderActions } from './api/builder.js';
 import { createDomainActions, ttlToSeconds } from './api/domains.js';
 export { ttlToSeconds } from './api/domains.js';
 import { isLiveMode } from './app/config.js';
-import { authHeaders } from './api/auth.js';
+import { authFetch } from './api/auth.js';
 import {
   buildGithubSandbox,
   disconnectGitHub as disconnectGitHubBase,
@@ -125,12 +125,12 @@ async function registrarRequest(path, options = {}) {
 
 async function hostingRequest(path, options = {}) {
   if (!isLiveMode()) return apiRequest(path, options);
-  const response = await fetch(liveApiUrl(path), {
+  const response = await authFetch(liveApiUrl(path), {
     method: options.method || 'GET',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...authHeaders(),
+      ...(options.headers || {}),
     },
     body: options.body,
   });
@@ -142,12 +142,11 @@ async function hostingRequest(path, options = {}) {
 }
 
 export async function liveApiRequest(path, options = {}) {
-  const response = await fetch(liveApiUrl(path), {
+  const response = await authFetch(liveApiUrl(path), {
     method: options.method || 'GET',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...authHeaders(),
       ...(options.headers || {}),
     },
     body: options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : undefined,
