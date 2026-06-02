@@ -53,6 +53,7 @@ export function Overview({ navigate }) {
               <button className="btn btn-sm btn-outline" onClick={() => navigate({ view: "hosting-list" })}>View all <ICN.ArrowRight size={12} /></button>
             </div>
           </div>
+          <div className="table-wrap">
           <table className="tbl">
             <thead>
               <tr><th>Project</th><th>Live URL</th><th>Last deploy</th><th>Status</th><th></th></tr>
@@ -88,6 +89,7 @@ export function Overview({ navigate }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="card card-flush">

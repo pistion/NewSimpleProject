@@ -112,6 +112,8 @@ export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [githubBanner, setGithubBanner] = useStateApp(null);
   const [authed, setAuthed] = useStateApp(isAuthenticated());
+  // Mobile sidebar drawer open/closed (desktop ignores this).
+  const [mobileNavOpen, setMobileNavOpen] = useStateApp(false);
 
   useEffectApp(() => {
     const sync = () => setAuthed(isAuthenticated());
@@ -250,9 +252,15 @@ export default function App() {
                 <button className="btn btn-sm btn-ghost" onClick={() => setGithubBanner(null)} style={{ color: "var(--accent)" }}>✕</button>
               </div>
             )}
-            <DashSidebar active={activeKey} navigate={navigate} />
+            <DashSidebar
+              active={activeKey}
+              navigate={(r) => { navigate(r); setMobileNavOpen(false); }}
+              mobileOpen={mobileNavOpen}
+              onClose={() => setMobileNavOpen(false)}
+            />
+            {mobileNavOpen && <button className="dash-backdrop" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" />}
             <main className="dash-main">
-              <DashTopbar crumbs={crumbs} navigate={navigate} theme={t.theme} toggleTheme={toggleTheme} />
+              <DashTopbar crumbs={crumbs} navigate={navigate} theme={t.theme} toggleTheme={toggleTheme} onOpenNav={() => setMobileNavOpen(true)} />
               <div className="dash-body">
                 <RouteErrorBoundary routeKey={`${route.view}:${route.params?.id || ""}:${route.params?.siteId || ""}`} navigate={navigate}>
                   {renderView()}

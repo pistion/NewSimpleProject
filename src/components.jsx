@@ -166,12 +166,15 @@ function visibleNavGroups({ isAdmin = false } = {}) {
     .filter((group) => group.items.length > 0);
 }
 
-export function DashSidebar({ active, navigate }) {
+export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
   const isAdmin = getStoredAuth()?.user?.role === 'admin';
   return (
-    <aside className="dash-side">
+    <aside className={`dash-side ${mobileOpen ? 'is-open' : ''}`}>
       <div className="dash-side-head">
         <Logo compact onClick={() => { window.location.href = "/"; }} />
+        <button className="btn btn-icon btn-ghost dash-side-close" onClick={onClose} aria-label="Close menu">
+          <ICN.X size={16} />
+        </button>
       </div>
       <nav className="dash-side-nav">
         {visibleNavGroups({ isAdmin }).map((group) => (
@@ -215,9 +218,12 @@ export function DashSidebar({ active, navigate }) {
   );
 }
 
-export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme }) {
+export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme, onOpenNav }) {
   return (
     <div className="dash-top">
+      <button className="btn btn-icon btn-ghost dash-menu-btn" onClick={onOpenNav} aria-label="Open menu">
+        <ICN.Menu size={16} />
+      </button>
       <div className="crumb" style={{ flex: 1 }}>
         {crumbs.map((c, i) => (
           <React.Fragment key={i}>
@@ -228,7 +234,7 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
           </React.Fragment>
         ))}
       </div>
-      <div className="row" style={{ position: "relative" }}>
+      <div className="row dash-search" style={{ position: "relative" }}>
         <ICN.Search size={14} style={{ position: "absolute", left: 12, top: 12, color: "var(--text-faint)" }} />
         <input className="input" placeholder="Search projects, domains…" style={{ paddingLeft: 34, width: 280, height: 36 }} />
       </div>

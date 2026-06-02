@@ -493,12 +493,14 @@ function Table({ cols, children }) {
   const rows = React.Children.toArray(children);
   return (
     <div className="card card-flush">
-      <table className="tbl">
-        <thead><tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-        <tbody>
-          {rows.length ? rows : <tr><td colSpan={cols.length} style={{ padding: 18 }} className="muted">No records.</td></tr>}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table className="tbl">
+          <thead><tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+          <tbody>
+            {rows.length ? rows : <tr><td colSpan={cols.length} style={{ padding: 18 }} className="muted">No records.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
