@@ -99,6 +99,21 @@ export function createSystemNotification(payload = {}) {
   return createNotification({ ...payload, userId: null, audience: 'all' });
 }
 
+/**
+ * Run any notification-producing function as strictly best-effort. Notifications
+ * are UI convenience only — they must NEVER break deployment, billing,
+ * subscription, receipt approval, or cleanup. (createNotification itself is
+ * already fail-soft; this wraps multi-step notify blocks at call sites.)
+ */
+export async function safeNotify(label, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    console.warn(`[notifications] ${label} failed:`, error.message);
+    return null;
+  }
+}
+
 // ── Read ────────────────────────────────────────────────────────────────────
 
 /** Prisma `where` clause for what a given user is allowed to see. */
@@ -187,6 +202,7 @@ export default {
   createUserNotification,
   createAdminNotification,
   createSystemNotification,
+  safeNotify,
   listNotifications,
   getUnreadCount,
   markNotificationRead,

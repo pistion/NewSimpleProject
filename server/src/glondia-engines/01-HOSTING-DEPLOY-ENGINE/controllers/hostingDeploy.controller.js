@@ -126,6 +126,9 @@ const hostingDeployController = {
     }
   },
 
+  // @deprecated The /github route now uses the staged middleware chain
+  // (githubDeployRoute + billingAttach + deployResponse). Kept for back-compat
+  // only; not wired to any route. Do not add new callers.
   createGithubDeployment: async (req, res, next) => {
     try {
       if (!req.user?.id) return res.error('UNAUTHENTICATED', 'A valid session is required to deploy.', 401);
@@ -150,6 +153,9 @@ const hostingDeployController = {
     }
   },
 
+  // @deprecated The /zip route now uses the staged middleware chain
+  // (zipDeployRoute + billingAttach + deployResponse). Kept for back-compat
+  // only; not wired to any route. Do not add new callers.
   createZipDeployment: async (req, res, next) => {
     try {
       if (!req.user?.id) return res.error('UNAUTHENTICATED', 'A valid session is required to deploy.', 401);

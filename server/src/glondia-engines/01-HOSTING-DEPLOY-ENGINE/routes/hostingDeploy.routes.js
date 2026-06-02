@@ -5,8 +5,13 @@ import authMiddleware from '../../../middleware/authMiddleware.js';
 import deploymentSessionMiddleware from '../../../middleware/deploymentSessionMiddleware.js';
 import { validateDeploymentInput } from '../../../middleware/validationMiddleware.js';
 import { requireFeature } from '../../../middleware/featureFlag.js';
-import { requireAdmin } from '../../../middleware/requireAdmin.js';
 import { deploymentOwnership } from '../../../middleware/deploymentOwnership.middleware.js';
+import { initDeployFlow, requireDeployUser } from '../middleware/deployFlowState.middleware.js';
+import { validateZipUpload, runZipDeployPipeline } from '../middleware/zipDeployRoute.middleware.js';
+import { validateGithubRequest, runGithubDeployPipeline } from '../middleware/githubDeployRoute.middleware.js';
+import { attachDeploymentBilling } from '../middleware/billingAttach.middleware.js';
+import { sendDeployResponse } from '../middleware/deployResponse.middleware.js';
+import { requireAdminForLegacyDeploy } from '../middleware/legacyDeployRouteGuard.middleware.js';
 
 const router = express.Router();
 const upload = multer({
@@ -34,15 +39,22 @@ router.use(authMiddleware);
 router.param('deploymentId', deploymentOwnership);
 router.get('/settings', hostingDeployController.getSettings);
 
-// ZIP upload hosting — deploy-first K100 billing. Feature-gated only; no plan
-// or quota gate. The deployment runs first, then a pending K100 order is
-// attached with a 12-hour grace window (see hostingDeploy.controller.js).
+// ── ZIP upload hosting — clean staged deploy chain ────────────────────────────
+// auth → feature → init flow → user guard → upload → validate → run pipeline →
+// attach billing (only if Render queued) → response. Deploy first, bill second.
 router.post(
   '/zip',
   requireFeature('ZIP_HOSTING'),
+  initDeployFlow('zip'),
+  requireDeployUser,
   upload.fields([{ name: 'zip', maxCount: 1 }, { name: 'file', maxCount: 1 }, { name: 'siteZip', maxCount: 1 }]),
-  hostingDeployController.createZipDeployment,
+  validateZipUpload,
+  runZipDeployPipeline,
+  attachDeploymentBilling('zip'),
+  sendDeployResponse('ZIP deployment session started.'),
 );
+
+// Validate-only (no deploy, no billing).
 router.post(
   '/zip/validate',
   requireFeature('ZIP_HOSTING'),
@@ -50,20 +62,25 @@ router.post(
   hostingDeployController.validateZipDeployment,
 );
 
-// GitHub upload/import hosting — deploy-first K100 billing. Feature-gated only.
+// ── GitHub import hosting — clean staged deploy chain ─────────────────────────
 router.post(
   '/github',
   requireFeature('GITHUB_HOSTING'),
-  hostingDeployController.createGithubDeployment,
+  initDeployFlow('github'),
+  requireDeployUser,
+  validateGithubRequest,
+  runGithubDeployPipeline,
+  attachDeploymentBilling('github'),
+  sendDeployResponse('GitHub deployment session started.'),
 );
 
 // ── Legacy deployment-creation routes — NOT open to normal users ──────────────
 // /generated-site is gated behind the AI builder feature (returns 403 when off).
-// /render and / are internal/admin-only paths; normal users must use /zip or
-// /github so feature, deploy, billing and ownership rules are always applied.
+// /render and / are admin-only; normal users must use /zip or /github so the
+// full feature → deploy → billing → ownership chain always applies.
 router.post('/generated-site', requireFeature('AI_BUILDER'), hostingDeployController.createGeneratedSiteDeployment);
-router.post('/render', requireAdmin, validateDeploymentInput, hostingDeployController.createRenderDeployment);
-router.post('/', requireAdmin, validateDeploymentInput, hostingDeployController.createDeployment);
+router.post('/render', requireAdminForLegacyDeploy('render_direct'), validateDeploymentInput, hostingDeployController.createRenderDeployment);
+router.post('/', requireAdminForLegacyDeploy('generic_deploy'), validateDeploymentInput, hostingDeployController.createDeployment);
 router.get('/:deploymentId', deploymentSessionMiddleware, hostingDeployController.getDeployment);
 router.get('/:deploymentId/status', deploymentSessionMiddleware, hostingDeployController.getStatus);
 router.post('/:deploymentId/verify-url', deploymentSessionMiddleware, hostingDeployController.verifyUrl);
