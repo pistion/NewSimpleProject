@@ -2,6 +2,7 @@
 import React from 'react';
 import { ICN } from './icons';
 import { clearAuthSession, getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
+import { getAvatarUrl } from './api/profile.js';
 import { isFeatureEnabled } from './app/features.js';
 
 const { useState } = React;
@@ -241,12 +242,41 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
 }
 
 /**
- * Resolve a SAFE avatar URL from the auth user. Only fields that already hold a
- * browser-loadable URL are used — never idPhotoPath (a raw server filesystem
- * path) until the backend exposes a safe image endpoint for it.
+ * Resolve a SAFE, already-public avatar URL from the auth user (e.g. an
+ * external social photo). The first-party avatar lives behind an authenticated
+ * route and is fetched as a blob by useCurrentUserAvatar instead — never the
+ * raw idPhotoPath/avatarPath SSD path.
  */
 function getUserAvatarUrl(user) {
-  return user?.profileImageUrl || user?.avatarUrl || user?.photoUrl || user?.headshotUrl || null;
+  return user?.profileImageUrl || user?.photoUrl || user?.headshotUrl || null;
+}
+
+/**
+ * Fetch the signed-in user's avatar as an object URL through the authenticated
+ * /profile/avatar route (a plain <img src> can't send the Bearer header). Re-runs
+ * when auth changes (cache-busted avatarUrl) and revokes old object URLs.
+ */
+function useCurrentUserAvatar(auth) {
+  const [url, setUrl] = useState(null);
+  const signal = auth?.user?.avatarUrl || (auth?.user?.hasAvatar ? 'has' : '');
+  React.useEffect(() => {
+    // Prefer an already-public URL when present; otherwise fetch the blob.
+    const publicUrl = getUserAvatarUrl(auth?.user);
+    if (publicUrl) { setUrl(publicUrl); return undefined; }
+    if (!auth?.accessToken || !signal) { setUrl(null); return undefined; }
+    let revoked = false;
+    let current = null;
+    (async () => {
+      try {
+        const objUrl = await getAvatarUrl();
+        if (revoked) { URL.revokeObjectURL(objUrl); return; }
+        current = objUrl;
+        setUrl(objUrl);
+      } catch { setUrl(null); }
+    })();
+    return () => { revoked = true; if (current) URL.revokeObjectURL(current); };
+  }, [auth?.accessToken, signal]); // eslint-disable-line react-hooks/exhaustive-deps
+  return url;
 }
 
 function AuthMenu({ navigate }) {
@@ -265,7 +295,7 @@ function AuthMenu({ navigate }) {
 
   const signedIn = !!auth.accessToken;
   const displayName = auth.user?.name || auth.user?.email || "Account";
-  const avatarUrl = signedIn ? getUserAvatarUrl(auth.user) : null;
+  const avatarUrl = useCurrentUserAvatar(signedIn ? auth : null);
 
   const submit = async (event) => {
     event.preventDefault();

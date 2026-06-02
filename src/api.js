@@ -5,6 +5,7 @@ export {
   login,
   register,
   storeAuthSession,
+  updateStoredAuthUser,
 } from './api/auth.js';
 import { makeSession } from './api/auth.js';
 import { createBuilderActions } from './api/builder.js';

@@ -39,6 +39,20 @@ export function clearAuthSession() {
   window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT));
 }
 
+/**
+ * Merge a patch into the stored auth user and notify listeners. Lets pages
+ * (e.g. ProfilePage) reflect saved name/phone/avatar in the topbar immediately
+ * without a full re-login. No-op when there is no stored user.
+ */
+export function updateStoredAuthUser(patch = {}) {
+  const current = getStoredAuth().user;
+  if (!current) return null;
+  const merged = { ...current, ...patch };
+  window.localStorage.setItem(USER_KEY, JSON.stringify(merged));
+  window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT));
+  return merged;
+}
+
 // ─── Auth API calls ───────────────────────────────────────────────────────────
 
 export async function login(email, password) {

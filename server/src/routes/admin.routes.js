@@ -13,6 +13,7 @@ import {
   getReceiptMeta,
   streamReceipt,
   streamUserIdPhoto,
+  streamUserAvatar,
   ID_PHOTOS_ROOT,
 } from '../services/adminReceiptService.js';
 
@@ -148,6 +149,13 @@ router.post('/users/:userId/id-photo', idPhotoUpload.single('idPhoto'), async (r
 router.get('/users/:userId/id-photo', async (req, res, next) => {
   try {
     await streamUserIdPhoto({ userId: req.params.userId, res, adminUserId: req.user.id });
+  } catch (e) { next(e); }
+});
+
+// Admin view of any user's profile avatar (authenticated + admin-gated).
+router.get('/users/:userId/avatar', async (req, res, next) => {
+  try {
+    await streamUserAvatar({ userId: req.params.userId, res, viewerUserId: req.user.id });
   } catch (e) { next(e); }
 });
 

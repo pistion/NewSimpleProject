@@ -19,6 +19,7 @@ import { writeAuditLog } from './auditLogService.js';
 const dataDir = resolve(process.env.DATA_DIR || join(process.cwd(), '.glondia-data'));
 export const RECEIPTS_ROOT = resolve(join(dataDir, 'receipts'));
 export const ID_PHOTOS_ROOT = resolve(join(dataDir, 'user-id-photos'));
+export const USER_AVATARS_ROOT = resolve(join(dataDir, 'user-avatars'));
 
 // Extension → canonical, allowed Content-Type. This map is the single source of
 // truth for what may be served; an extension absent here is rejected.
@@ -150,11 +151,53 @@ export async function streamUserIdPhoto({ userId, res, adminUserId, action = 'ad
   createReadStream(absPath).pipe(res);
 }
 
+/**
+ * Validate + stream a user's profile avatar (inline). Used by the owner's own
+ * /profile/avatar route and the admin per-user avatar route. Like the ID photo
+ * it is served through an authenticated endpoint (never a public URL) and the
+ * raw SSD path is never exposed.
+ */
+export async function streamUserAvatar({ userId, res, viewerUserId = null, action = 'user.profile.avatar_viewed' }) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, avatarPath: true } });
+  if (!user) throw httpError('User not found.', 404);
+  if (!user.avatarPath) throw httpError('No avatar on file.', 404);
+
+  const absPath = resolve(user.avatarPath);
+  if (!isInsideRoot(absPath, USER_AVATARS_ROOT)) {
+    throw httpError('Avatar path is outside the permitted directory.', 403);
+  }
+  const ext = extname(absPath).toLowerCase();
+  const mime = ID_PHOTO_EXT_MIME[ext]; // same png/jpg/jpeg allowlist as ID photos
+  if (!mime) throw httpError('Avatar file type is not permitted.', 400);
+  if (!existsSync(absPath)) throw httpError('Avatar no longer exists on disk.', 404);
+
+  const stat = statSync(absPath);
+  // Avatars are viewed often; only audit when an admin views someone else's.
+  if (viewerUserId && viewerUserId !== userId) {
+    await writeAuditLog({
+      actorUserId: viewerUserId,
+      action,
+      entityType: 'user',
+      entityId: user.id,
+      result: { fileSize: stat.size },
+    });
+  }
+
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  res.setHeader('Content-Disposition', `inline; filename="${sanitizeFilename(basename(absPath))}"`);
+  createReadStream(absPath).pipe(res);
+}
+
 export default {
   RECEIPTS_ROOT,
   ID_PHOTOS_ROOT,
+  USER_AVATARS_ROOT,
   receiptView,
   getReceiptMeta,
   streamReceipt,
   streamUserIdPhoto,
+  streamUserAvatar,
 };

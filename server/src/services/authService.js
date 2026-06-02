@@ -85,8 +85,24 @@ async function rotateRefreshToken(rawToken) {
 
 // ─── Session shape returned to the frontend ─────────────────────────────────────
 
+// Authenticated-route hint for the caller's own avatar. The browser fetches it
+// as a blob (Authorization header required) — it is NOT a public URL, and the
+// raw avatarPath/idPhotoPath SSD paths are never exposed.
+const OWN_AVATAR_URL = '/api/v1/auth/profile/avatar';
+
 function toPublicUser(user) {
-  return { id: user.id, email: user.email, name: user.name, role: user.role, planId: user.planId };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    planId: user.planId,
+    phone: user.phone || null,
+    accountStatus: user.accountStatus || 'active',
+    hasAvatar: Boolean(user.avatarPath),
+    avatarUrl: user.avatarPath ? OWN_AVATAR_URL : null,
+    hasIdPhoto: Boolean(user.idPhotoPath),
+  };
 }
 
 async function buildSession(user) {
@@ -188,6 +204,8 @@ function toProfile(user) {
     planId: user.planId,
     accountStatus: user.accountStatus || 'active',
     profileDetails: safeJson(user.profileDetails),
+    hasAvatar: Boolean(user.avatarPath),
+    avatarUrl: user.avatarPath ? OWN_AVATAR_URL : null,
     hasIdPhoto: Boolean(user.idPhotoPath),
     createdAt: user.createdAt,
   };
@@ -217,6 +235,13 @@ export async function updateUserProfile(userId, patch = {}) {
 export async function setOwnIdPhotoPath(userId, filePath) {
   if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
   const user = await prisma.user.update({ where: { id: userId }, data: { idPhotoPath: filePath } });
+  return toProfile(user);
+}
+
+/** Record the SSD path of the caller's own profile avatar/headshot. */
+export async function setOwnAvatarPath(userId, filePath) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  const user = await prisma.user.update({ where: { id: userId }, data: { avatarPath: filePath } });
   return toProfile(user);
 }
 

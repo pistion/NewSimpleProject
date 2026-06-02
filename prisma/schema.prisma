@@ -23,7 +23,10 @@ model User {
   // Profile + identity (managed by the customer and admins).
   phone                    String?
   profileDetails           String    @default("{}") @map("profile_details") // JSON as TEXT
+  // idPhotoPath = private ID verification document (admin/owner only).
+  // avatarPath  = profile headshot/avatar shown in the UI.
   idPhotoPath              String?   @map("id_photo_path")
+  avatarPath               String?   @map("avatar_path")
   // Account lifecycle: active | suspended | disabled | deleted. Users are never
   // hard-deleted — payment/deployment history must survive a soft delete.
   accountStatus            String    @default("active") @map("account_status")

@@ -39,6 +39,10 @@ function userView(u) {
     planId: u.planId,
     accountStatus: u.accountStatus || 'active',
     profileDetails: safeJson(u.profileDetails),
+    // Avatar/ID photo are served through authenticated admin routes — never the
+    // raw SSD path. hasAvatar/avatarUrl drive the admin UI display.
+    hasAvatar: Boolean(u.avatarPath),
+    avatarUrl: u.avatarPath ? `/api/admin/users/${u.id}/avatar` : null,
     hasIdPhoto: Boolean(u.idPhotoPath),
     disabledAt: u.disabledAt || null,
     disabledReason: u.disabledReason || null,
@@ -79,6 +83,7 @@ function deploymentView(d, orderByDeployment = {}) {
     source: d.source || null,
     status: d.status || null,
     paymentStatus: d.paymentStatus || 'none',
+    billingDueAt: d.billingDueAt || null,
     trialStartedAt: d.trialStartedAt || null,
     trialEndsAt: d.trialEndsAt || d.billingDueAt || null,
     subscriptionStatus: d.subscriptionStatus || null,
@@ -88,7 +93,6 @@ function deploymentView(d, orderByDeployment = {}) {
     renewalReminderAt: d.renewalReminderAt || null,
     lastPaidAt: d.lastPaidAt || null,
     renewalCount: d.renewalCount ?? null,
-    billingDueAt: d.billingDueAt || null,
     paidAt: d.paidAt || null,
     deletedReason: d.deletedReason || null,
     checkoutOrderId: d.checkoutOrderId || null,
@@ -195,15 +199,10 @@ export async function getOverview() {
 }
 
 export async function listUsers() {
-  return prisma.user.findMany({
-    select: {
-      id: true, email: true, name: true, phone: true, role: true, planId: true,
-      accountStatus: true, createdAt: true,
-      promoEligible: true, promoSignupRank: true, promoClaimedAt: true,
-      promoClaimedOrderId: true, promoClaimedDeploymentId: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  // Full rows mapped through userView, which whitelists safe fields (no
+  // passwordHash, no raw avatar/ID-photo paths) and derives hasAvatar/avatarUrl.
+  const rows = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+  return rows.map(userView);
 }
 
 export async function listDeployments() {
@@ -768,8 +767,8 @@ export default {
   listReceipts,
   approveReceipt,
   rejectReceipt,
-  adminRenewDeploymentManually,
   adminMarkDeploymentPaid,
+  adminRenewDeploymentManually,
   adminDeleteDeployment,
   getUserDetail,
   updateUser,

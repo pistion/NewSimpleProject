@@ -1,6 +1,7 @@
 // AdminPage.jsx — simple admin surface for deploy-first K100 billing.
 import React from 'react';
 import { ICN } from '../../icons';
+import { Avatar } from '../../components.jsx';
 import {
   getAdminOverview,
   listAdminUsers,
@@ -24,6 +25,7 @@ import {
   viewReceipt,
   downloadReceipt,
   getUserIdPhotoUrl,
+  getUserAvatarUrl,
 } from '../../api/admin.js';
 
 const { useState, useEffect, useCallback } = React;
@@ -227,7 +229,7 @@ export function AdminPage() {
                 <div className="muted">End: {when(d.currentPeriodEnd)}</div>
                 <div className="muted">Next: {when(d.nextBillingAt)}</div>
                 <div className="muted">Reminder: {when(d.renewalReminderAt)}</div>
-                <div className="muted">Last paid: {when(d.lastPaidAt)} ? renewals {d.renewalCount ?? 0}</div>
+                <div className="muted">Last paid: {when(d.lastPaidAt)} · renewals {d.renewalCount ?? 0}</div>
               </td>
               <td style={{ fontSize: 12 }}>{when(d.billingDueAt)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
@@ -281,14 +283,16 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'users' && (
-        <Table cols={['Created', 'Email', 'Name', 'Promo', 'Account', 'Role', 'Actions']}>
+        <Table cols={['', 'Created', 'Email', 'Name', 'Phone', 'Promo', 'Account', 'Role', 'Actions']}>
           {users.map((u) => {
             const inactive = ['suspended', 'disabled', 'deleted'].includes(u.accountStatus);
             return (
             <tr key={u.id}>
+              <td><AdminAvatar user={u} /></td>
               <td>{when(u.createdAt)}</td>
               <td>{u.email}</td>
               <td>{u.name || '—'}</td>
+              <td>{u.phone || '—'}</td>
               <td style={{ fontSize: 12 }}><PromoCell user={u} /></td>
               <td><StatusPill value={u.accountStatus || 'active'} /></td>
               <td><StatusPill value={u.role} /></td>
@@ -379,6 +383,10 @@ function UserDetailModal({ userId, onClose }) {
                 </div>
               </div>
               <div style={{ flex: '0 0 200px' }}>
+                <b>Profile photo</b>
+                <div style={{ marginTop: 6, marginBottom: 14 }}>
+                  <AdminAvatar user={u} size={96} />
+                </div>
                 <b>ID photo</b>
                 <div style={{ marginTop: 6 }}>
                   {photoUrl
@@ -441,6 +449,22 @@ function MiniSection({ title, children }) {
       {rows.length ? rows : <span className="muted">None.</span>}
     </div>
   );
+}
+
+/** Admin avatar: fetches the user's avatar blob (admin route) when present,
+ *  otherwise falls back to initials/icon via the shared Avatar component. */
+function AdminAvatar({ user, size = 28 }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    if (!user?.hasAvatar) { setUrl(null); return undefined; }
+    let revoked = false; let current = null;
+    (async () => {
+      try { const u = await getUserAvatarUrl(user.id); if (revoked) { URL.revokeObjectURL(u); return; } current = u; setUrl(u); }
+      catch { setUrl(null); }
+    })();
+    return () => { revoked = true; if (current) URL.revokeObjectURL(current); };
+  }, [user?.id, user?.hasAvatar]);
+  return <Avatar name={user?.name || user?.email || ''} imageUrl={url} size={size} />;
 }
 
 /** Compact promo summary for the admin users table. */

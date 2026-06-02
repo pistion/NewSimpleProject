@@ -37,3 +37,30 @@ export async function getIdPhotoUrl() {
   const blob = await response.blob();
   return URL.createObjectURL(blob);
 }
+
+/** Upload the caller's profile avatar/headshot (PNG/JPG/JPEG, ≤5MB). */
+export async function uploadAvatar(file) {
+  if (!file) throw new Error('Choose a profile photo first.');
+  const form = new FormData();
+  form.append('avatar', file);
+  const response = await fetch(liveApiUrl('/v1/auth/profile/avatar'), {
+    method: 'POST',
+    headers: { ...authHeaders() }, // never set Content-Type; the browser adds the multipart boundary
+    body: form,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result?.error?.message || `Upload failed (${response.status}).`);
+  return result?.data ?? result;
+}
+
+/** Returns an object URL for the caller's own avatar (caller revokes when done). */
+export async function getAvatarUrl() {
+  const response = await fetch(liveApiUrl('/v1/auth/profile/avatar'), { headers: { ...authHeaders() } });
+  if (!response.ok) {
+    let message = `Request failed (${response.status}).`;
+    try { const j = await response.json(); message = j?.error?.message || message; } catch { /* binary body */ }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}

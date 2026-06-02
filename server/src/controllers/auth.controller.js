@@ -10,12 +10,13 @@ import {
   getUserProfile,
   updateUserProfile,
   setOwnIdPhotoPath,
+  setOwnAvatarPath,
   loginUser,
   logoutUser,
   refreshSession,
   registerUser,
 } from '../services/authService.js';
-import { streamUserIdPhoto } from '../services/adminReceiptService.js';
+import { streamUserIdPhoto, streamUserAvatar } from '../services/adminReceiptService.js';
 
 const AuthController = {
   register: async (req, res, next) => {
@@ -105,6 +106,24 @@ const AuthController = {
         adminUserId: req.user?.id,
         action: 'user.profile.id_photo_viewed',
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  uploadAvatar: async (req, res, next) => {
+    try {
+      if (!req.file) return res.error('AVATAR_REQUIRED', 'A profile photo file is required.', 400);
+      const profile = await setOwnAvatarPath(req.user?.id, req.file.path);
+      res.created({ profile });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  viewAvatar: async (req, res, next) => {
+    try {
+      await streamUserAvatar({ userId: req.user?.id, res, viewerUserId: req.user?.id });
     } catch (error) {
       next(error);
     }

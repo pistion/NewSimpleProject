@@ -67,6 +67,11 @@ export function getUserIdPhotoUrl(userId) {
   return fetchBlobUrl(`/admin/users/${encodeURIComponent(userId)}/id-photo`);
 }
 
+/** Returns an object URL for a user's profile avatar (caller revokes when done). */
+export function getUserAvatarUrl(userId) {
+  return fetchBlobUrl(`/admin/users/${encodeURIComponent(userId)}/avatar`);
+}
+
 export async function uploadUserIdPhoto(userId, file) {
   const form = new FormData();
   form.append('idPhoto', file);

@@ -1,7 +1,8 @@
 // ProfilePage.jsx — self-service account details for the signed-in customer.
 import React from 'react';
 import { ICN } from '../../icons';
-import { getProfile, updateProfile, uploadIdPhoto, getIdPhotoUrl } from '../../api/profile.js';
+import { getProfile, updateProfile, uploadIdPhoto, getIdPhotoUrl, uploadAvatar, getAvatarUrl } from '../../api/profile.js';
+import { updateStoredAuthUser } from '../../api/auth.js';
 
 const { useState, useEffect, useCallback } = React;
 
@@ -19,7 +20,9 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '', details: {} });
   const [photoUrl, setPhotoUrl] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
   const [file, setFile] = useState(null);
+  const [avatarFile, setAvatarFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
@@ -32,6 +35,13 @@ export default function ProfilePage() {
     } catch { /* no photo yet */ }
   }, []);
 
+  const loadAvatar = useCallback(async () => {
+    try {
+      const url = await getAvatarUrl();
+      setAvatarUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch { /* no avatar yet */ }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true); setErr('');
     try {
@@ -39,15 +49,17 @@ export default function ProfilePage() {
       setProfile(p);
       setForm({ name: p.name || '', phone: p.phone || '', details: p.profileDetails || {} });
       if (p.hasIdPhoto) await loadPhoto();
+      if (p.hasAvatar) await loadAvatar();
     } catch (e) {
       setErr(e.message || 'Could not load your profile.');
     } finally {
       setLoading(false);
     }
-  }, [loadPhoto]);
+  }, [loadPhoto, loadAvatar]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
+  useEffect(() => () => { if (avatarUrl) URL.revokeObjectURL(avatarUrl); }, [avatarUrl]);
 
   const setDetail = (key, value) => setForm((f) => ({ ...f, details: { ...f.details, [key]: value } }));
 
@@ -56,6 +68,8 @@ export default function ProfilePage() {
     try {
       const updated = await updateProfile({ name: form.name, phone: form.phone, profileDetails: form.details });
       setProfile(updated);
+      // Reflect the saved name/phone in the topbar account menu immediately.
+      updateStoredAuthUser({ name: updated.name, phone: updated.phone });
       setMsg('Account details saved.');
     } catch (e) {
       setErr(e.message || 'Could not save your details.');
@@ -71,6 +85,22 @@ export default function ProfilePage() {
       setFile(null);
       await loadPhoto();
       setMsg('ID photo uploaded.');
+    } catch (e) {
+      setErr(e.message || 'Upload failed.');
+    } finally { setBusy(''); }
+  };
+
+  const uploadHeadshot = async () => {
+    if (!avatarFile) { setErr('Choose a profile photo (PNG, JPG or JPEG).'); return; }
+    setBusy('avatar'); setErr(''); setMsg('');
+    try {
+      const updated = await uploadAvatar(avatarFile);
+      setProfile(updated);
+      setAvatarFile(null);
+      await loadAvatar();
+      // Topbar avatar updates immediately; cache-bust the authenticated route.
+      updateStoredAuthUser({ hasAvatar: true, avatarUrl: `/api/v1/auth/profile/avatar?t=${Date.now()}` });
+      setMsg('Profile photo updated.');
     } catch (e) {
       setErr(e.message || 'Upload failed.');
     } finally { setBusy(''); }
@@ -120,7 +150,30 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* ID photo */}
+          {/* Profile photo / Headshot (used as your account avatar) */}
+          <div className="card" style={{ padding: 18 }}>
+            <div className="page-eyebrow" style={{ marginBottom: 10 }}>Profile photo / Headshot</div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div style={{ flex: '0 0 120px' }}>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="Your profile" style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)' }} />
+                  : <div style={{ width: 120, height: 120, borderRadius: '50%', background: 'var(--bg-deep)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}><ICN.User size={40} /></div>}
+              </div>
+              <div style={{ flex: '1 1 280px' }}>
+                <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+                  This is used as your account avatar across the dashboard (PNG, JPG or JPEG, up to 5MB). It is separate from your private ID photo.
+                </div>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <input type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" onChange={(e) => setAvatarFile(e.target.files?.[0] || null)} />
+                  <button className="btn btn-primary btn-sm" disabled={busy === 'avatar' || !avatarFile} onClick={uploadHeadshot}>
+                    <ICN.Cloud size={13} /> {busy === 'avatar' ? 'Uploading…' : (profile?.hasAvatar ? 'Replace photo' : 'Upload photo')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ID photo (private verification document) */}
           <div className="card" style={{ padding: 18 }}>
             <div className="page-eyebrow" style={{ marginBottom: 10 }}>ID photo</div>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
