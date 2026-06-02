@@ -209,7 +209,10 @@ export async function deployZipSite(input = {}) {
   const branch = input.branch || 'main';
   // serviceType resolved after detection — placeholder here, overridden below
   let serviceType = input.serviceType || null;
-  const plan = input.plan || 'starter';
+  // Launch-first rule: every new deployment starts on the free plan. Defaulting
+  // to a paid plan ('starter') here made Render reject the create when billing
+  // wasn't set up — surfacing as an "unexpected" ZIP deploy failure.
+  const plan = input.plan || process.env.RENDER_INITIAL_PLAN || 'free';
   const region = input.region || null;
   const environment = input.environment || 'production';
   const runtime = input.runtime || null;
