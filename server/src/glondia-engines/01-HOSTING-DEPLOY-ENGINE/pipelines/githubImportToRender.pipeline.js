@@ -20,10 +20,12 @@ import { normalizeGithubLinkInput } from '../01-GITHUB-LINK-INTAKE-MOUNTAIN/gith
 import { importClientGithubRepo } from '../02-GITHUB-CLIENT-IMPORT-MOUNTAIN/githubClientImport.stage.js';
 import { detectProject } from '../02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.stage.js';
 import { writeRenderBuildScript } from '../02-UNZIP-AND-DETECT-MOUNTAIN/buildScriptWriter.stage.js';
-import { publishToControlledRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/controlledRepoPublisher.stage.js';
+import { resolveDeployMode } from '../02-UNZIP-AND-DETECT-MOUNTAIN/deployModeResolver.stage.js';
+import { publishToControlledRepo, archiveControlledRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/controlledRepoPublisher.stage.js';
 import { githubAppConfigured } from '../03-GITHUB-SOURCE-MOUNTAIN/githubAppAuth.stage.js';
 import { buildRenderPayload } from '../04-RENDER-PAYLOAD-MOUNTAIN/renderPayloadBuilder.stage.js';
 import { createAndTriggerRenderDeploy } from '../05-RENDER-DEPLOY-MOUNTAIN/renderDeploy.stage.js';
+import { startPostDeployPolling } from '../../../services/deploymentPostDeployPoller.js';
 import { hasRealValue } from '../../00-SHARED/runtimeConfig.js';
 import {
   addDeploymentLog,
@@ -55,6 +57,10 @@ export async function run(input = {}, context = {}) {
     },
   });
 
+  // Track the controlled repo so a Render failure AFTER repo creation can clean
+  // up (archive) the orphaned dedicated repo. Stays null until publish succeeds.
+  let controlledRepoRef = null;
+
   try {
     await addDeploymentLog(deployment.deploymentId, `Importing client GitHub repository: ${normalized.parsedRepo.fullName}@${normalized.branch}.`, 'info', {
       originalSource: normalized.repoUrl,
@@ -65,8 +71,22 @@ export async function run(input = {}, context = {}) {
 
     const detected = await detectProject(imported.localDir, imported.files);
     const project = applyDeployOverrides(input, detected);
+    const resolvedMode = resolveDeployMode({
+      detected: project,
+      selectedMode: input.deployMode || input.mode || 'auto',
+      fields: input,
+      files: imported.files,
+    });
     const shell = await writeRenderBuildScript(imported.localDir, project);
     await addDeploymentLog(deployment.deploymentId, `Detected ${detectedLabel(detected)}. Deploying as ${project.serviceType}. Build script prepared.`, 'info');
+    if (detected.envHints?.requiredEnv?.length) {
+      await addDeploymentLog(
+        deployment.deploymentId,
+        `Detected required env hints: ${detected.envHints.requiredEnv.join(', ')}. Set these on the service before the app can run correctly.`,
+        detected.envHints.riskLevel === 'high' ? 'warn' : 'info',
+        { envHints: detected.envHints },
+      );
+    }
 
     const githubSource = {
       originalRepoUrl: imported.originalRepoUrl,
@@ -99,6 +119,7 @@ export async function run(input = {}, context = {}) {
       owner: input.controlledRepoOwner || process.env.GITHUB_GLONDIASITES_OWNER,
       privateRepo: input.privateRepo,
     });
+    controlledRepoRef = controlledRepo;
     await addDeploymentLog(deployment.deploymentId, `Published ${controlledRepo.publishedCount} files to controlled repo (${controlledRepo.mode}): ${controlledRepo.controlledFullName}${controlledRepo.rootDirectory ? '/' + controlledRepo.rootDirectory : ''}.`, 'ok', {
       controlledSource: controlledRepo.controlledRepoUrl,
       mode: controlledRepo.mode,
@@ -147,6 +168,9 @@ export async function run(input = {}, context = {}) {
       githubRepo: controlledRepo.controlledRepoUrl,
       githubBranch: controlledRepo.branch,
       serviceType: project.serviceType,
+      deployMode: resolvedMode.mode,
+      deployModeConfidence: resolvedMode.confidence,
+      deployModeWarnings: resolvedMode.warnings,
       githubSource,
       controlledSource,
       environmentConfiguration: {
@@ -160,6 +184,8 @@ export async function run(input = {}, context = {}) {
         runtime: renderPayload.runtime || '',
         plan: renderPayload.plan,
         region: renderPayload.region,
+        deployMode: resolvedMode.mode,
+        deployModeConfidence: resolvedMode.confidence,
       },
     };
 
@@ -182,7 +208,7 @@ export async function run(input = {}, context = {}) {
       renderServiceId: renderResult.serviceId,
     });
 
-    return updateDeploymentRecord(deployment.deploymentId, {
+    const updated = await updateDeploymentRecord(deployment.deploymentId, {
       ...baseUpdate,
       status: 'building',
       buildStatus: 'queued',
@@ -197,9 +223,18 @@ export async function run(input = {}, context = {}) {
       },
       errorMessage: null,
     });
+    // Background monitor advances the record to live/failed without blocking
+    // the deploy response.
+    startPostDeployPolling(deployment.deploymentId);
+    return updated;
   } catch (error) {
     // Keep failed records visible with their source metadata intact.
     await addDeploymentLog(deployment.deploymentId, error.message || 'GitHub import deployment failed.', 'error', error.details || null);
+
+    // Clean up an orphaned DEDICATED controlled repo if Render failed after we
+    // created it. Shared-repo mode is never archived (other sites live there).
+    const cleanup = await cleanupControlledRepoAfterFailure(deployment.deploymentId, controlledRepoRef);
+
     return updateDeploymentRecord(deployment.deploymentId, {
       status: 'failed',
       buildStatus: 'failed',
@@ -207,7 +242,38 @@ export async function run(input = {}, context = {}) {
       currentStep: stageToStep(error.stage),
       errorMessage: error.message || 'GitHub import deployment failed.',
       errorDetails: error.details || null,
+      controlledRepoCleanupStatus: cleanup.status,
+      ...(controlledRepoRef ? {
+        controlledSource: {
+          repoUrl: controlledRepoRef.controlledRepoUrl,
+          fullName: controlledRepoRef.controlledFullName,
+          mode: controlledRepoRef.mode,
+          archivedAfterFailure: cleanup.archived,
+        },
+      } : {}),
     });
+  }
+}
+
+/**
+ * Archive a dedicated controlled repo after a failed deploy so we don't leave
+ * orphan repos behind. Disabled when GITHUB_ARCHIVE_FAILED_CONTROLLED_REPOS is
+ * 'false'. Never archives shared-repo mode. Best-effort — never throws.
+ */
+async function cleanupControlledRepoAfterFailure(deploymentId, controlledRepo) {
+  if (!controlledRepo) return { status: 'not_applicable', archived: false };
+  if (controlledRepo.mode !== 'dedicated-repo') return { status: 'skipped_shared_repo', archived: false };
+  if (String(process.env.GITHUB_ARCHIVE_FAILED_CONTROLLED_REPOS || '').toLowerCase() === 'false') {
+    await addDeploymentLog(deploymentId, `Controlled repo ${controlledRepo.controlledFullName} left intact (archival disabled).`, 'warn');
+    return { status: 'disabled', archived: false };
+  }
+  try {
+    await archiveControlledRepo({ repoUrl: controlledRepo.controlledRepoUrl });
+    await addDeploymentLog(deploymentId, `Archived orphaned controlled repo after failed deploy: ${controlledRepo.controlledFullName}.`, 'ok');
+    return { status: 'archived', archived: true };
+  } catch (archiveError) {
+    await addDeploymentLog(deploymentId, `Failed to archive controlled repo ${controlledRepo.controlledFullName}: ${archiveError.message}`, 'warn');
+    return { status: 'archive_failed', archived: false };
   }
 }
 

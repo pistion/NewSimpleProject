@@ -11,6 +11,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { stageFail, stageStart, stageSuccess } from '../../00-SHARED/stageLogger.js';
+import { detectEnvHints } from './envHintDetector.stage.js';
 
 export async function runStage(context) {
   const stageName = 'project_detection';
@@ -39,6 +40,16 @@ export async function runStage(context) {
  * @returns {ProjectDetection}
  */
 export async function detectProject(siteDir, files = []) {
+  const detection = await detectProjectCore(siteDir, files);
+  try {
+    detection.envHints = await detectEnvHints(siteDir, files);
+  } catch {
+    detection.envHints = { requiredEnv: [], optionalEnv: [], publicEnv: [], databaseHints: [], riskLevel: 'low', messages: [] };
+  }
+  return detection;
+}
+
+async function detectProjectCore(siteDir, files = []) {
   const set = new Set(files);
   let pkg   = null;
 
@@ -82,7 +93,9 @@ export async function detectProject(siteDir, files = []) {
     if (scripts.start || set.has('server.js') || set.has('app.js') || set.has('src/server.js'))
       return preset(
         'node-server', 'Node.js server', 'web_service',
-        scripts.build ? 'npm run build' : 'npm install',
+        // No build script → no build command. buildScriptWriter still installs
+        // dependencies, so returning 'npm install' here would install twice.
+        scripts.build ? 'npm run build' : null,
         '.', scripts.start ? 'npm start' : 'node server.js',
         'node', nodeVersion,
       );

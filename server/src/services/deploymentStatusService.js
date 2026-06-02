@@ -62,6 +62,9 @@ class DeploymentStatusService {
       if (isRenderGone(error)) {
         return this.markProviderMissing(deployment, error);
       }
+      const diagnostics = await renderApiService
+        .getDeployDiagnostics(deployment.renderServiceId, deployment.renderDeployId)
+        .catch(() => null);
       return mutateHostingStore((store) => {
         const stored = store.deployments.find((item) => item.deploymentId === deployment.deploymentId);
         if (!stored) return deployment;
@@ -71,9 +74,12 @@ class DeploymentStatusService {
           buildStatus: 'failed',
           currentStep: 'Failed',
           errorMessage: error.message || 'Render status check failed.',
+          renderDiagnostics: diagnostics || stored.renderDiagnostics,
+          errorDetails: { ...(stored.errorDetails || {}), renderDiagnostics: diagnostics },
           updatedAt: nowIso(),
         });
         store.logs[stored.deploymentId] = [
+          ...diagnosticLogs(diagnostics),
           makeLog(`Render status check failed: ${stored.errorMessage}`, 'error'),
           ...(store.logs[stored.deploymentId] || []),
         ];
@@ -84,6 +90,12 @@ class DeploymentStatusService {
     const next = this.normalizeStatus(deploy.status);
     let liveUrl = deployment.liveUrl;
     let verification = null;
+    let diagnostics = null;
+    if (next.status === 'failed') {
+      diagnostics = await renderApiService
+        .getDeployDiagnostics(deployment.renderServiceId, deployment.renderDeployId || deploy.id)
+        .catch(() => null);
+    }
     if (next.status === 'live') {
       const renderService = await renderApiService.getService(deployment.renderServiceId).catch(() => null);
       liveUrl = extractServiceUrl(renderService) || liveUrl;
@@ -106,9 +118,16 @@ class DeploymentStatusService {
         verifiedUrl: verification?.ok ? liveUrl : stored.verifiedUrl,
         urlReachable: verification ? Boolean(verification.ok) : stored.urlReachable,
         errorMessage: verification && !verification.ok ? 'The Render URL exists but is still warming up.' : stored.errorMessage,
+        ...(diagnostics ? { renderDiagnostics: diagnostics, errorDetails: { ...(stored.errorDetails || {}), renderDiagnostics: diagnostics } } : {}),
         updatedAt: nowIso(),
         lastDeployedAt: next.status === 'live' ? nowIso() : stored.lastDeployedAt,
       });
+      if (diagnostics) {
+        store.logs[stored.deploymentId] = [
+          ...diagnosticLogs(diagnostics),
+          ...(store.logs[stored.deploymentId] || []),
+        ];
+      }
       return stored;
     });
   }
@@ -144,12 +163,42 @@ class DeploymentStatusService {
   }
 
   async verifyLiveUrl(url) {
-    if (!url) return { ok: false, status: 'missing_url' };
+    if (!url) return { ok: false, method: null, status: 'missing_url' };
+
+    // 1. HEAD first — cheapest. Some hosts reject HEAD (405/403/404) or 500 on
+    //    it even though GET works, so those fall through to a GET retry.
+    let headError = null;
+    let headStatus = null;
     try {
       const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
-      return { ok: response.ok, statusCode: response.status, checkedAt: nowIso() };
+      if (isReachable(response.status)) {
+        return { ok: true, method: 'HEAD', statusCode: response.status, checkedAt: nowIso() };
+      }
+      headStatus = response.status;
+      // Only retry with GET for statuses that commonly differ between HEAD/GET.
+      if (![405, 403, 404, 500].includes(response.status)) {
+        return { ok: false, method: 'HEAD', statusCode: response.status, checkedAt: nowIso() };
+      }
     } catch (error) {
-      return { ok: false, error: error.message, checkedAt: nowIso() };
+      headError = error.message;
+    }
+
+    // 2. GET fallback — abort as soon as headers/first chunk arrive so we don't
+    //    download the whole body.
+    try {
+      const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+      const ok = isReachable(response.status);
+      // Read a small chunk then release the connection rather than the full body.
+      try {
+        const reader = response.body?.getReader?.();
+        if (reader) { await reader.read(); await reader.cancel(); }
+      } catch { /* body drain is best-effort */ }
+      if (ok) {
+        console.log(`[url-verify] GET fallback confirmed ${url} reachable (HEAD ${headStatus ?? headError ?? 'failed'}).`);
+      }
+      return { ok, method: 'GET', statusCode: response.status, checkedAt: nowIso(), error: ok ? undefined : (headError || undefined) };
+    } catch (error) {
+      return { ok: false, method: 'GET', statusCode: headStatus, error: error.message || headError, checkedAt: nowIso() };
     }
   }
 
@@ -168,6 +217,18 @@ class DeploymentStatusService {
       deleted: 'Deleted',
     }[status] || 'Preparing';
   }
+}
+
+// Treat any 2xx or 3xx response as a reachable, live URL.
+function isReachable(statusCode) {
+  return statusCode >= 200 && statusCode < 400;
+}
+
+// Turn normalized Render diagnostics into a small set of deployment log entries.
+function diagnosticLogs(diagnostics) {
+  if (!diagnostics?.messages?.length) return [];
+  const source = diagnostics.logsAvailable ? 'deploy logs' : diagnostics.eventsAvailable ? 'service events' : 'service snapshot';
+  return diagnostics.messages.slice(-8).map((message) => makeLog(`[render ${source}] ${message}`, 'warn'));
 }
 
 function makeLog(message, level = 'info') {

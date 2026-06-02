@@ -496,6 +496,64 @@ class RenderApiService {
     };
   }
 
+  /**
+   * Safe, layered diagnostics for a deploy that failed or errored. The deploy
+   * logs endpoint (/deploys/:id/logs) can 404 or be unavailable, so fall back
+   * to service events, then a service snapshot. Never throws — returns a
+   * normalized object describing which sources were available.
+   */
+  async getDeployDiagnostics(serviceId, deployId) {
+    const result = {
+      logsAvailable: false,
+      eventsAvailable: false,
+      serviceAvailable: false,
+      messages: [],
+      raw: {},
+    };
+    if (!serviceId || !this.configured()) return result;
+
+    // 1. Deploy logs (best detail, least reliable).
+    if (deployId) {
+      try {
+        const logs = await this.getDeployLogs(serviceId, deployId);
+        result.logsAvailable = true;
+        result.raw.logs = logs;
+        for (const msg of extractLogMessages(logs)) result.messages.push(msg);
+      } catch (error) {
+        result.raw.logsError = { status: error.status, message: error.message };
+      }
+    }
+
+    // 2. Service events.
+    try {
+      const events = await this.listServiceEvents(serviceId);
+      result.eventsAvailable = true;
+      result.raw.events = events;
+      for (const msg of extractEventMessages(events)) result.messages.push(msg);
+    } catch (error) {
+      result.raw.eventsError = { status: error.status, message: error.message };
+    }
+
+    // 3. Service snapshot (last resort — at least surfaces current state).
+    if (!result.logsAvailable && !result.eventsAvailable) {
+      try {
+        const snapshot = await this.getServiceSnapshot(serviceId);
+        result.serviceAvailable = true;
+        result.raw.snapshot = snapshot;
+        const status = snapshot?.service?.service?.suspended || snapshot?.service?.suspended;
+        if (status) result.messages.push(`Service state: ${status}`);
+        if (snapshot?.latestDeploy?.status) result.messages.push(`Latest deploy status: ${snapshot.latestDeploy.status}`);
+      } catch (error) {
+        result.raw.snapshotError = { status: error.status, message: error.message };
+      }
+    }
+
+    if (!result.messages.length) {
+      result.messages.push('No Render diagnostics available (deploy logs, events, and snapshot all unavailable).');
+    }
+    return result;
+  }
+
   // ── HTTP Transport ───────────────────────────────────────────────────────────
 
   async request(path, options = {}) {
@@ -576,12 +634,17 @@ class RenderApiService {
       console.warn('[render-api] Service name is generic — consider providing a specific serviceName.');
     }
 
-    // Always include GLONDIA_SITE_SLUG so the root dispatcher can find the
-    // correct subdirectory even if rootDir is not honoured.
+    // Always include GLONDIA_SITE_SLUG (and the matching GLONDIA_SITE_ROOT_DIR
+    // base) so the root dispatcher can find the correct subdirectory even if
+    // rootDir is not honoured. The root base must match the generated-sites
+    // root the publisher used (e.g. generated-sites vs uploaded-sites).
     const siteSlugVar = input.siteSlug
       ? [{ key: 'GLONDIA_SITE_SLUG', value: input.siteSlug }]
       : [];
-    const envVars = [...siteSlugVar, ...(input.envVars || [])];
+    const siteRootVar = input.siteSlug && input.siteRootDir
+      ? [{ key: 'GLONDIA_SITE_ROOT_DIR', value: input.siteRootDir }]
+      : [];
+    const envVars = [...siteSlugVar, ...siteRootVar, ...(input.envVars || [])];
 
     return cleanObject({
       type: serviceType,
@@ -768,6 +831,28 @@ function normalizeClearCache(value) {
   if (value === false || value === undefined || value === null) return 'do_not_clear';
   if (value === 'clear' || value === 'do_not_clear') return value;
   return 'do_not_clear';
+}
+
+function extractLogMessages(logs) {
+  const rows = Array.isArray(logs) ? logs : logs?.logs || logs?.data || [];
+  return rows
+    .map((row) => row?.message || row?.log || (typeof row === 'string' ? row : null))
+    .filter(Boolean)
+    .slice(-25);
+}
+
+function extractEventMessages(events) {
+  const rows = Array.isArray(events) ? events : events?.events || events?.data || [];
+  return rows
+    .map((row) => {
+      const e = row?.event || row;
+      const type = e?.type || e?.details?.type;
+      const ts = e?.timestamp || e?.createdAt;
+      const detail = e?.details?.text || e?.details?.message || e?.message;
+      return [ts, type, detail].filter(Boolean).join(' — ');
+    })
+    .filter(Boolean)
+    .slice(0, 25);
 }
 
 function extractFirstDeploy(deploysResponse) {

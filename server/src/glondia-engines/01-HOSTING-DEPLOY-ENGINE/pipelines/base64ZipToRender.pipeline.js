@@ -6,6 +6,8 @@ import { makeId, mutateHostingStore, nowIso } from '../../../services/hostingSto
 import renderApiService from '../../../services/renderApiService.js';
 import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken, parseGitHubRepoUrl } from '../03-GITHUB-SOURCE-MOUNTAIN/generatedSitesRepoPublisher.stage.js';
 import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
+import { detectEnvHints } from '../02-UNZIP-AND-DETECT-MOUNTAIN/envHintDetector.stage.js';
+import { resolveDeployMode } from '../02-UNZIP-AND-DETECT-MOUNTAIN/deployModeResolver.stage.js';
 
 // ── Provider constants ──────────────────────────────────────────────────────
 // ZIP uploads are website/app hosting → always Render.
@@ -572,6 +574,19 @@ export async function validateZipSite(input = {}) {
     const publishDirectory = resolvePublishDirectory(detected);
     const serviceType = resolveServiceType(detected);
 
+    // Advisory env-variable hints so the preview can warn about missing config.
+    const envHints = await detectEnvHints(tmpDir, extracted.files).catch(() => ({
+      requiredEnv: [], optionalEnv: [], publicEnv: [], databaseHints: [], riskLevel: 'low', messages: [],
+    }));
+
+    // Deploy-mode preview: the recommended (auto) mode plus the alternatives the
+    // user can pick on the upload screen.
+    const resolved = resolveDeployMode({
+      detected: { ...detected, serviceType, publishDirectory, startCommand: detected.detectedStartCommand },
+      files: extracted.files,
+      selectedMode: 'auto',
+    });
+
     return {
       valid: true,
       fileName,
@@ -586,10 +601,15 @@ export async function validateZipSite(input = {}) {
       publishDirectory,
       buildCommand: detected.detectedBuildCommand || null,
       startCommand: detected.detectedStartCommand || null,
+      runtime: detected.detectedServiceType === 'web_service' ? 'node' : null,
       nodeVersion: detected.nodeVersion || null,
       deployableFiles: extracted.files,
       ignoredFiles: extracted.ignoredFiles,
       ignoredFolderExamples: extracted.ignoredFolderExamples,
+      envHints,
+      recommendedMode: resolved.mode,
+      alternatives: resolved.alternatives,
+      warnings: resolved.warnings,
     };
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});

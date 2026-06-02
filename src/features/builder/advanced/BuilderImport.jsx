@@ -6,6 +6,7 @@ import {
   createGithubHostingDeployment,
   createZipHostingDeployment,
   getHostingDeploySettings,
+  validateZipHostingDeployment,
 } from '../../../api/hosting-deploy.js';
 import { getDeploymentPricing } from '../../../api/payments.js';
 import { GithubPreparePanel } from '../prepare/GithubPreparePanel.jsx';
@@ -114,6 +115,68 @@ function DeploymentPreviewCard({ config }) {
           : <><dt>Start</dt><dd className="mono">{config.startCommand || 'Not set'}</dd></>}
         <dt>Plan</dt><dd className="mono">{config.plan || 'starter'}</dd>
         <dt>Region</dt><dd className="mono">{config.region || 'oregon'}</dd>
+      </div>
+    </div>
+  );
+}
+
+// ── ZIP detection preview ────────────────────────────────────────────────────────
+
+const DEPLOY_MODE_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'static_public_folder', label: 'Static front-end only' },
+  { value: 'web_service', label: 'Full app / web service' },
+  { value: 'custom_commands', label: 'Custom commands' },
+];
+
+function ZipDetectionPreview({ validation, validating, deployMode, onDeployModeChange, graceHours = 12 }) {
+  if (validating) {
+    return <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>Analyzing your ZIP…</div>;
+  }
+  if (!validation) return null;
+  const env = validation.envHints || {};
+  const requiredEnv = env.requiredEnv || [];
+  const ignoredCount = validation.ignoredFileCount || validation.ignoredFiles?.length || 0;
+  const ignoredExamples = validation.ignoredFolderExamples || [];
+
+  return (
+    <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>We detected…</div>
+      <div className="kv" style={{ gridTemplateColumns: '140px 1fr', rowGap: 4 }}>
+        <dt>Framework</dt><dd>{validation.framework || 'Unknown'}</dd>
+        <dt>Deploy mode</dt><dd className="mono">{validation.recommendedMode || 'auto'}</dd>
+        <dt>Service type</dt><dd className="mono">{validation.serviceType || 'static_site'}</dd>
+        <dt>Publish dir</dt><dd className="mono">{validation.publishDirectory || '.'}</dd>
+        <dt>Build command</dt><dd className="mono">{validation.buildCommand || '(none — install only)'}</dd>
+        {validation.startCommand && <><dt>Start command</dt><dd className="mono">{validation.startCommand}</dd></>}
+        <dt>Files</dt><dd>{validation.fileCount ?? '?'} deployable{ignoredCount ? `, ${ignoredCount} ignored` : ''}</dd>
+      </div>
+
+      {ignoredExamples.includes('node_modules/') && (
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>node_modules is ignored safely.</div>
+      )}
+
+      {requiredEnv.length > 0 && (
+        <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--warning, #e6a817)', borderRadius: 'var(--r-md)' }}>
+          <div style={{ fontWeight: 600, color: 'var(--warning, #e6a817)' }}>Your app may need environment variables before it can run correctly.</div>
+          <div className="mono" style={{ fontSize: 12, marginTop: 4 }}>{requiredEnv.join(', ')}</div>
+          {env.databaseHints?.length > 0 && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Database library detected: {env.databaseHints.join(', ')}.</div>}
+        </div>
+      )}
+
+      {validation.warnings?.length > 0 && (
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{validation.warnings.join(' ')}</div>
+      )}
+
+      <div style={{ marginTop: 10 }}>
+        <div className="label" style={{ fontSize: 12, marginBottom: 4 }}>Deploy mode</div>
+        <select className="input" value={deployMode} onChange={(e) => onDeployModeChange(e.target.value)}>
+          {DEPLOY_MODE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+
+      <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+        Your site starts on the free hosting plan for {graceHours} hours. After payment is verified, Glondia upgrades your hosting plan and redeploys.
       </div>
     </div>
   );
@@ -260,6 +323,10 @@ export function BuilderImport({ mode = 'github', navigate }) {
     runtime: 'node', healthCheckPath: '/', repoUrl: '', pullRequestPreviews: 'no',
   });
   const [zipConfig, setZipConfig] = useStateB(null);
+  // "We detected..." preview from POST /deployments/zip/validate.
+  const [zipValidation, setZipValidation] = useStateB(null);
+  const [zipValidating, setZipValidating] = useStateB(false);
+  const [deployMode, setDeployMode] = useStateB('auto');
   const [settingsMode, setSettingsMode] = useStateB('basic');
   const [activePreset, setActivePreset] = useStateB(null);
   const [presetNotice, setPresetNotice] = useStateB('');
@@ -364,14 +431,21 @@ export function BuilderImport({ mode = 'github', navigate }) {
 
   const selectZip = (file) => {
     setZipNotice('');
+    setZipValidation(null);
     if (!file) return;
     setZipError(null);
     if (!/\.zip$/i.test(file.name)) { setZipError('Please upload a .zip file.'); setImportPhase('error'); return; }
     setZipFile(file);
     setZipNotice(`${file.name} selected successfully. Click Send ZIP to Hosting to create a handoff.`);
     setImportPhase('zip_ready');
+    // Fire-and-forget detection preview so users see what we found before deploy.
+    setZipValidating(true);
+    validateZipHostingDeployment(file)
+      .then((detail) => { setZipValidation(detail); if (detail?.recommendedMode) setDeployMode(detail.recommendedMode); })
+      .catch(() => setZipValidation(null))
+      .finally(() => setZipValidating(false));
   };
-  const clearZip = () => { setZipFile(null); setZipNotice(''); setZipError(null); setImportPhase('idle'); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  const clearZip = () => { setZipFile(null); setZipNotice(''); setZipError(null); setZipValidation(null); setDeployMode('auto'); setImportPhase('idle'); if (fileInputRef.current) fileInputRef.current.value = ''; };
   const handleDrop = (event) => { event.preventDefault(); setDragging(false); selectZip(event.dataTransfer.files?.[0]); };
 
   const handleGitConnect = async () => {
@@ -425,6 +499,8 @@ export function BuilderImport({ mode = 'github', navigate }) {
         repoUrl: renderConfig.repoUrl,
         branch: repoBranch || 'main',
         rootDirectory: isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory,
+        // Deploy mode chosen in the detection preview (auto unless overridden)
+        deployMode,
         // Launch pricing tier (promo_50 or standard_200)
         billingTierId,
         // Env vars (JSON-stringified — route parses it back)
@@ -453,6 +529,7 @@ export function BuilderImport({ mode = 'github', navigate }) {
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>{zipFile ? `${zipFile.name} • ${formatFileSize(zipFile.size)}` : 'ZIP must contain a deployable site with package.json or index.html. Node modules and .git folders are ignored.'}</p>
             </div>
             {zipFile && <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', border: '1px solid var(--accent)' }}><div className="row between" style={{ gap: 10 }}><div><div style={{ fontWeight: 700 }}>Selected file</div><div className="mono muted" style={{ fontSize: 12 }}>{zipFile.name} · {formatFileSize(zipFile.size)}</div></div><button className="btn btn-sm btn-outline" onClick={clearZip} disabled={zipBusy}>Remove</button></div></div>}
+            {zipFile && <ZipDetectionPreview validation={zipValidation} validating={zipValidating} deployMode={deployMode} onDeployModeChange={setDeployMode} graceHours={pricing?.graceHours || 12} />}
             {zipConfig && (
               <div className="card" style={{ marginTop: 12, padding: 12, background: 'var(--bg-deep)', fontSize: 13 }}>
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>Hosting handoff status</div>

@@ -12,6 +12,7 @@ import { normalizeZipUploadInput } from '../01-ZIP-INTAKE-MOUNTAIN/zipUpload.int
 import { extractZipSafely } from '../02-UNZIP-AND-DETECT-MOUNTAIN/zipExtractor.stage.js';
 import { detectProject } from '../02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.stage.js';
 import { writeRenderBuildScript, writeRootDispatcherScript } from '../02-UNZIP-AND-DETECT-MOUNTAIN/buildScriptWriter.stage.js';
+import { resolveDeployMode } from '../02-UNZIP-AND-DETECT-MOUNTAIN/deployModeResolver.stage.js';
 import { publishDirectoryToGithub } from '../03-GITHUB-SOURCE-MOUNTAIN/githubPublisher.stage.js';
 import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
 import { getRuntimeConfig, hasRealValue } from '../../00-SHARED/runtimeConfig.js';
@@ -23,6 +24,7 @@ import {
   updateDeploymentRecord,
 } from '../../00-SHARED/deploymentRecordStore.js';
 import { createAndTriggerRenderDeploy } from '../05-RENDER-DEPLOY-MOUNTAIN/renderDeploy.stage.js';
+import { startPostDeployPolling } from '../../../services/deploymentPostDeployPoller.js';
 
 export async function run(input = {}, context = {}) {
   const normalized = normalizeZipUploadInput(input, context);
@@ -61,18 +63,55 @@ export async function run(input = {}, context = {}) {
     await addDeploymentLog(deployment.deploymentId, `ZIP upload received: ${file.originalname}.`, 'info');
     const extracted = await extractZipSafely(file.buffer, siteDir);
     const detected = await detectProject(siteDir, extracted.files);
-    const shell = await writeRenderBuildScript(siteDir, detected);
+    // Resolve the deploy mode (auto unless the user picked one) and let it drive
+    // the build script and Render service settings.
+    const resolvedMode = resolveDeployMode({
+      detected,
+      selectedMode: fields.deployMode || fields.mode || 'auto',
+      fields,
+      files: extracted.files,
+    });
+    const shell = await writeRenderBuildScript(siteDir, {
+      ...detected,
+      serviceType: resolvedMode.serviceType,
+      detectedBuildCommand: resolvedMode.buildCommand,
+      publishDirectory: resolvedMode.publishDirectory,
+    });
     const manifest = await writeManifest(siteDir, deployment.deploymentId, uploadId, file.originalname, targetRoot, sourceRepo, branch, detected, extracted);
 
-    const serviceType = fields.serviceType || detected.serviceType;
-    const outputDirectory = fields.outputDirectory || fields.publishDirectory || detected.publishDirectory || 'dist';
+    const serviceType = fields.serviceType || resolvedMode.serviceType;
+    const outputDirectory = fields.outputDirectory || fields.publishDirectory || resolvedMode.publishDirectory || 'dist';
+    // Root base the site source is published under (targetRoot === `${rootBase}/${slug}`).
+    // The root dispatcher and GLONDIA_SITE_ROOT_DIR env var must use this same base
+    // so a shared-repo deploy published under generated-sites/foo is found there.
+    const dirOfTarget = path.posix.dirname(String(targetRoot || ''));
+    const rootBase = (!dirOfTarget || dirOfTarget === '.')
+      ? (cfg.generatedSitesRootDir || 'uploaded-sites')
+      : dirOfTarget;
     const useTemporaryRepo = shouldUseTemporaryRepo(fields);
     let activeSourceRepo = sourceRepo;
     let activeTargetRoot = targetRoot;
     let renderInput = buildRenderInput(fields, siteName, serviceType, activeSourceRepo, branch, activeTargetRoot, shell, outputDirectory, detected, initialPlan);
     let baseUpdate = buildBaseUpdate(deployment, serviceType, activeSourceRepo, branch, activeTargetRoot, renderInput, detected, extracted, manifest);
+    // Record the resolved deploy mode + warnings so the dashboard can show them.
+    baseUpdate.deployMode = resolvedMode.mode;
+    baseUpdate.deployModeConfidence = resolvedMode.confidence;
+    baseUpdate.deployModeWarnings = resolvedMode.warnings;
+    baseUpdate.environmentConfiguration.deployMode = resolvedMode.mode;
+    baseUpdate.environmentConfiguration.deployModeConfidence = resolvedMode.confidence;
+    if (resolvedMode.warnings.length) {
+      await addDeploymentLog(deployment.deploymentId, `Deploy mode "${resolvedMode.mode}": ${resolvedMode.warnings.join(' ')}`, 'warn');
+    }
 
     await addDeploymentLog(deployment.deploymentId, `Detected ${detected.framework} (${detected.type}) and prepared ${extracted.files.length} deployable files.`, 'info');
+    if (detected.envHints?.requiredEnv?.length) {
+      await addDeploymentLog(
+        deployment.deploymentId,
+        `Detected required env hints: ${detected.envHints.requiredEnv.join(', ')}. Set these on the service before the app can run correctly.`,
+        detected.envHints.riskLevel === 'high' ? 'warn' : 'info',
+        { envHints: detected.envHints },
+      );
+    }
 
     if (!useTemporaryRepo && !hasRealValue(sourceRepo)) {
       return ready(deployment.deploymentId, baseUpdate, 'Ready - missing generated-sites repo', 'Configure RENDER_GENERATED_SITES_REPO_URL before Render can deploy ZIP source.');
@@ -110,7 +149,9 @@ export async function run(input = {}, context = {}) {
         repoUrl: sourceRepo,
         branch,
         token: cfg.githubPublisherToken,
-        rootDispatcher: writeRootDispatcherScript,
+        // Bind the dispatcher to the SAME root base used for targetRoot so it
+        // looks under generated-sites/<slug>, not the hardcoded uploaded-sites.
+        rootDispatcher: (dir) => writeRootDispatcherScript(dir, { rootBase }),
       });
     }
     baseUpdate.generatedSite.githubPublish = githubPublish;
@@ -120,9 +161,15 @@ export async function run(input = {}, context = {}) {
       return ready(deployment.deploymentId, baseUpdate, 'Ready - missing Render credentials', `Configure ${cfg.missingRender.join(', ')} to start Render deployment.`);
     }
 
-    const renderResult = await createAndTriggerRenderDeploy({ ...renderInput, siteSlug: slug });
+    // For shared-repo mode the dispatcher needs the root base; for a temporary
+    // repo the site lives at the repo root so no root base is sent.
+    const renderResult = await createAndTriggerRenderDeploy({
+      ...renderInput,
+      siteSlug: slug,
+      ...(useTemporaryRepo ? {} : { siteRootDir: rootBase }),
+    });
     await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started.`, 'ok');
-    return updateDeploymentRecord(deployment.deploymentId, {
+    const updated = await updateDeploymentRecord(deployment.deploymentId, {
       ...baseUpdate,
       status: 'building',
       buildStatus: 'queued',
@@ -137,6 +184,10 @@ export async function run(input = {}, context = {}) {
       },
       errorMessage: null,
     });
+    // Kick off a background monitor so the record advances to live/failed
+    // without waiting for the user to open the dashboard. Non-blocking.
+    startPostDeployPolling(deployment.deploymentId);
+    return updated;
   } catch (error) {
     await addDeploymentLog(deployment.deploymentId, error.message || 'ZIP deploy failed.', 'error', error.details || null);
     return updateDeploymentRecord(deployment.deploymentId, {

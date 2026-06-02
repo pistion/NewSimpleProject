@@ -29,37 +29,68 @@ export async function writeRenderBuildScript(siteDir, detected = {}) {
   const publishDirectory = detected.publishDirectory || detected.detectedPublishDirectory || 'dist';
   const buildCommand = detected.detectedBuildCommand || null;
   const nodeVersion = detected.nodeVersion || null;
+  // A web service with no build command still needs its dependencies installed,
+  // but must NOT run a second install/build step — that double-installs.
+  const isServerSource = detected.serviceType === 'web_service' || detected.detectedServiceType === 'web_service';
 
-  const body = buildCommand
-    ? sourceBuildScript({ buildCommand, publishDirectory, framework: detected.framework, nodeVersion })
-    : staticBuildScript({ publishDirectory });
+  let body;
+  if (buildCommand) {
+    body = sourceBuildScript({ buildCommand, publishDirectory, framework: detected.framework, nodeVersion });
+  } else if (isServerSource) {
+    body = installOnlyBuildScript({ framework: detected.framework, nodeVersion });
+  } else {
+    body = staticBuildScript({ publishDirectory });
+  }
 
   await fs.writeFile(scriptPath, body, { mode: 0o755 });
   return { scriptPath, relativePath: 'glondia-render-build.sh', buildCommand: 'bash glondia-render-build.sh' };
 }
 
-export async function writeRootDispatcherScript(repoRootDir) {
+/**
+ * Write the root-level build dispatcher. It runs when Render has no rootDir set
+ * on the service and locates the correct site directory via env vars.
+ *
+ * The published site files may live under any configured generated-sites root
+ * (e.g. `generated-sites/<slug>` or `uploaded-sites/<slug>`), so the dispatcher
+ * must use the SAME root base that the publisher used for targetRoot. Pass it
+ * via options.rootBase; it also honours GLONDIA_SITE_ROOT_DIR at runtime so a
+ * misconfigured service can be corrected without re-publishing.
+ *
+ * @param {string} repoRootDir  Local dir where the dispatcher script is written.
+ * @param {{ rootBase?: string }} [options]
+ */
+export async function writeRootDispatcherScript(repoRootDir, options = {}) {
   const scriptPath = path.join(repoRootDir, 'glondia-render-build.sh');
+  const rootBase = options.rootBase
+    || process.env.RENDER_GENERATED_SITES_ROOT_DIR
+    || process.env.GLONDIA_SITE_ROOT_DIR
+    || 'uploaded-sites';
+  const safeRootBase = String(rootBase).replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+$/g, '') || 'uploaded-sites';
   const body = `#!/usr/bin/env bash
 set -euo pipefail
 
 # Root-level dispatcher - runs when Render has no rootDir set on the service.
-# Finds the correct site directory via GLONDIA_SITE_SLUG env var.
+# Finds the correct site directory via the GLONDIA_SITE_ROOT_DIR (base) and
+# GLONDIA_SITE_SLUG (folder) env vars. The base defaults to the root used when
+# the site source was published.
 
+SITE_ROOT_DIR="\${GLONDIA_SITE_ROOT_DIR:-${safeRootBase}}"
 SITE_SLUG="\${GLONDIA_SITE_SLUG:-}"
 if [ -z "$SITE_SLUG" ]; then
   echo "[glondia] ERROR: GLONDIA_SITE_SLUG is not set and no rootDir was configured."
+  echo "[glondia] GLONDIA_SITE_ROOT_DIR=$SITE_ROOT_DIR"
   echo "[glondia] Set GLONDIA_SITE_SLUG on the Render service to the site folder name."
   exit 1
 fi
 
-SITE_DIR="uploaded-sites/$SITE_SLUG"
+SITE_DIR="$SITE_ROOT_DIR/$SITE_SLUG"
 if [ ! -d "$SITE_DIR" ]; then
   echo "[glondia] ERROR: Site directory not found: $SITE_DIR"
+  echo "[glondia] GLONDIA_SITE_ROOT_DIR=$SITE_ROOT_DIR GLONDIA_SITE_SLUG=$SITE_SLUG"
   exit 1
 fi
 
-echo "[glondia] Dispatching build for site: $SITE_SLUG"
+echo "[glondia] Dispatching build for site: $SITE_SLUG (root: $SITE_ROOT_DIR)"
 cd "$SITE_DIR"
 bash glondia-render-build.sh
 `;
@@ -88,6 +119,19 @@ else
   echo "[glondia] ERROR: publish directory not found and no index.html fallback exists."
   exit 1
 fi
+`;
+}
+
+function installOnlyBuildScript({ framework, nodeVersion }) {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+echo "[glondia] Installing dependencies for ${framework || 'Node.js server'} (no build step)"
+${nodeVersion ? `echo "[glondia] Requested Node version: ${nodeVersion}"\n` : ''}if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
+echo "[glondia] No build command detected; dependencies installed only."
 `;
 }
 

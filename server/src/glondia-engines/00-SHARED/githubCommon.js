@@ -24,10 +24,10 @@ export function parseGithubRepoUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
 
-  const ssh = raw.match(/^git@github\.com:([^/]+)\/([^/.#?]+)(?:\.git)?$/i);
+  const ssh = raw.match(/^git@github\.com:([^/]+)\/([^/#?]+?)(?:\.git)?$/i);
   if (ssh) return normalise(ssh[1], ssh[2]);
 
-  const https = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/.#?]+)(?:\.git)?\/?$/i);
+  const https = raw.match(/^https?:\/\/github\.com\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/i);
   if (https) return normalise(https[1], https[2]);
 
   const shorthand = raw.match(/^([^/\s]+)\/([^/\s]+)$/);

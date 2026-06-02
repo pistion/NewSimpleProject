@@ -29,12 +29,15 @@ export function normalizeGithubLinkInput(input = {}, context = {}) {
 }
 
 export function parseGithubRepoUrl(url = '') {
-  const match = String(url || '').trim().match(/github\.com[:/]([^/]+)\/([^/.#?]+)(?:\.git)?(?:[/?#].*)?$/i);
+  const match = String(url || '').trim().match(/github\.com[:/]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/?#].*)?$/i);
   if (!match) return null;
+  const owner = match[1].trim();
+  const repo = match[2].trim().replace(/\.git$/i, '');
+  if (!owner || !repo || repo === '.' || repo === '..') return null;
   return {
-    owner: match[1],
-    repo: match[2].replace(/\.git$/i, ''),
-    fullName: `${match[1]}/${match[2].replace(/\.git$/i, '')}`,
+    owner,
+    repo,
+    fullName: `${owner}/${repo}`,
   };
 }
 

@@ -32,6 +32,38 @@ export async function createGeneratedSiteHostingDeployment(input = {}) {
 }
 
 /**
+ * Validate a ZIP before deploying — returns detected framework, deploy mode,
+ * publish dir, build/start commands, required env hints, ignored folders, and
+ * mode alternatives. Never creates a Render service.
+ */
+export async function validateZipHostingDeployment(file) {
+  if (!file) throw new Error('Choose a ZIP file first.');
+  const form = new FormData();
+  form.append('siteZip', file);
+
+  let response;
+  try {
+    response = await fetch(liveApiUrl('/deployments/zip/validate'), {
+      method: 'POST',
+      headers: { ...authHeaders() },
+      body: form,
+    });
+  } catch (networkError) {
+    throw new Error(`Network error: ${networkError.message || 'Could not reach the server.'}`);
+  }
+
+  let result = null;
+  if ((response.headers.get('content-type') || '').includes('application/json')) {
+    result = await response.json().catch(() => null);
+  }
+  if (!response.ok) {
+    const msg = (typeof result?.error === 'string' ? result.error : result?.error?.message) || result?.message || `ZIP validation failed with status ${response.status}.`;
+    throw new Error(msg);
+  }
+  return result?.data ?? result ?? {};
+}
+
+/**
  * Create a Hosting Deploy Engine ZIP handoff.
  * Parses all backend error shapes: { error }, { message }, { error: { message } },
  * { code, error, details }, and non-JSON / HTML responses.
