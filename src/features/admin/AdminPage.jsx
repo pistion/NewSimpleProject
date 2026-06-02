@@ -14,6 +14,7 @@ import {
   suspendDeployment,
   reactivateDeployment,
   approveDeploymentBilling,
+  renewDeploymentManually,
   setDeploymentRenderPlan,
   getAdminUser,
   suspendUser,
@@ -205,7 +206,7 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'deployments' && (
-        <Table cols={['Created', 'Service', 'Owner', 'Tier', 'Plan', 'Status', 'Payment', 'Due', 'Actions']}>
+        <Table cols={['Created', 'Service', 'Owner', 'Tier', 'Plan', 'Status', 'Payment', 'Subscription', 'Due', 'Actions']}>
           {deployments.map((d) => (
             <tr key={d.deploymentId}>
               <td>{when(d.createdAt)}</td>
@@ -220,6 +221,14 @@ export function AdminPage() {
               </td>
               <td><StatusPill value={d.status} /></td>
               <td><StatusPill value={d.paymentStatus} /></td>
+              <td style={{ fontSize: 12 }}>
+                <div><StatusPill value={d.subscriptionStatus || 'trialing'} /></div>
+                <div className="muted">Start: {when(d.currentPeriodStart)}</div>
+                <div className="muted">End: {when(d.currentPeriodEnd)}</div>
+                <div className="muted">Next: {when(d.nextBillingAt)}</div>
+                <div className="muted">Reminder: {when(d.renewalReminderAt)}</div>
+                <div className="muted">Last paid: {when(d.lastPaidAt)} ? renewals {d.renewalCount ?? 0}</div>
+              </td>
               <td style={{ fontSize: 12 }}>{when(d.billingDueAt)}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {d.liveUrl && (
@@ -229,6 +238,8 @@ export function AdminPage() {
                   <><button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
                     onClick={() => act(d.deploymentId, () => approveDeploymentBilling(d.deploymentId), 'Approve billing')}>Approve billing</button>{' '}</>
                 )}
+                <button className="btn btn-sm btn-primary" disabled={busyId === d.deploymentId}
+                  onClick={() => act(d.deploymentId, () => renewDeploymentManually(d.deploymentId), 'Manual renewal')}>Renew manually</button>{' '}
                 {d.status === 'suspended' ? (
                   <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
                     onClick={() => act(d.deploymentId, () => reactivateDeployment(d.deploymentId), 'Reactivate deployment')}>Reactivate</button>

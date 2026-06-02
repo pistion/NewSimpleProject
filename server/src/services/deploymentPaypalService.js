@@ -183,6 +183,7 @@ export async function captureDeploymentPaypalOrder({ paypalOrderId, user } = {})
 
   const result = await markDeploymentPaid({
     deploymentId: order.deploymentId,
+    checkoutOrderId: order.id,
     actorUserId: user?.id !== 'local-user' ? user?.id : null,
     via: 'paypal',
     providerCaptureId: captureRecord.id,

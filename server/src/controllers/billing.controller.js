@@ -84,6 +84,15 @@ const BillingController = {
         liveUrl: d.liveUrl || null,
         paymentStatus: d.paymentStatus || 'none',
         billingDueAt: d.billingDueAt || null,
+        trialStartedAt: d.trialStartedAt || null,
+        trialEndsAt: d.trialEndsAt || d.billingDueAt || null,
+        subscriptionStatus: d.subscriptionStatus || null,
+        currentPeriodStart: d.currentPeriodStart || null,
+        currentPeriodEnd: d.currentPeriodEnd || null,
+        nextBillingAt: d.nextBillingAt || null,
+        renewalReminderAt: d.renewalReminderAt || null,
+        lastPaidAt: d.lastPaidAt || null,
+        renewalCount: d.renewalCount ?? null,
         checkoutOrderId: d.checkoutOrderId || null,
       }));
 

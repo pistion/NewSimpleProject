@@ -27,6 +27,10 @@ import {
 } from '../config/deploymentBilling.js';
 import { resolveRequestedBillingTier, getUserPromoStatus } from './deploymentPromoService.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
+import {
+  ensureTrialSubscription,
+  activateOrRenewSubscription,
+} from './deploymentSubscriptionService.js';
 
 const DELETED = ['de', 'leted'].join('');
 
@@ -104,6 +108,9 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
   await updateDeploymentRecord(deployment.deploymentId, {
     checkoutOrderId: order.id,
     paymentStatus: 'pending',
+    subscriptionStatus: 'trialing',
+    trialStartedAt: deployment.createdAt || new Date().toISOString(),
+    trialEndsAt: billingDueAt.toISOString(),
     billingKind: kind,
     priceCents: tier.amountCents,
     priceCurrency: tier.currency,
@@ -119,6 +126,8 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     deletedReason: null,
   });
 
+  await ensureTrialSubscription({ deployment, order });
+
   await writeAuditLog({
     organizationId: orgIdFor(userId),
     actorUserId: dbUserId(userId),
@@ -129,6 +138,102 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
   });
 
   return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining: promoStatus?.canClaim ? null : 0, switched, message });
+}
+
+export async function createDeploymentRenewalOrder({ deploymentId, user = {}, billingTierId = null } = {}) {
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw Object.assign(new Error('Deployment not found.'), { status: 404, expose: true });
+  if (user?.role !== 'admin' && deployment.userId && deployment.userId !== user?.id) {
+    throw Object.assign(new Error('This deployment belongs to another account.'), { status: 403, expose: true });
+  }
+
+  const userId = user.id || deployment.userId || null;
+  const requested = billingTierId || defaultTierId;
+  const { tier, promoApplied, promoStatus, switched, message, promoWillBeMarkedUsedOnPayment } =
+    await resolveRequestedBillingTier({ userId, requestedTierId: requested, deploymentId });
+
+  const existingPending = await prisma.checkoutOrder.findFirst({
+    where: { deploymentId, type: 'deployment', status: { in: ['pending', 'payment_uploaded'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (existingPending) {
+    return billingSummary({
+      checkoutOrderId: existingPending.id,
+      status: existingPending.status,
+      billingDueAt: existingPending.dueAt,
+      tier,
+      promoRemaining: promoStatus?.canClaim ? null : 0,
+      switched: false,
+      message: 'A renewal payment is already waiting for this deployment.',
+    });
+  }
+
+  const order = await prisma.checkoutOrder.create({
+    data: {
+      organizationId: orgIdFor(userId),
+      userId: dbUserId(userId),
+      type: 'deployment',
+      provider: 'paypal',
+      status: 'pending',
+      currency: tier.currency,
+      actualAmountCents: tier.amountCents,
+      markupPercent: 0,
+      markupAmountCents: 0,
+      totalAmountCents: tier.amountCents,
+      deploymentId,
+      metadata: JSON.stringify({
+        deploymentId,
+        kind: 'renewal',
+        serviceName: deployment.serviceName || null,
+        billingTierId: tier.id,
+        billingTierLabel: tier.label,
+        promoApplied,
+        promoClaimForUserId: promoApplied ? dbUserId(userId) : null,
+        promoWillBeMarkedUsedOnPayment: promoWillBeMarkedUsedOnPayment === true,
+        renderInitialPlan: deployment.renderPlan || initialRenderPlan,
+        renderPlanAfterPayment: tier.renderPlanAfterPayment,
+        display: { amount: tier.amount, currency: tier.currency },
+        customerPrice: { amount: tier.amount, currency: tier.currency },
+        provider: 'render',
+        estimatedProviderCostCents: estimatedProviderCostCents(deployment.serviceType),
+        estimatedProviderCostCurrency: renderCosts.currency,
+      }),
+    },
+  });
+
+  await updateDeploymentRecord(deploymentId, {
+    checkoutOrderId: order.id,
+    paymentStatus: ['active', 'renewal_due'].includes(String(deployment.subscriptionStatus || '').toLowerCase())
+      ? (deployment.paymentStatus || 'paid')
+      : 'pending',
+    billingKind: 'renewal',
+    priceCents: tier.amountCents,
+    priceCurrency: tier.currency,
+    billingTierId: tier.id,
+    billingTierLabel: tier.label,
+    promoApplied,
+    promoClaimStatus: promoApplied ? 'pending' : (promoStatus?.used ? 'used' : (promoStatus?.eligible ? 'not_applicable' : 'unavailable')),
+    renderPlanTargetAfterPayment: tier.renderPlanAfterPayment,
+  });
+
+  await writeAuditLog({
+    organizationId: orgIdFor(userId),
+    actorUserId: dbUserId(userId),
+    action: 'deployment.billing.renewal_order_created',
+    entityType: 'checkout_order',
+    entityId: order.id,
+    result: { deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, switched, promoApplied },
+  });
+
+  return billingSummary({
+    checkoutOrderId: order.id,
+    status: 'pending',
+    billingDueAt: order.dueAt,
+    tier,
+    promoRemaining: promoStatus?.canClaim ? null : 0,
+    switched,
+    message,
+  });
 }
 
 /** Find the pending/active order for a deployment (most recent first). */
@@ -144,13 +249,19 @@ export async function getOrderForDeployment(deploymentId) {
  * Mark a deployment (and its order) paid. Resumes the Render service if it was
  * suspended/expired for non-payment. Safe to call more than once.
  */
-export async function markDeploymentPaid({ deploymentId, actorUserId = null, via = 'manual', providerCaptureId = null } = {}) {
+export async function markDeploymentPaid({ deploymentId, checkoutOrderId = null, orderId = null, actorUserId = null, via = 'manual', providerCaptureId = null } = {}) {
   const deployment = await findDeploymentRecord(deploymentId);
   if (!deployment) throw Object.assign(new Error('Deployment not found.'), { status: 404 });
 
-  const order = deployment.checkoutOrderId
+  const requestedOrderId = checkoutOrderId || orderId || null;
+  const order = requestedOrderId
+    ? await prisma.checkoutOrder.findUnique({ where: { id: requestedOrderId } })
+    : deployment.checkoutOrderId
     ? await prisma.checkoutOrder.findUnique({ where: { id: deployment.checkoutOrderId } })
     : await getOrderForDeployment(deploymentId);
+  if (order?.deploymentId && order.deploymentId !== deploymentId) {
+    throw Object.assign(new Error('Checkout order does not belong to this deployment.'), { status: 400, expose: true });
+  }
 
   const paidAt = new Date();
 
@@ -165,6 +276,14 @@ export async function markDeploymentPaid({ deploymentId, actorUserId = null, via
       },
     });
   }
+
+  await activateOrRenewSubscription({
+    deployment,
+    order,
+    paidAt,
+    actorUserId,
+    via,
+  });
 
   // Resume the Render service if it was suspended/expired for non-payment.
   let resumed = false;
@@ -315,13 +434,20 @@ export async function expireDeployment({ deployment, order = null, action = null
     }
   }
 
+  const isSubscriptionExpiry = reason === 'subscription_period_expired';
   const newStatus = mode === DELETED ? DELETED : 'payment_expired';
-  const expiredMessage = 'Payment was not verified within 12 hours. Please make payment or wait for admin verification.';
+  const expiredMessage = isSubscriptionExpiry
+    ? 'Hosting subscription expired. Please renew payment to reactivate your site.'
+    : 'Payment was not verified within 12 hours. Please make payment or wait for admin verification.';
   await updateDeploymentRecord(deploymentId, {
-    paymentStatus: 'expired',
+    paymentStatus: isSubscriptionExpiry ? 'subscription_expired' : 'expired',
+    ...(isSubscriptionExpiry ? { subscriptionStatus: 'expired' } : {}),
     status: newStatus,
     currentStep: mode === DELETED ? 'Removed — payment not verified' : 'Suspended — payment not verified',
     message: expiredMessage,
+    ...(isSubscriptionExpiry
+      ? { currentStep: mode === DELETED ? 'Removed - hosting subscription expired' : 'Suspended - hosting subscription expired' }
+      : {}),
     deletedReason: reason,
     ...(mode === DELETED ? { deletedAt: nowIso() } : { suspendedAt: nowIso() }),
   });
@@ -363,6 +489,7 @@ function safeJson(text) {
 export default {
   findDeploymentRecord,
   createDeploymentOrder,
+  createDeploymentRenewalOrder,
   getOrderForDeployment,
   markDeploymentPaid,
   expireDeployment,

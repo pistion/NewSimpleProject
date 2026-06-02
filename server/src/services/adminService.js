@@ -14,6 +14,7 @@ import {
   getOrderForDeployment,
   markDeploymentPaid,
   expireDeployment,
+  createDeploymentRenewalOrder,
 } from './deploymentBillingService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { getPromoUsage } from './deploymentPromoService.js';
@@ -78,6 +79,15 @@ function deploymentView(d, orderByDeployment = {}) {
     source: d.source || null,
     status: d.status || null,
     paymentStatus: d.paymentStatus || 'none',
+    trialStartedAt: d.trialStartedAt || null,
+    trialEndsAt: d.trialEndsAt || d.billingDueAt || null,
+    subscriptionStatus: d.subscriptionStatus || null,
+    currentPeriodStart: d.currentPeriodStart || null,
+    currentPeriodEnd: d.currentPeriodEnd || null,
+    nextBillingAt: d.nextBillingAt || null,
+    renewalReminderAt: d.renewalReminderAt || null,
+    lastPaidAt: d.lastPaidAt || null,
+    renewalCount: d.renewalCount ?? null,
     billingDueAt: d.billingDueAt || null,
     paidAt: d.paidAt || null,
     deletedReason: d.deletedReason || null,
@@ -241,7 +251,7 @@ export async function approveReceipt(receiptId, adminUserId) {
   const order = receipt.checkoutOrder;
   let paidResult = null;
   if (order?.deploymentId) {
-    paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, actorUserId: adminUserId, via: 'manual_receipt' });
+    paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, checkoutOrderId: order.id, actorUserId: adminUserId, via: 'manual_receipt' });
   } else if (order) {
     await prisma.checkoutOrder.update({ where: { id: order.id }, data: { status: 'paid', paidAt: new Date() } });
   }
@@ -293,6 +303,22 @@ export async function adminMarkDeploymentPaid(deploymentId, adminUserId) {
   const deployment = await findDeploymentRecord(deploymentId);
   if (!deployment) throw Object.assign(new Error('Deployment not found.'), { status: 404, expose: true });
   return markDeploymentPaid({ deploymentId, actorUserId: adminUserId, via: 'admin_mark_paid' });
+}
+
+export async function adminRenewDeploymentManually(deploymentId, adminUserId) {
+  const deployment = await findDeploymentRecord(deploymentId);
+  if (!deployment) throw Object.assign(new Error('Deployment not found.'), { status: 404, expose: true });
+  const renewal = await createDeploymentRenewalOrder({
+    deploymentId,
+    user: { id: deployment.userId || adminUserId, role: 'admin' },
+  });
+  const result = await markDeploymentPaid({
+    deploymentId,
+    checkoutOrderId: renewal.checkoutOrderId,
+    actorUserId: adminUserId,
+    via: 'admin_manual_renewal',
+  });
+  return { deploymentId, renewalOrderId: renewal.checkoutOrderId, ...result };
 }
 
 export async function adminDeleteDeployment(deploymentId, adminUserId) {
@@ -742,6 +768,7 @@ export default {
   listReceipts,
   approveReceipt,
   rejectReceipt,
+  adminRenewDeploymentManually,
   adminMarkDeploymentPaid,
   adminDeleteDeployment,
   getUserDetail,

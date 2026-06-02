@@ -172,6 +172,10 @@ router.post('/deployments/:deploymentId/approve-billing', async (req, res, next)
   try { res.json({ data: await adminService.approveDeploymentBilling(req.params.deploymentId, req.user.id), requestId: req.id }); } catch (e) { next(e); }
 });
 
+router.post('/deployments/:deploymentId/renew-manually', async (req, res, next) => {
+  try { res.json({ data: await adminService.adminRenewDeploymentManually(req.params.deploymentId, req.user.id), requestId: req.id }); } catch (e) { next(e); }
+});
+
 // Manual Render plan override: { plan: 'free'|'starter'|'standard', redeploy: bool }
 router.post('/deployments/:deploymentId/render-plan', async (req, res, next) => {
   try {

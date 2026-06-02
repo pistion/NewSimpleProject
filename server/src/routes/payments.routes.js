@@ -17,7 +17,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 import { prisma } from '../services/db.js';
 import { writeAuditLog } from '../services/auditLogService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
-import { findDeploymentRecord } from '../services/deploymentBillingService.js';
+import { findDeploymentRecord, createDeploymentRenewalOrder } from '../services/deploymentBillingService.js';
 import { readHostingStore } from '../services/hostingStore.js';
 import { deploymentBilling, billingTiers, graceHours, initialRenderPlan, getBillingTier } from '../config/deploymentBilling.js';
 import { getPromoUsage, getUserPromoStatus, resolveRequestedBillingTier } from '../services/deploymentPromoService.js';
@@ -145,6 +145,15 @@ router.get('/billing-summary', async (req, res, next) => {
         priceCurrency: d.priceCurrency || null,
         checkoutOrderId: d.checkoutOrderId || null,
         billingDueAt: d.billingDueAt || null,
+        trialStartedAt: d.trialStartedAt || null,
+        trialEndsAt: d.trialEndsAt || d.billingDueAt || null,
+        subscriptionStatus: d.subscriptionStatus || null,
+        currentPeriodStart: d.currentPeriodStart || null,
+        currentPeriodEnd: d.currentPeriodEnd || null,
+        nextBillingAt: d.nextBillingAt || null,
+        renewalReminderAt: d.renewalReminderAt || null,
+        lastPaidAt: d.lastPaidAt || null,
+        renewalCount: d.renewalCount ?? null,
         paidAt: d.paidAt || null,
         renderPlan: d.renderPlan || null,
         liveUrl: d.liveUrl || null,
@@ -173,6 +182,17 @@ router.get('/billing-summary', async (req, res, next) => {
 // ── Apply/change the billing tier on a pending deployment order ───────────────
 // Lets a user deploy first, then choose K50/K200 in billing. Eligibility is
 // re-verified server-side; the frontend is never trusted.
+router.post('/deployments/:deploymentId/renew', async (req, res, next) => {
+  try {
+    const result = await createDeploymentRenewalOrder({
+      deploymentId: req.params.deploymentId,
+      user: req.user,
+      billingTierId: req.body?.billingTierId || null,
+    });
+    res.status(201).json({ data: result, requestId: req.id });
+  } catch (error) { next(error); }
+});
+
 router.post('/deployment-orders/:orderId/apply-tier', async (req, res, next) => {
   try {
     const requestedTierId = String(req.body?.billingTierId || '').trim();

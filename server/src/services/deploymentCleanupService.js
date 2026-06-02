@@ -16,6 +16,11 @@
 import { readHostingStore } from './hostingStore.js';
 import { getOrderForDeployment, expireDeployment } from './deploymentBillingService.js';
 import { graceMs } from '../config/deploymentBilling.js';
+import { prisma } from './db.js';
+import {
+  markRenewalReminderDue,
+  expireSubscription,
+} from './deploymentSubscriptionService.js';
 
 const INTERVAL_MS = Number(process.env.DEPLOYMENT_CLEANUP_INTERVAL_MS || 5 * 60 * 1000);
 
@@ -32,7 +37,7 @@ function isDue(deployment) {
 
 /** Find and expire all overdue, unpaid platform deployments. Returns a summary. */
 export async function runCleanupOnce() {
-  const summary = { scanned: 0, expired: 0, skipped: 0, errors: 0 };
+  const summary = { scanned: 0, expired: 0, skipped: 0, errors: 0, reminders: 0, subscriptionExpired: 0 };
   let store;
   try {
     store = await readHostingStore();
@@ -45,6 +50,10 @@ export async function runCleanupOnce() {
     if (dep.platformDeployed !== true) continue;
     summary.scanned += 1;
 
+    if (['active', 'renewal_due'].includes(String(dep.subscriptionStatus || '').toLowerCase())) {
+      summary.skipped += 1;
+      continue;
+    }
     if (TERMINAL_PAYMENT.has(dep.paymentStatus) || TERMINAL_STATUS.has(dep.status)) { summary.skipped += 1; continue; }
     // Only enforce records that actually carry a billing order/status.
     if (!dep.checkoutOrderId && !dep.paymentStatus) { summary.skipped += 1; continue; }
@@ -61,6 +70,47 @@ export async function runCleanupOnce() {
       summary.errors += 1;
       console.error(`[cleanup] Failed to expire ${dep.deploymentId}:`, err.message);
     }
+  }
+
+  const now = new Date();
+  try {
+    const reminderDue = await prisma.deploymentSubscription.findMany({
+      where: {
+        status: 'active',
+        renewalReminderAt: { lte: now },
+        currentPeriodEnd: { gt: now },
+      },
+      take: 200,
+    });
+    for (const sub of reminderDue) {
+      try {
+        await markRenewalReminderDue(sub);
+        summary.reminders += 1;
+      } catch (err) {
+        summary.errors += 1;
+        console.error(`[cleanup] Failed to mark renewal due for ${sub.deploymentId}:`, err.message);
+      }
+    }
+
+    const expiredSubscriptions = await prisma.deploymentSubscription.findMany({
+      where: {
+        status: { in: ['active', 'renewal_due'] },
+        currentPeriodEnd: { lte: now },
+      },
+      take: 200,
+    });
+    for (const sub of expiredSubscriptions) {
+      try {
+        await expireSubscription(sub);
+        summary.subscriptionExpired += 1;
+      } catch (err) {
+        summary.errors += 1;
+        console.error(`[cleanup] Failed to expire subscription for ${sub.deploymentId}:`, err.message);
+      }
+    }
+  } catch (err) {
+    summary.errors += 1;
+    console.error('[cleanup] Subscription scan failed:', err.message);
   }
 
   return summary;

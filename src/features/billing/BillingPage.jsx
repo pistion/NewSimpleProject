@@ -4,6 +4,7 @@ import { ICN } from '../../icons';
 import { getBillingSummary } from '../../api/billing.js';
 import {
   createDeploymentPaypalOrder,
+  createDeploymentRenewalOrder,
   uploadManualReceipt,
   applyDeploymentOrderTier,
 } from '../../api/payments.js';
@@ -67,6 +68,20 @@ function hoursLeft(dueAt) {
   if (!dueAt) return null;
   const ms = new Date(dueAt).getTime() - Date.now();
   return Math.round((ms / 3_600_000) * 10) / 10;
+}
+
+function formatWhen(value) {
+  return value ? new Date(value).toLocaleString() : '-';
+}
+
+function remainingText(value) {
+  if (!value) return null;
+  const ms = new Date(value).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return 'expired';
+  const hours = Math.ceil(ms / 3_600_000);
+  if (hours < 48) return `${hours}h remaining`;
+  return `${Math.ceil(hours / 24)}d remaining`;
 }
 
 export default function BillingPage() {
@@ -158,6 +173,9 @@ export default function BillingPage() {
 function OrderCard({ order, deployment, pricing, onChanged }) {
   const paid = order.status === 'paid';
   const expired = order.status === 'expired';
+  const subscriptionStatus = deployment?.subscriptionStatus || (paid ? 'active' : 'trialing');
+  const isSubscriptionExpired = ['expired', 'suspended', 'deleted'].includes(String(subscriptionStatus).toLowerCase());
+  const showRenew = deployment?.deploymentId && ['active', 'renewal_due', 'expired', 'suspended', 'deleted'].includes(String(subscriptionStatus).toLowerCase());
   const left = hoursLeft(order.dueAt || deployment?.billingDueAt);
   const amount = `${order.currency || pricing?.deploymentCurrency || 'PGK'} ${((order.totalAmountCents || 0) / 100).toFixed(2)}`;
 
@@ -222,6 +240,17 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
     finally { setBusy(''); }
   };
 
+  const renew = async () => {
+    if (!deployment?.deploymentId) return;
+    setBusy('renew'); setErr(''); setMsg('');
+    try {
+      const res = await createDeploymentRenewalOrder(deployment.deploymentId);
+      setMsg(res?.message || 'Renewal bill created. Choose PayPal or bank deposit below.');
+      onChanged();
+    } catch (e) { setErr(e.message || 'Could not create renewal bill.'); }
+    finally { setBusy(''); }
+  };
+
   return (
     <div className="card" style={{ padding: 18 }}>
       <div className="row between" style={{ alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -244,8 +273,44 @@ function OrderCard({ order, deployment, pricing, onChanged }) {
       {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</div>}
       {msg && <div style={{ color: 'var(--accent)', fontSize: 13, marginTop: 10 }}>{msg}</div>}
 
-      {paid ? (
+      {deployment && (
+        <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-deep)' }}>
+          <div className="row between" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                <span className="muted" style={{ fontSize: 12 }}>Subscription</span>
+                <StatusPill value={subscriptionStatus} />
+              </div>
+              <div style={{ fontSize: 13 }}>
+                {subscriptionStatus === 'trialing'
+                  ? `Your site is live on free hosting. Pay before ${formatWhen(deployment.trialEndsAt || deployment.billingDueAt)} to keep it online.`
+                  : subscriptionStatus === 'renewal_due'
+                  ? `Your hosting ends on ${formatWhen(deployment.currentPeriodEnd)}. Renew before this date to avoid suspension.`
+                  : isSubscriptionExpired
+                  ? 'Hosting expired. Renew payment to reactivate your site.'
+                  : `Paid hosting active until ${formatWhen(deployment.currentPeriodEnd)}.`}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {deployment.trialEndsAt && <span>Trial ends: {formatWhen(deployment.trialEndsAt)} ({remainingText(deployment.trialEndsAt)})</span>}
+                {deployment.currentPeriodStart && <span>Started: {formatWhen(deployment.currentPeriodStart)}</span>}
+                {deployment.currentPeriodEnd && <span>Ends: {formatWhen(deployment.currentPeriodEnd)} ({remainingText(deployment.currentPeriodEnd)})</span>}
+                {deployment.nextBillingAt && <span>Next billing: {formatWhen(deployment.nextBillingAt)}</span>}
+                {deployment.renewalReminderAt && <span>Reminder: {formatWhen(deployment.renewalReminderAt)}</span>}
+              </div>
+            </div>
+            {showRenew && (
+              <button className="btn btn-primary btn-sm" disabled={busy === 'renew'} onClick={renew}>
+                <ICN.RefreshCw size={13} /> {busy === 'renew' ? 'Creating...' : 'Renew hosting'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {paid && !isSubscriptionExpired ? (
         <div style={{ marginTop: 12, color: 'var(--accent)', fontWeight: 700 }}><ICN.CheckCircle size={15} /> Payment received.</div>
+      ) : paid && isSubscriptionExpired ? (
+        <div className="muted" style={{ marginTop: 12, fontSize: 13 }}>Create a renewal bill to pay for the next month of hosting.</div>
       ) : (
         <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
           {/* Claim K50 promo (one per eligible user, re-verified server-side). */}

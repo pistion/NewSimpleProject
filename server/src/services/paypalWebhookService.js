@@ -108,7 +108,12 @@ export async function handlePaypalWebhookEvent(event = {}) {
 
     let result;
     if (order.deploymentId) {
-      result = await markDeploymentPaid({ deploymentId: order.deploymentId, via: 'paypal_webhook', providerCaptureId: resource.id });
+      result = await markDeploymentPaid({
+        deploymentId: order.deploymentId,
+        checkoutOrderId: order.id,
+        via: 'paypal_webhook',
+        providerCaptureId: resource.id,
+      });
     } else {
       await prisma.checkoutOrder.update({
         where: { id: order.id },

@@ -27,6 +27,12 @@ export const applyDeploymentOrderTier = (orderId, billingTierId) =>
     body: { billingTierId },
   });
 
+export const createDeploymentRenewalOrder = (deploymentId, billingTierId = null) =>
+  liveApiRequest(`/payments/deployments/${encodeURIComponent(deploymentId)}/renew`, {
+    method: 'POST',
+    body: billingTierId ? { billingTierId } : {},
+  });
+
 /**
  * Upload a manual bank-transfer receipt (PDF/PNG/JPG/JPEG) for an order.
  * Canonical form: uploadManualReceipt({ checkoutOrderId, file, note }).

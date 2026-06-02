@@ -235,6 +235,28 @@ model CheckoutOrder {
 // Uploaded to the Render persistent disk (DATA_DIR/receipts/...). Admin reviews
 // and approves/rejects. Approval marks the linked order + deployment paid.
 
+model DeploymentSubscription {
+  id                 String    @id @default(uuid())
+  deploymentId       String    @unique @map("deployment_id")
+  userId             String?   @map("user_id")
+  checkoutOrderId    String?   @map("checkout_order_id")
+  status             String    @default("trialing")
+  currentPeriodStart DateTime? @map("current_period_start")
+  currentPeriodEnd   DateTime? @map("current_period_end")
+  nextBillingAt      DateTime? @map("next_billing_at")
+  renewalReminderAt  DateTime? @map("renewal_reminder_at")
+  lastPaidAt         DateTime? @map("last_paid_at")
+  renewalCount       Int       @default(0) @map("renewal_count")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([nextBillingAt])
+  @@index([renewalReminderAt])
+  @@map("deployment_subscriptions")
+}
+
 model PaymentReceipt {
   id               String    @id @default(uuid())
   checkoutOrderId  String    @map("checkout_order_id")
