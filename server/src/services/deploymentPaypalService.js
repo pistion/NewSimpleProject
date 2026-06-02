@@ -11,6 +11,7 @@
 import { prisma } from './db.js';
 import { markDeploymentPaid } from './deploymentBillingService.js';
 import { deploymentBilling, getBillingTier, defaultTierId } from '../config/deploymentBilling.js';
+import { assertOrderPayable, assertAmountMatchesTier } from './paymentVerificationGuards.js';
 
 /** Resolve the pricing tier (and its processor charge) for an order. */
 function tierForOrder(order) {
@@ -150,6 +151,8 @@ export async function captureDeploymentPaypalOrder({ paypalOrderId, user } = {})
   if (order.status === 'paid') {
     return { checkoutOrderId: order.id, deploymentId: order.deploymentId, status: 'paid', alreadyPaid: true };
   }
+  // Only an unsettled order (pending / receipt-uploaded) may be captured.
+  assertOrderPayable(order);
 
   const token = await getToken();
   const captureRes = await fetch(`${BASE}/v2/checkout/orders/${paypalOrderId}/capture`, {
@@ -164,22 +167,40 @@ export async function captureDeploymentPaypalOrder({ paypalOrderId, user } = {})
   }
 
   const capture = await captureRes.json();
-  const captureRecord = capture.purchase_units?.[0]?.payments?.captures?.[0];
+  const purchaseUnit = capture.purchase_units?.[0] || {};
+  const captureRecord = purchaseUnit.payments?.captures?.[0];
   if (!captureRecord || captureRecord.status !== 'COMPLETED') {
     throw Object.assign(
       new Error(`Payment not completed. Status: ${captureRecord?.status ?? 'unknown'}`),
       { status: 400, expose: true },
     );
   }
+  // A verified capture MUST carry its own id — it is the providerCaptureId that
+  // markDeploymentPaid and the webhook use for idempotency.
+  if (!captureRecord.id) {
+    throw Object.assign(new Error('PayPal capture is missing a capture id.'), { status: 400, expose: true });
+  }
+
+  // The capture must refer back to OUR order. reference_id/custom_id were set to
+  // order.id / (deploymentId || order.id) when the PayPal order was created.
+  const refId = purchaseUnit.reference_id;
+  const customId = purchaseUnit.custom_id;
+  const expectedRefs = [order.id, order.deploymentId].filter(Boolean);
+  if (refId && !expectedRefs.includes(refId)) {
+    console.error(`[paypal:deployment] reference_id mismatch: ${refId} not in ${expectedRefs.join(',')}`);
+    throw Object.assign(new Error('Payment reference mismatch. Contact support.'), { status: 400, expose: true });
+  }
+  if (customId && !expectedRefs.includes(customId)) {
+    console.error(`[paypal:deployment] custom_id mismatch: ${customId} not in ${expectedRefs.join(',')}`);
+    throw Object.assign(new Error('Payment reference mismatch. Contact support.'), { status: 400, expose: true });
+  }
 
   // Verify the processor currency/amount for this order's tier (promo vs standard).
-  const tier = tierForOrder(order);
-  const expectedCurrency = tier.processorCurrency;
-  const expectedValue = tier.processorAmount;
-  if (captureRecord.amount?.currency_code !== expectedCurrency || captureRecord.amount?.value !== expectedValue) {
-    console.error(`[paypal:deployment] amount mismatch: expected ${expectedValue} ${expectedCurrency}, got ${captureRecord.amount?.value} ${captureRecord.amount?.currency_code}`);
-    throw Object.assign(new Error('Payment amount mismatch. Contact support.'), { status: 400, expose: true });
-  }
+  assertAmountMatchesTier({
+    order,
+    amount: captureRecord.amount?.value,
+    currency: captureRecord.amount?.currency_code,
+  });
 
   const result = await markDeploymentPaid({
     deploymentId: order.deploymentId,

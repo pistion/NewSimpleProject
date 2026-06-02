@@ -31,8 +31,11 @@ export async function run(input = {}, context = {}) {
   const cfg = getRuntimeConfig();
 
   // Launch-first rule: every deployment starts on the free plan. Only an admin
-  // may force a non-free initial plan (e.g. internal/staff deploys).
-  const initialPlan = (context.isAdmin === true && fields.plan)
+  // may force a non-free initial plan (e.g. internal/staff deploys). The trusted
+  // renderPlanIntent — NOT the raw plan — is what the Render payload builder honours.
+  const adminPlanOverride = context.isAdmin === true && Boolean(fields.plan);
+  const renderPlanIntent = adminPlanOverride ? 'admin_override' : 'trial_free';
+  const initialPlan = adminPlanOverride
     ? fields.plan
     : (process.env.RENDER_INITIAL_PLAN || 'free');
 
@@ -165,6 +168,7 @@ export async function run(input = {}, context = {}) {
     // repo the site lives at the repo root so no root base is sent.
     const renderResult = await createAndTriggerRenderDeploy({
       ...renderInput,
+      renderPlanIntent,
       siteSlug: slug,
       ...(useTemporaryRepo ? {} : { siteRootDir: rootBase }),
     });

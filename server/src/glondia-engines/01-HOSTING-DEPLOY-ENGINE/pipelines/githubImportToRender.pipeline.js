@@ -140,8 +140,11 @@ export async function run(input = {}, context = {}) {
     };
 
     // Launch-first rule: deploy on the free plan. Only an admin may force a
-    // non-free initial plan; a normal user's supplied `plan` is ignored.
-    const initialPlan = (context.isAdmin === true && input.plan)
+    // non-free initial plan; a normal user's supplied `plan` is ignored. The
+    // trusted renderPlanIntent is what the Render payload builder honours.
+    const adminPlanOverride = context.isAdmin === true && Boolean(input.plan);
+    const renderPlanIntent = adminPlanOverride ? 'admin_override' : 'trial_free';
+    const initialPlan = adminPlanOverride
       ? input.plan
       : (process.env.RENDER_INITIAL_PLAN || 'free');
 
@@ -203,6 +206,7 @@ export async function run(input = {}, context = {}) {
     await addDeploymentLog(deployment.deploymentId, 'Render configured — creating service from controlled repo and triggering deploy.', 'info');
     const renderResult = await createAndTriggerRenderDeploy({
       ...renderPayload,
+      renderPlanIntent,
       // Pin the deploy to the freshly published commit when available.
       ...(controlledRepo.commitId ? { commitId: controlledRepo.commitId } : {}),
     });

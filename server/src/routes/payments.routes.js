@@ -261,6 +261,19 @@ router.post('/deployment-orders/:orderId/apply-tier', async (req, res, next) => 
       result: { requestedTierId, appliedTierId: tier.id, promoApplied, switched },
     });
 
+    // Selecting the K50 promo is NOT payment — it only opens a pending claim.
+    // promoClaimedAt stays null until a verified payment runs markDeploymentPaid.
+    if (requestedTierId === 'promo_50') {
+      await writeAuditLog({
+        organizationId: order.organizationId,
+        actorUserId: req.user?.id !== 'local-user' ? req.user?.id : null,
+        action: promoApplied ? 'deployment.billing.promo_claim_pending' : 'deployment.billing.promo_selected',
+        entityType: 'checkout_order',
+        entityId: order.id,
+        result: { appliedTierId: tier.id, promoApplied, switched, message },
+      });
+    }
+
     res.json({
       data: {
         orderId: order.id,

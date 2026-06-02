@@ -253,7 +253,7 @@ export async function approveReceipt(receiptId, adminUserId) {
   const order = receipt.checkoutOrder;
   let paidResult = null;
   if (order?.deploymentId) {
-    paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, checkoutOrderId: order.id, actorUserId: adminUserId, via: 'manual_receipt' });
+    paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, checkoutOrderId: order.id, actorUserId: adminUserId, via: 'manual_admin_approval' });
   } else if (order) {
     await prisma.checkoutOrder.update({ where: { id: order.id }, data: { status: 'paid', paidAt: new Date() } });
   }

@@ -367,6 +367,9 @@ export async function deployZipSite(input = {}) {
         serviceName: finalSlug,
         serviceType,
         // ── Infrastructure ───────────────────────────────────────────────
+        // Launch-first rule: a user ZIP upload always launches on the free plan.
+        // The trusted intent — not raw `plan` — is what the payload builder honours.
+        renderPlanIntent: 'trial_free',
         plan,
         region: region || undefined,
         // ── Source ───────────────────────────────────────────────────────

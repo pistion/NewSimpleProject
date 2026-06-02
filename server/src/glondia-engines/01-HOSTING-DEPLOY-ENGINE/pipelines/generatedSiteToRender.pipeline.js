@@ -144,7 +144,8 @@ export async function run(input = {}, context = {}) {
       publishDirectory: normalized.publishDirectory,
       outputDirectory: normalized.publishDirectory,
     });
-    const renderResult = await createAndTriggerRenderDeploy(renderPayload);
+    // Launch-first rule: generated sites also start on the free plan.
+    const renderResult = await createAndTriggerRenderDeploy({ ...renderPayload, renderPlanIntent: 'trial_free' });
     await addDeploymentLog(deployment.deploymentId, `Deploy ${renderResult.deployId} started for ${normalized.slug}.`, 'ok', {
       renderServiceId: renderResult.serviceId,
     });

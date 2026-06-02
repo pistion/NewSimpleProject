@@ -26,6 +26,12 @@ import {
   promoTierId,
 } from '../config/deploymentBilling.js';
 import { resolveRequestedBillingTier, getUserPromoStatus } from './deploymentPromoService.js';
+import {
+  assertOrderBelongsToDeployment,
+  assertOrderPayable,
+  assertVerifiedPaymentSignal,
+  isAdminVia,
+} from './paymentVerificationGuards.js';
 import { createUserNotification } from './notificationService.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 import {
@@ -296,6 +302,11 @@ export async function getOrderForDeployment(deploymentId) {
  * suspended/expired for non-payment. Safe to call more than once.
  */
 export async function markDeploymentPaid({ deploymentId, checkoutOrderId = null, orderId = null, actorUserId = null, via = 'manual', providerCaptureId = null } = {}) {
+  if (!deploymentId) throw Object.assign(new Error('deploymentId is required.'), { status: 400, expose: true });
+
+  // GATE 1: only verified signals may tag paid. A failing via never mutates state.
+  assertVerifiedPaymentSignal({ via, providerCaptureId, actorUserId });
+
   const deployment = await findDeploymentRecord(deploymentId);
   if (!deployment) throw Object.assign(new Error('Deployment not found.'), { status: 404 });
 
@@ -305,8 +316,26 @@ export async function markDeploymentPaid({ deploymentId, checkoutOrderId = null,
     : deployment.checkoutOrderId
     ? await prisma.checkoutOrder.findUnique({ where: { id: deployment.checkoutOrderId } })
     : await getOrderForDeployment(deploymentId);
-  if (order?.deploymentId && order.deploymentId !== deploymentId) {
-    throw Object.assign(new Error('Checkout order does not belong to this deployment.'), { status: 400, expose: true });
+
+  // GATE 2: an order is required unless this is an explicit admin override.
+  if (!order && !isAdminVia(via)) {
+    throw Object.assign(new Error('A checkout order is required to verify this payment.'), { status: 400, expose: true });
+  }
+  // GATE 3: the order must belong to this deployment and be in a payable state.
+  assertOrderBelongsToDeployment(order, deploymentId);
+  assertOrderPayable(order);
+
+  // IDEMPOTENT: an already-paid order is never re-renewed/re-claimed. A duplicate
+  // PayPal capture or webhook for the same order short-circuits here.
+  if (order && order.status === 'paid') {
+    return {
+      deploymentId,
+      orderId: order.id,
+      alreadyPaid: true,
+      renderPlan: deployment.renderPlan || initialRenderPlan,
+      renderPlanUpgradeStatus: deployment.renderPlanUpgradeStatus || null,
+      paidAt: order.paidAt ? new Date(order.paidAt).toISOString() : (deployment.paidAt || null),
+    };
   }
 
   const paidAt = new Date();
@@ -318,7 +347,13 @@ export async function markDeploymentPaid({ deploymentId, checkoutOrderId = null,
         status: 'paid',
         paidAt,
         providerCaptureId: providerCaptureId || order.providerCaptureId,
-        metadata: JSON.stringify({ ...safeJson(order.metadata), paidVia: via }),
+        metadata: JSON.stringify({
+          ...safeJson(order.metadata),
+          paidVia: via,
+          verifiedAt: paidAt.toISOString(),
+          providerCaptureId: providerCaptureId || order.providerCaptureId || null,
+          verifiedBy: actorUserId || null,
+        }),
       },
     });
   }
@@ -450,9 +485,10 @@ async function upgradeRenderPlanAfterPayment(deployment, order) {
   if (!deployment.renderServiceId || !renderApiService.configured() || !targetPlan) {
     return { renderPlan: currentPlan, targetPlan, status: 'skipped' };
   }
-  // Static sites have no paid plan on Render — keep the local target only.
+  // Static sites have no paid plan on Render — keep the local target only so
+  // billing/admin still see the intended plan, but never call Render.
   if (deployment.serviceType === 'static_site') {
-    return { renderPlan: currentPlan, targetPlan, status: 'skipped' };
+    return { renderPlan: currentPlan, targetPlan, status: 'skipped_static_site' };
   }
 
   try {

@@ -13,6 +13,7 @@
 import { prisma } from './db.js';
 import { markDeploymentPaid } from './deploymentBillingService.js';
 import { writeAuditLog } from './auditLogService.js';
+import { assertAmountMatchesTier } from './paymentVerificationGuards.js';
 import {
   getPaypalAccessToken,
   getPaypalApiBase,
@@ -105,6 +106,14 @@ export async function handlePaypalWebhookEvent(event = {}) {
     const order = await findOrderForResource(resource);
     if (!order) return { handled: false, reason: 'order_not_found' };
     if (order.status === 'paid') return { handled: true, alreadyPaid: true };
+    if (!resource.id) return { handled: false, reason: 'missing_capture_id' };
+
+    // The captured amount/currency must match the order's tier processor charge.
+    assertAmountMatchesTier({
+      order,
+      amount: resource.amount?.value,
+      currency: resource.amount?.currency_code,
+    });
 
     let result;
     if (order.deploymentId) {

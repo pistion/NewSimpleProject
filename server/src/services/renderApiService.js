@@ -1,4 +1,25 @@
+import { normalizeRenderPlan, renderPlanMap } from '../config/deploymentBilling.js';
+
 const RENDER_BASE_URL = process.env.RENDER_API_BASE_URL || 'https://api.render.com/v1';
+
+/**
+ * Resolve the Render plan for a NEW service payload from a trusted intent field,
+ * never from raw user/frontend `input.plan`. Initial deploys always launch free;
+ * paid plans are applied later via updateWebServiceSettings after verified payment.
+ *
+ *   trial_free     → free      (normal ZIP/GitHub deploy)
+ *   promo_paid     → starter   (K50 promo, post-payment)
+ *   standard_paid  → standard  (K200 standard, post-payment)
+ *   admin_override → normalized input.plan (admin/staff only), defaulting free
+ *   (anything else / missing) → free
+ */
+function resolveRenderPlanForPayload(input = {}) {
+  if (input.renderPlanIntent === 'trial_free') return renderPlanMap.trial_free;
+  if (input.renderPlanIntent === 'promo_paid') return renderPlanMap.promo_50;
+  if (input.renderPlanIntent === 'standard_paid') return renderPlanMap.standard_200;
+  if (input.renderPlanIntent === 'admin_override') return normalizeRenderPlan(input.plan, 'free');
+  return 'free';
+}
 
 class RenderApiService {
   configured() {
@@ -617,9 +638,11 @@ class RenderApiService {
             // node|python|ruby|go|rust|elixir|docker|image). There is no `env`
             // field; `runtime` is required, so sending `env` drops it entirely.
             runtime,
-            // Launch-first rule: default to the free plan; paid plans are applied
-            // only after payment is verified (see deploymentBillingService).
-            plan: input.plan || process.env.RENDER_INITIAL_PLAN || 'free',
+            // Launch-first rule: the plan comes from a TRUSTED renderPlanIntent,
+            // never raw input.plan, so a user/frontend deploy can't create a paid
+            // service. Paid plans are applied only after payment is verified
+            // (deploymentBillingService.upgradeRenderPlanAfterPayment).
+            plan: resolveRenderPlanForPayload(input),
             region: input.region || 'oregon',
             envSpecificDetails: {
               buildCommand,
