@@ -76,7 +76,15 @@ export async function publishDirectoryToGithubTree({ directory, targetRoot, owne
       );
       if (commitResponse.ok) baseTreeSha = (await commitResponse.json())?.tree?.sha;
     }
-  } else if (refResponse.status !== 404 && refResponse.status !== 409) {
+  } else if (refResponse.status === 404 || refResponse.status === 409) {
+    // Empty/uninitialized repo (e.g. a freshly created dedicated repo with
+    // auto_init:false). The Git Data blob API rejects blobs with 409
+    // "Git Repository is empty" until an initial commit exists, so the tree
+    // flow can't bootstrap it. The Contents API CAN create the first commit —
+    // delegate the whole publish there. (The shared generated-sites repo is
+    // non-empty, so it still gets the atomic single-commit tree path above.)
+    return publishDirectoryToGithubContentsApi({ directory, targetRoot, owner, repo, branch, token, rootDispatcher, message });
+  } else {
     throw new Error(`GitHub ref lookup failed ${refResponse.status}: ${await refResponse.text().catch(() => '')}`);
   }
 

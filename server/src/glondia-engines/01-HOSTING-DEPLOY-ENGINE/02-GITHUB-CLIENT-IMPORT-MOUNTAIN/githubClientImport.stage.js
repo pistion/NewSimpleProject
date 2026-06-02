@@ -25,7 +25,7 @@ import {
   MAX_EXTRACTED_FILES,
   MAX_ENTRY_BYTES,
 } from '../../00-SHARED/fileRules.js';
-import { normalizeRoot } from '../../00-SHARED/runtimeConfig.js';
+import { normalizeRoot, cleanGithubToken, hasRealValue } from '../../00-SHARED/runtimeConfig.js';
 import {
   getClientInstallationToken,
   getInstallationTokenForRepo,
@@ -108,11 +108,17 @@ async function resolveImportToken({ parsedRepo, clientInstallationId }) {
         try {
           return await getPlatformInstallationToken();
         } catch {
-          return null;
+          // fall through to the PAT fallback below
         }
       }
     }
   }
+  // PAT fallback: when no GitHub App is configured, use the platform PAT to read
+  // the client archive. This is required for PRIVATE repos owned by the platform
+  // account (anonymous zipball download 404s on private repos). PEM/App keys are
+  // skipped — only a real personal-access/installation token is usable here.
+  const pat = cleanGithubToken(process.env.GITHUB_GENERATED_SITES_TOKEN || process.env.GITHUB_TOKEN || '');
+  if (hasRealValue(pat) && !pat.includes('BEGIN')) return pat;
   return null;
 }
 

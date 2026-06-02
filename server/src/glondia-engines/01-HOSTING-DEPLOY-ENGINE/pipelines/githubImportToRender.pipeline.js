@@ -130,6 +130,7 @@ export async function run(input = {}, context = {}) {
     const controlledSource = {
       repoUrl: controlledRepo.controlledRepoUrl,
       fullName: controlledRepo.controlledFullName,
+      mode: controlledRepo.mode,
       branch: controlledRepo.branch,
       rootDirectory: controlledRepo.rootDirectory || '',
       commitId: controlledRepo.commitId,
