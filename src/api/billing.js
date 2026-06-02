@@ -1,5 +1,5 @@
 /**
- * Billing API client — deploy-first K100 billing summary.
+ * Billing API client — deploy-first tiered billing summary.
  */
 import { liveApiRequest } from '../api.js';
 import { getStoredAuth } from './auth.js';

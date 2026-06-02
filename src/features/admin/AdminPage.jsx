@@ -1,4 +1,4 @@
-// AdminPage.jsx — simple admin surface for deploy-first K100 billing.
+// AdminPage.jsx — simple admin surface for deploy-first tiered billing.
 import React from 'react';
 import { ICN } from '../../icons';
 import { Avatar } from '../../components.jsx';

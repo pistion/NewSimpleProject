@@ -1,7 +1,7 @@
 /**
  * deploymentBillingService.js
  *
- * Shared logic for the deploy-first K100 billing rule. Used by:
+ * Shared logic for the deploy-first tiered billing rule. Used by:
  *   - the deploy controller (create a pending order after a deployment record)
  *   - the manual receipt route + admin approvals (mark paid)
  *   - the PayPal deployment payment flow (mark paid)
@@ -52,7 +52,7 @@ export async function findDeploymentRecord(deploymentId) {
 }
 
 /**
- * Create a pending K100 CheckoutOrder for a freshly created deployment and
+ * Create a pending CheckoutOrder for a freshly created deployment and
  * stamp the deployment record with billing fields. Returns a billing summary.
  */
 export async function createDeploymentOrder({ deployment, user = {}, kind = 'deployment', billingTierId = null } = {}) {

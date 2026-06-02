@@ -2,7 +2,7 @@
  * deploymentCleanupService.js
  *
  * Enforces the 12-hour deploy-first grace window. Every 5 minutes it scans the
- * JSON hosting store for platform deployments whose K100 payment is still
+ * JSON hosting store for platform deployments whose billing payment is still
  * outstanding past their billingDueAt, and expires them via the shared
  * deploymentBillingService (suspend by default, or delete when configured).
  *

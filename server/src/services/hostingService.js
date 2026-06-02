@@ -872,7 +872,7 @@ class HostingService {
       status: deployment.status,
       buildStatus: deployment.buildStatus,
       currentStep: deployment.currentStep,
-      // Deploy-first K100 billing surface (so the dashboard can show a pay CTA).
+      // Deploy-first tiered billing surface (so the dashboard can show a pay CTA).
       paymentStatus: deployment.paymentStatus || null,
       checkoutOrderId: deployment.checkoutOrderId || null,
       billingDueAt: deployment.billingDueAt || null,

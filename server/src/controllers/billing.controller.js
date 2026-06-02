@@ -1,7 +1,7 @@
 /**
- * BillingController — deploy-first K100 billing summary for the signed-in user.
+ * BillingController — deploy-first tiered billing summary for the signed-in user.
  *
- * The Billing page shows the launch pricing (flat K100 per deploy, deploy-first
+ * The Billing page shows the launch pricing (K50 promo or standard K200, deploy-first
  * with a 12-hour grace window), the user's own deployment bills, and the
  * payment surface. Normal users only ever see their OWN orders/deployments;
  * admins use /api/admin for the all-tenant view.
@@ -43,7 +43,7 @@ const BillingController = {
       );
       const ownDeploymentIds = ownDeployments.map((d) => d.deploymentId).filter(Boolean);
 
-      // 2. Their K100 orders — tied to owned deployments (robust ownership) and,
+      // 2. Their deployment orders — tied to owned deployments (robust ownership) and,
       //    as a fallback, orders carrying their userId.
       const orderRows = await prisma.checkoutOrder.findMany({
         where: {

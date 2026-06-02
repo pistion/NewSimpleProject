@@ -176,7 +176,7 @@ model WebHostingService {
   currency          String    @default("USD")
   billingModel      String    @default("monthly") @map("billing_model")
   paymentStatus     String    @default("pending") @map("payment_status")
-  // Deploy-first billing (K100): grace deadline + payment timestamp + why removed.
+  // Deploy-first billing: grace deadline + payment timestamp + why removed.
   billingDueAt      DateTime? @map("billing_due_at")
   paidAt            DateTime? @map("paid_at")
   deletedReason     String?   @map("deleted_reason")
@@ -241,7 +241,7 @@ model CheckoutOrder {
   markupPercent     Float     @default(30) @map("markup_percent")
   markupAmountCents Int       @default(0) @map("markup_amount_cents")
   totalAmountCents  Int       @default(0) @map("total_amount_cents")
-  // Deploy-first billing link: which deployment this K100 order pays for.
+  // Deploy-first billing link: which deployment this order pays for.
   deploymentId      String?   @map("deployment_id")
   dueAt             DateTime? @map("due_at")
   paidAt            DateTime? @map("paid_at")

@@ -64,22 +64,22 @@ export function getBillingTier(tierId) {
 
 // ─── Back-compat single object ────────────────────────────────────────────────
 // Existing callers (paypal verify, manual-receipt fallback amount) still read
-// deploymentBilling.* — keep it pointed at the standard tier, honouring the
-// legacy DEPLOYMENT_BILLING_AMOUNT_CENTS override if present.
+// deploymentBilling.*. Keep it locked to the standard tier so an old
+// DEPLOYMENT_BILLING_AMOUNT_CENTS env var cannot accidentally revive K100 bills.
 
-const legacyAmountCents = Number(process.env.DEPLOYMENT_BILLING_AMOUNT_CENTS || TIERS.standard_200.amountCents);
+const standardTier = TIERS.standard_200;
 
 export const deploymentBilling = {
-  amountCents: legacyAmountCents,
-  amount: Math.round(legacyAmountCents / 100),
-  currency: 'PGK',
+  amountCents: standardTier.amountCents,
+  amount: standardTier.amount,
+  currency: standardTier.currency,
   graceHours,
   initialRenderPlan,
   defaultTierId,
   promoLimit,
   // Processor defaults map to the standard tier.
-  processorCurrency: TIERS.standard_200.processorCurrency,
-  processorAmount: TIERS.standard_200.processorAmount,
+  processorCurrency: standardTier.processorCurrency,
+  processorAmount: standardTier.processorAmount,
   tiers: TIERS,
 };
 

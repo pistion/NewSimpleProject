@@ -887,7 +887,7 @@ function hoursRemaining(dueAt) {
   return Math.max(0, Math.round((ms / 3_600_000) * 10) / 10);
 }
 
-// Deploy-first K100 billing: shows status + grace deadline, and lets the owner
+// Deploy-first tiered billing: shows status + grace deadline, and lets the owner
 // pay by PayPal (card via PayPal) or upload a bank receipt for admin approval.
 function BillingTab({ deploymentId, app = {}, onReload }) {
   const paymentStatus = app.paymentStatus || 'pending';

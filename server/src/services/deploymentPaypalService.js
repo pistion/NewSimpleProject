@@ -1,9 +1,9 @@
 /**
  * deploymentPaypalService.js
  *
- * PayPal (and card-via-PayPal) payment flow for the deploy-first K100 rule.
+ * PayPal (and card-via-PayPal) payment flow for deploy-first tiered billing.
  *
- * PayPal cannot settle PGK, so we DISPLAY K100 but CHARGE the configured
+ * PayPal cannot settle PGK, so we DISPLAY PGK but CHARGE the configured
  * processor currency/amount (deploymentBilling.processorCurrency/Amount).
  * On a completed capture we mark the CheckoutOrder + deployment paid through
  * the shared deploymentBillingService.

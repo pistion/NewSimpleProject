@@ -1,5 +1,5 @@
 /**
- * Admin API client — deploy-first K100 billing administration.
+ * Admin API client — deploy-first tiered billing administration.
  * All calls require an authenticated admin (role === 'admin').
  */
 import { liveApiRequest, liveApiUrl } from '../api.js';

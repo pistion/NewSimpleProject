@@ -598,7 +598,7 @@ app.use('/api/hosting', environmentRoutes);
 app.use('/api/hosting', diskRoutes);
 app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 
-// Deploy-first K100 billing: customer payments + receipts, and the admin surface.
+// Deploy-first tiered billing: customer payments + receipts, and the admin surface.
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
 // User-facing notifications (Bell dropdown) — mounted on both API prefixes.
@@ -2047,7 +2047,7 @@ if (process.env.NODE_ENV !== 'test') {
       .then(() => ensureNotificationsTable())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
-  // Deploy-first K100 billing: enforce the 12-hour grace window every 5 minutes.
+  // Deploy-first tiered billing: enforce the 12-hour grace window every 5 minutes.
   startDeploymentCleanupJob();
 }
 

@@ -2,7 +2,7 @@
  * renderCosts.js — INTERNAL provider-cost estimates.
  *
  * Render hosts the deployed sites and charges Glondia's own Render account.
- * Customer payment (a fixed K100 per deploy) goes to Glondia and is never split
+ * Customer payment (K50 promo or standard K200) goes to Glondia and is never split
  * to Render. These figures are used ONLY for internal/admin margin reporting —
  * they are never billed to the customer.
  *

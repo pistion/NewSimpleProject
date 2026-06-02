@@ -1,5 +1,5 @@
 /**
- * Payments API client — deploy-first K100 billing (customer side).
+ * Payments API client — deploy-first tiered billing (customer side).
  */
 import { liveApiRequest } from '../api.js';
 import { authFetch } from './auth.js';
