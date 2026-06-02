@@ -36,15 +36,21 @@ async function parseDeployResponse(response, label = 'Deployment') {
     await response.text().catch(() => '');
   }
   if (!response.ok) {
+    const errorCode = result?.error?.code || result?.code || undefined;
+    const stage = result?.stage || result?.error?.stage || undefined;
+    const requestId = result?.requestId || undefined;
     const msg =
       (typeof result?.error === 'string' ? result.error : null) ||
       result?.error?.message ||
       result?.message ||
-      (result?.code ? `${result.code}: ${JSON.stringify(result.details || '')}` : null) ||
+      (errorCode ? `${errorCode}: ${JSON.stringify(result?.details || result?.error?.details || '')}` : null) ||
       `${label} failed with status ${response.status}.`;
-    const err = new Error(msg);
-    err.code = result?.code || undefined;
-    err.details = result?.details || undefined;
+    const suffix = [stage ? `stage: ${stage}` : null, requestId ? `request: ${requestId}` : null].filter(Boolean).join(', ');
+    const err = new Error(suffix ? `${msg} (${suffix})` : msg);
+    err.code = errorCode;
+    err.stage = stage;
+    err.requestId = requestId;
+    err.details = result?.details || result?.error?.details || undefined;
     throw err;
   }
   // A successful-but-non-JSON response means the route is missing on this backend.

@@ -56,8 +56,8 @@ export async function runCleanupOnce() {
     const subStatus = String(dep.subscriptionStatus || '').toLowerCase();
     const depStatus = String(dep.status || '').toLowerCase();
     if (!dep.renderServiceId) { summary.skipped += 1; continue; }
-    if (['not_billable_yet', 'billing_error'].includes(payStatus)) { summary.skipped += 1; continue; }
-    if (['not_started'].includes(subStatus)) { summary.skipped += 1; continue; }
+    if (['not_billable_yet', 'billing_pending', 'billing_error'].includes(payStatus)) { summary.skipped += 1; continue; }
+    if (['not_started', 'trial_pending'].includes(subStatus)) { summary.skipped += 1; continue; }
     if (['ready', 'configuration_required'].includes(depStatus)) { summary.skipped += 1; continue; }
 
     if (['active', 'renewal_due'].includes(subStatus)) {

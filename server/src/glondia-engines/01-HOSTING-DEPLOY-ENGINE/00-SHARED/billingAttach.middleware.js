@@ -17,7 +17,7 @@ function isQueuedInRender(d) {
 }
 
 export function attachDeploymentBilling(kind) {
-  return async (req, _res, next) => {
+  return (req, _res, next) => {
     const d = req.deployFlow?.deployment;
     if (
       !d
@@ -39,48 +39,59 @@ export function attachDeploymentBilling(kind) {
       return next();
     }
 
-    try {
-      const billingTierId = req.body?.billingTierId || req.body?.tierId || null;
-      appendDeployStep(req, { name: 'billing_attach', status: 'started' });
-      await addDeploymentLog(d.deploymentId, 'Billing attach started.', 'info');
-      const summary = await createDeploymentOrder({ deployment: d, user: req.user || {}, kind, billingTierId });
-      req.deployFlow.billing = summary;
-      if (summary?.warning) appendDeployWarning(req, summary.warning);
-      appendDeployStep(req, { name: 'billing_attach', status: 'complete', message: summary?.billingTierId || 'tier' });
-      await addDeploymentLog(d.deploymentId, `Billing attached (${summary?.billingTierId || 'tier'}).`, 'ok');
-    } catch (error) {
-      console.error('[billing] attach failed:', error.message);
-      try {
-        await updateDeploymentRecord(d.deploymentId, {
-          paymentStatus: 'billing_error',
-          subscriptionStatus: 'billing_error',
-          billingErrorMessage: String(error.message || '').slice(0, 500),
-          billingErrorAt: new Date().toISOString(),
-        });
-        await addDeploymentLog(d.deploymentId, `Billing attach failed: ${error.message}`, 'error');
-        await writeAuditLog({
-          actorUserId: req.user?.id && req.user.id !== 'local-user' ? req.user.id : null,
-          action: 'deployment.billing.attach_failed',
-          entityType: 'deployment',
-          entityId: d.deploymentId,
-          status: 'error',
-          result: { kind, message: String(error.message || '').slice(0, 300) },
-        });
-      } catch (recordErr) {
-        console.error('[billing] could not record billing error:', recordErr.message);
-      }
-      const billingError = {
-        error: true,
-        status: 'billing_error',
-        message: 'Deployment started, but billing setup failed. Admin support required.',
-        details: String(error.message || '').slice(0, 300),
-      };
-      req.deployFlow.billing = billingError;
-      appendDeployWarning(req, billingError.message);
-      appendDeployStep(req, { name: 'billing_attach', status: 'failed', message: billingError.details });
-    }
+    const billingTierId = req.body?.billingTierId || req.body?.tierId || null;
+    req.deployFlow.billing = {
+      status: 'billing_pending',
+      message: 'Your site is launching on free hosting. Billing will be prepared in the background for the 12-hour trial window.',
+    };
+    appendDeployStep(req, { name: 'billing_attach', status: 'queued', message: 'background' });
+
+    queueBillingAttach({
+      deployment: d,
+      user: req.user || {},
+      kind,
+      billingTierId,
+    });
     next();
   };
+}
+
+function queueBillingAttach({ deployment, user, kind, billingTierId }) {
+  setImmediate(async () => {
+    try {
+      await addDeploymentLog(deployment.deploymentId, 'Billing attach queued after free-tier Render handoff.', 'info');
+      const summary = await createDeploymentOrder({ deployment, user, kind, billingTierId });
+      await addDeploymentLog(deployment.deploymentId, `Billing attached (${summary?.billingTierId || 'tier'}).`, 'ok');
+    } catch (error) {
+      console.error('[billing] background attach failed:', error.message);
+      await recordBackgroundBillingFailure({ deployment, user, kind, error });
+    }
+  });
+}
+
+async function recordBackgroundBillingFailure({ deployment, user, kind, error }) {
+  try {
+    await updateDeploymentRecord(deployment.deploymentId, {
+      billingAttachStatus: 'failed',
+      billingErrorMessage: String(error.message || '').slice(0, 500),
+      billingErrorAt: new Date().toISOString(),
+    });
+    await addDeploymentLog(
+      deployment.deploymentId,
+      `Billing setup needs retry, but free-tier deployment continues: ${error.message}`,
+      'warn',
+    );
+    await writeAuditLog({
+      actorUserId: user?.id && user.id !== 'local-user' ? user.id : null,
+      action: 'deployment.billing.attach_failed',
+      entityType: 'deployment',
+      entityId: deployment.deploymentId,
+      status: 'error',
+      result: { kind, message: String(error.message || '').slice(0, 300), nonBlocking: true },
+    });
+  } catch (recordErr) {
+    console.error('[billing] could not record background billing error:', recordErr.message);
+  }
 }
 
 export default { attachDeploymentBilling };

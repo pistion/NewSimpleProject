@@ -2006,6 +2006,9 @@ function startPaymentEnforcementJob() {
         // platformDeployed must be explicitly true — anything else is off-limits.
         if (dep.platformDeployed !== true) continue;
         if (dep.paymentStatus === 'paid' || dep.paymentStatus === 'overdue_suspended') continue;
+        if (['not_billable_yet', 'billing_pending', 'billing_error'].includes(String(dep.paymentStatus || '').toLowerCase())) continue;
+        if (['not_started', 'trial_pending'].includes(String(dep.subscriptionStatus || '').toLowerCase())) continue;
+        if (!dep.checkoutOrderId) continue;
         if (paidIds.has(dep.deploymentId)) continue;
         if (!dep.createdAt) continue;
         if (Date.now() < new Date(dep.createdAt).getTime() + GRACE_MS) continue;
