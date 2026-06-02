@@ -112,6 +112,40 @@ export async function ensureUserColumns() {
   }
 }
 
+/**
+ * Create the `notifications` table if it doesn't exist (same push-based reason
+ * as ensureUserColumns). Idempotent. SQLite only.
+ */
+export async function ensureNotificationsTable() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "notifications" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "user_id" TEXT,
+        "audience" TEXT NOT NULL DEFAULT 'user',
+        "type" TEXT NOT NULL DEFAULT 'info',
+        "title" TEXT NOT NULL,
+        "message" TEXT NOT NULL,
+        "action_url" TEXT,
+        "entity_type" TEXT,
+        "entity_id" TEXT,
+        "metadata" TEXT NOT NULL DEFAULT '{}',
+        "read_at" DATETIME,
+        "deleted_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "notifications_user_id_read_at_idx" ON "notifications" ("user_id", "read_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "notifications_audience_created_at_idx" ON "notifications" ("audience", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "notifications_type_created_at_idx" ON "notifications" ("type", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "notifications_entity_type_entity_id_idx" ON "notifications" ("entity_type", "entity_id")`);
+  } catch (err) {
+    console.error('[db] ensureNotificationsTable failed:', err.message);
+  }
+}
+
 export async function disconnectPrisma() {
   await prisma.$disconnect();
 }

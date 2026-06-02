@@ -21,6 +21,7 @@ import { findDeploymentRecord, createDeploymentRenewalOrder } from '../services/
 import { readHostingStore } from '../services/hostingStore.js';
 import { deploymentBilling, billingTiers, graceHours, initialRenderPlan, getBillingTier } from '../config/deploymentBilling.js';
 import { getPromoUsage, getUserPromoStatus, resolveRequestedBillingTier } from '../services/deploymentPromoService.js';
+import { createUserNotification, createAdminNotification } from '../services/notificationService.js';
 import {
   createDeploymentPaypalOrder,
   captureDeploymentPaypalOrder,
@@ -347,6 +348,24 @@ router.post('/manual-receipts', upload.single('receipt'), async (req, res, next)
       entityType: 'payment_receipt',
       entityId: receipt.id,
       result: { checkoutOrderId: order.id, deploymentId: order.deploymentId, fileSize: receipt.fileSize },
+    });
+
+    // Notify the customer (uploaded) and admins (needs review).
+    await createUserNotification(order.userId || req.user?.id, {
+      type: 'receipt',
+      title: 'Receipt uploaded',
+      message: 'Your receipt has been uploaded and is waiting for admin verification.',
+      actionUrl: '/dashboard/billing',
+      entityType: 'receipt',
+      entityId: receipt.id,
+    });
+    await createAdminNotification({
+      type: 'receipt',
+      title: 'New bank receipt needs review',
+      message: 'A customer uploaded a bank receipt for hosting payment.',
+      actionUrl: '/admin',
+      entityType: 'receipt',
+      entityId: receipt.id,
     });
 
     res.status(201).json({

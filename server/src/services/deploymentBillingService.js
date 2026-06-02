@@ -26,6 +26,7 @@ import {
   promoTierId,
 } from '../config/deploymentBilling.js';
 import { resolveRequestedBillingTier, getUserPromoStatus } from './deploymentPromoService.js';
+import { createUserNotification } from './notificationService.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 import {
   ensureTrialSubscription,
@@ -135,6 +136,17 @@ export async function createDeploymentOrder({ deployment, user = {}, kind = 'dep
     entityType: 'checkout_order',
     entityId: order.id,
     result: { deploymentId: deployment.deploymentId, billingTierId: tier.id, amountCents: tier.amountCents, currency: tier.currency, kind, switched, promoApplied },
+  });
+
+  // Notify the owner that payment is due within the trial window.
+  await createUserNotification(userId, {
+    type: 'billing',
+    title: 'Hosting payment required',
+    message: 'Your site is live on free hosting. Please pay before the 12-hour trial ends to keep it online.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'deployment',
+    entityId: deployment.deploymentId,
+    metadata: { checkoutOrderId: order.id, billingDueAt: billingDueAt.toISOString(), amountCents: tier.amountCents, currency: tier.currency },
   });
 
   return billingSummary({ checkoutOrderId: order.id, status: 'pending', billingDueAt, tier, promoRemaining: promoStatus?.canClaim ? null : 0, switched, message });
@@ -326,6 +338,26 @@ export async function markDeploymentPaid({ deploymentId, checkoutOrderId = null,
     result: { via, orderId: order?.id || null, resumed, renderPlan: planUpgrade.renderPlan, renderPlanUpgradeStatus: planUpgrade.status },
   });
 
+  // Notify the owner: payment confirmed (+ promo claimed, if applicable).
+  await createUserNotification(deployment.userId, {
+    type: 'success',
+    title: 'Hosting payment confirmed',
+    message: 'Your hosting payment has been confirmed. Your site is active for one month.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'deployment',
+    entityId: deploymentId,
+  });
+  if (promoClaim.claimed) {
+    await createUserNotification(deployment.userId, {
+      type: 'success',
+      title: 'K50 launch promo claimed',
+      message: 'Your K50 launch promo has been used for this deployment.',
+      actionUrl: '/dashboard/billing',
+      entityType: 'deployment',
+      entityId: deploymentId,
+    });
+  }
+
   return { deploymentId, orderId: order?.id || null, resumed, renderPlan: planUpgrade.renderPlan, renderPlanUpgradeStatus: planUpgrade.status, paidAt: paidAt.toISOString() };
 }
 
@@ -477,6 +509,16 @@ export async function expireDeployment({ deployment, order = null, action = null
     entityId: deploymentId,
     status: jobStatus === 'failed' ? 'error' : 'success',
     result: { mode, renderAction, reason, orderId: resolvedOrder?.id || null },
+  });
+
+  // Notify the owner that their site was suspended/removed for non-payment.
+  await createUserNotification(deployment.userId, {
+    type: 'danger',
+    title: 'Hosting suspended',
+    message: 'Payment was not verified in time, so this site has been suspended or removed.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'deployment',
+    entityId: deploymentId,
   });
 
   return { deploymentId, action: renderAction, status: jobStatus };

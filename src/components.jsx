@@ -3,6 +3,13 @@ import React from 'react';
 import { ICN } from './icons';
 import { clearAuthSession, getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
 import { getAvatarUrl } from './api/profile.js';
+import {
+  listNotifications as apiListNotifications,
+  getUnreadCount as apiUnreadCount,
+  markNotificationRead as apiMarkRead,
+  markAllNotificationsRead as apiMarkAllRead,
+  deleteNotification as apiDeleteNotification,
+} from './api/notifications.js';
 import { isFeatureEnabled } from './app/features.js';
 
 const { useState } = React;
@@ -218,6 +225,140 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
   );
 }
 
+// ── Notifications (Bell dropdown) ─────────────────────────────────────────────
+
+const NOTIF_ICON = {
+  success: 'CheckCircle', billing: 'CreditCard', receipt: 'Cloud', subscription: 'RefreshCw',
+  deployment: 'Server', account: 'User', warning: 'AlertCircle', danger: 'AlertCircle', info: 'Bell',
+};
+const NOTIF_COLOR = {
+  success: 'var(--accent)', billing: '#b8860b', receipt: 'var(--info, #7fb5e6)', subscription: '#b8860b',
+  warning: '#b8860b', danger: 'var(--danger)', deployment: 'var(--accent)', info: 'var(--text-muted)',
+};
+
+function relTime(value) {
+  if (!value) return '';
+  const s = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(value).toLocaleDateString();
+}
+
+// Map a notification actionUrl to an in-app route.
+function routeForAction(url) {
+  const u = String(url || '');
+  if (u.includes('/admin')) return { view: 'admin' };
+  if (u.includes('billing')) return { view: 'billing' };
+  return null;
+}
+
+function NotificationBell({ navigate }) {
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(0);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const signedIn = Boolean(getStoredAuth()?.accessToken);
+
+  const refreshCount = React.useCallback(async () => {
+    if (!getStoredAuth()?.accessToken) { setCount(0); return; }
+    try { const r = await apiUnreadCount(); setCount(r?.count || 0); } catch { /* non-critical */ }
+  }, []);
+
+  const loadList = React.useCallback(async () => {
+    setLoading(true);
+    try { const r = await apiListNotifications({ limit: 10 }); setItems(r?.items || []); }
+    catch { setItems([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  // Poll the unread count every 60s; refresh on auth change.
+  React.useEffect(() => {
+    refreshCount();
+    const t = setInterval(refreshCount, 60000);
+    const onAuth = () => refreshCount();
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuth);
+    return () => { clearInterval(t); window.removeEventListener(AUTH_CHANGED_EVENT, onAuth); };
+  }, [refreshCount]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) loadList();
+  };
+
+  const onItemClick = async (n) => {
+    if (!n.read) {
+      try { await apiMarkRead(n.id); } catch { /* ignore */ }
+      setItems((cur) => cur.map((x) => (x.id === n.id ? { ...x, read: true, readAt: new Date().toISOString() } : x)));
+      setCount((c) => Math.max(0, c - 1));
+    }
+    const route = routeForAction(n.actionUrl);
+    if (route && navigate) { setOpen(false); navigate(route); }
+  };
+
+  const onMarkAll = async () => {
+    try { await apiMarkAllRead(); } catch { /* ignore */ }
+    setItems((cur) => cur.map((x) => ({ ...x, read: true })));
+    setCount(0);
+  };
+
+  const onDelete = async (e, id) => {
+    e.stopPropagation();
+    try { await apiDeleteNotification(id); } catch { /* ignore */ }
+    setItems((cur) => cur.filter((x) => x.id !== id));
+    refreshCount();
+  };
+
+  if (!signedIn) {
+    return <button className="btn btn-icon btn-ghost notification-bell" title="Notifications"><ICN.Bell size={16} /></button>;
+  }
+
+  return (
+    <div className="notification-bell" style={{ position: 'relative' }}>
+      <button className="btn btn-icon btn-ghost" title="Notifications" onClick={toggle} aria-label="Notifications">
+        <ICN.Bell size={16} />
+        {count > 0 && <span className="notification-badge">{count > 99 ? '99+' : count}</span>}
+      </button>
+      {open && (
+        <>
+          <button className="notification-overlay" aria-label="Close notifications" onClick={() => setOpen(false)} />
+          <div className="notification-menu" role="menu">
+            <div className="notification-menu-head">
+              <b>Notifications</b>
+              <button className="btn btn-sm btn-ghost" onClick={onMarkAll} disabled={!items.some((i) => !i.read)}>Mark all read</button>
+            </div>
+            <div className="notification-list">
+              {loading ? (
+                <div className="notification-empty">Loading…</div>
+              ) : items.length === 0 ? (
+                <div className="notification-empty">You're all caught up.</div>
+              ) : items.map((n) => {
+                const Icon = ICN[NOTIF_ICON[n.type] || 'Bell'] || ICN.Bell;
+                return (
+                  <button key={n.id} className={`notification-item ${n.read ? '' : 'unread'}`} onClick={() => onItemClick(n)}>
+                    <span className="notification-icon" style={{ color: NOTIF_COLOR[n.type] || 'var(--text-muted)' }}><Icon size={15} /></span>
+                    <span className="notification-body">
+                      <span className="notification-title">{n.title}</span>
+                      <span className="notification-message">{n.message}</span>
+                      <span className="notification-meta">{relTime(n.createdAt)}{n.audience === 'admin' ? ' · admin' : ''}</span>
+                    </span>
+                    <span className="notification-actions">
+                      {!n.read && <span className="notification-dot" aria-label="unread" />}
+                      <span className="notification-del" role="button" title="Dismiss" onClick={(e) => onDelete(e, n.id)}>×</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme, onOpenNav }) {
   return (
     <div className="dash-top">
@@ -241,7 +382,7 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
       <button className="btn btn-icon btn-ghost" onClick={toggleTheme} title="Toggle theme">
         {theme === "dark" ? <ICN.Sun size={16} /> : <ICN.Moon size={16} />}
       </button>
-      <button className="btn btn-icon btn-ghost" title="Notifications"><ICN.Bell size={16} /></button>
+      <NotificationBell navigate={navigate} />
       <AuthMenu navigate={navigate} />
     </div>
   );

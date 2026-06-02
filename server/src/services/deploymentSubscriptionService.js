@@ -3,6 +3,7 @@ import renderApiService from './renderApiService.js';
 import { nowIso } from './hostingStore.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { writeAuditLog } from './auditLogService.js';
+import { createUserNotification } from './notificationService.js';
 import {
   SUBSCRIPTION_CLEANUP_ACTION,
   addCalendarMonths,
@@ -168,6 +169,15 @@ export async function markRenewalReminderDue(subscription) {
     deployment: { deploymentId: subscription.deploymentId, userId: subscription.userId },
     action: 'subscription.renewal_due',
     result: { deploymentId: subscription.deploymentId, currentPeriodEnd: iso(subscription.currentPeriodEnd) },
+  });
+  await createUserNotification(subscription.userId, {
+    type: 'subscription',
+    title: 'Hosting renewal reminder',
+    message: 'Your hosting subscription will end soon. Please renew before the expiry date.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'deployment',
+    entityId: subscription.deploymentId,
+    metadata: { currentPeriodEnd: iso(subscription.currentPeriodEnd) },
   });
   return updated;
 }

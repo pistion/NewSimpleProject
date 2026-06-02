@@ -38,9 +38,10 @@ import diskRoutes from './routes/diskRoutes.js';
 import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
-import { prisma, ensureUserColumns } from './services/db.js';
+import { prisma, ensureUserColumns, ensureNotificationsTable } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import deploymentService from './services/deploymentService.js';
 import deploymentStatusService from './services/deploymentStatusService.js';
@@ -600,6 +601,9 @@ app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 // Deploy-first K100 billing: customer payments + receipts, and the admin surface.
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
+// User-facing notifications (Bell dropdown) — mounted on both API prefixes.
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 // ── SPA fallback — serve Vite dist for everything else ──────────────────────
 app.use((req, res) => serveStatic(req, res));
@@ -2037,9 +2041,10 @@ if (process.env.NODE_ENV !== 'test') {
     // Verify DB is reachable on startup — logs clearly if the file can't be opened.
     prisma.$connect()
       .then(() => console.log('[glondia] Database connection established.'))
-      // Self-heal additive User columns so a DB that predates a schema change
-      // doesn't 500 every auth/profile/billing query (push-based, no migrations).
+      // Self-heal additive User columns + the notifications table so a DB that
+      // predates a schema change doesn't 500 (push-based, no migrations).
       .then(() => ensureUserColumns())
+      .then(() => ensureNotificationsTable())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
   // Deploy-first K100 billing: enforce the 12-hour grace window every 5 minutes.

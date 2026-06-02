@@ -18,6 +18,7 @@ import {
 } from './deploymentBillingService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { getPromoUsage } from './deploymentPromoService.js';
+import { createUserNotification } from './notificationService.js';
 
 const VALID_ROLES = new Set(['owner', 'admin', 'member']);
 const VALID_ACCOUNT_STATUS = new Set(['active', 'suspended', 'disabled', 'deleted']);
@@ -263,6 +264,15 @@ export async function approveReceipt(receiptId, adminUserId) {
     result: { checkoutOrderId: order?.id || null, deploymentId: order?.deploymentId || null },
   });
 
+  await createUserNotification(receipt.userId || order?.userId, {
+    type: 'success',
+    title: 'Receipt approved',
+    message: 'Your bank receipt was approved. Hosting is now active.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'receipt',
+    entityId: receipt.id,
+  });
+
   return { receiptId: receipt.id, status: 'approved', payment: paidResult };
 }
 
@@ -293,6 +303,15 @@ export async function rejectReceipt(receiptId, adminUserId, note = null) {
     entityType: 'payment_receipt',
     entityId: receipt.id,
     result: { checkoutOrderId: order?.id || null, note: note || null },
+  });
+
+  await createUserNotification(receipt.userId || order?.userId, {
+    type: 'warning',
+    title: 'Receipt rejected',
+    message: 'Your bank receipt was rejected. Please upload a valid receipt or contact support.',
+    actionUrl: '/dashboard/billing',
+    entityType: 'receipt',
+    entityId: receipt.id,
   });
 
   return { receiptId: receipt.id, status: 'rejected' };
