@@ -77,27 +77,46 @@ export async function publishDirectoryToGithubTree({ directory, targetRoot, owne
       if (commitResponse.ok) baseTreeSha = (await commitResponse.json())?.tree?.sha;
     }
   } else if (refResponse.status === 404 || refResponse.status === 409) {
-    // Empty/uninitialized repo (e.g. a freshly created dedicated repo with
-    // auto_init:false). The Git Data blob API rejects blobs with 409
-    // "Git Repository is empty" until an initial commit exists, so the tree
-    // flow can't bootstrap it. The Contents API CAN create the first commit —
-    // delegate the whole publish there. (The shared generated-sites repo is
-    // non-empty, so it still gets the atomic single-commit tree path above.)
-    return publishDirectoryToGithubContentsApi({ directory, targetRoot, owner, repo, branch, token, rootDispatcher, message });
+    // Empty/uninitialized repo (a freshly created dedicated repo with
+    // auto_init:false). The Git Data blob API rejects blobs with 409 until an
+    // initial commit exists. Bootstrap the repo with a single placeholder file
+    // via the Contents API (creates the first commit + branch), then continue
+    // with the fast atomic tree path for all real files.
+    try {
+      await upsertGithubFile({ owner, repo, path: '.glondia-init', branch, token, content: Buffer.from('glondia\n'), message: 'Initialize repository' });
+      const ref2 = await fetchWithRetry(
+        `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+        { headers: githubHeaders(token) },
+        `GitHub ref ${branch} (post-init)`,
+      );
+      if (ref2.ok) {
+        baseCommitSha = (await ref2.json())?.object?.sha || null;
+        if (baseCommitSha) {
+          const c2 = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/git/commits/${baseCommitSha}`, { headers: githubHeaders(token) }, 'GitHub commit (post-init)');
+          if (c2.ok) baseTreeSha = (await c2.json())?.tree?.sha;
+        }
+      }
+    } catch (initErr) {
+      // Bootstrap failed — fall back to the per-file Contents API publish.
+      console.warn(`[github-publish] Empty-repo bootstrap failed, using Contents API: ${initErr.message}`);
+      return publishDirectoryToGithubContentsApi({ directory, targetRoot, owner, repo, branch, token, rootDispatcher, message });
+    }
   } else {
     throw new Error(`GitHub ref lookup failed ${refResponse.status}: ${await refResponse.text().catch(() => '')}`);
   }
 
-  // 2. Build the tree entries: site files under targetRoot (+ optional dispatcher at root).
-  const treeEntries = [];
-  const published = [];
-  for (const filePath of files) {
+  // 2. Create blobs CONCURRENTLY (sequential creation made large sites time out
+  //    and 502 — a 70-file site went from ~60s to a few seconds). Then assemble
+  //    tree entries (site files under targetRoot).
+  const concurrency = Math.max(1, Number(process.env.GITHUB_PUBLISH_CONCURRENCY || 10));
+  const entries = await mapWithConcurrency(files, concurrency, async (filePath) => {
     const rel = normalizeSlash(path.relative(directory, filePath));
     const targetPath = normalizeSlash(path.posix.join(targetRoot || '', rel));
     const sha = await createBlob(owner, repo, token, await fs.readFile(filePath));
-    treeEntries.push({ path: targetPath, mode: gitFileMode(rel), type: 'blob', sha });
-    published.push(targetPath);
-  }
+    return { path: targetPath, mode: gitFileMode(rel), type: 'blob', sha };
+  });
+  const treeEntries = [...entries];
+  const published = entries.map((e) => e.path);
 
   // Include the root dispatcher in the SAME commit when provided.
   if (rootDispatcher) {
@@ -222,6 +241,21 @@ export async function publishDirectoryToGithubContentsApi({ directory, targetRoo
   }
 
   return { repo: `${owner}/${repo}`, branch, targetRoot, published, errors, commitId, mode: 'contents' };
+}
+
+/** Map over items with a bounded concurrency pool, preserving input order. */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function createBlob(owner, repo, token, content) {
