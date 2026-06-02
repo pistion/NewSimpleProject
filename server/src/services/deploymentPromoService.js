@@ -26,6 +26,44 @@ function dbUserId(userId) {
 }
 
 /**
+ * Self-heal a single user that registered before the promo fields existed
+ * (promoSignupRank is null). Eligibility is a deterministic function of
+ * registration order, so compute the rank from createdAt and persist it once.
+ * Returns the user with promoSignupRank/promoEligible filled in.
+ */
+async function ensureUserPromoFields(user, id) {
+  if (user.promoSignupRank != null) return user;
+  const priorCount = await prisma.user.count({ where: { createdAt: { lt: user.createdAt } } });
+  const signupRank = priorCount + 1;
+  const promoEligible = signupRank <= promoLimit;
+  try {
+    await prisma.user.update({ where: { id }, data: { promoSignupRank: signupRank, promoEligible } });
+  } catch { /* best-effort backfill */ }
+  return { ...user, promoSignupRank: signupRank, promoEligible };
+}
+
+/**
+ * Bulk-heal any users missing a signup rank (idempotent: a no-op once every
+ * user has one). Keeps the admin promo stats accurate for accounts created
+ * before the launch-promo fields were added.
+ */
+async function backfillMissingPromoRanks() {
+  const missing = await prisma.user.count({ where: { promoSignupRank: null } });
+  if (missing === 0) return;
+  const users = await prisma.user.findMany({ orderBy: { createdAt: 'asc' }, select: { id: true, promoSignupRank: true } });
+  let rank = 0;
+  for (const u of users) {
+    rank += 1;
+    if (u.promoSignupRank == null) {
+      await prisma.user.update({
+        where: { id: u.id },
+        data: { promoSignupRank: rank, promoEligible: rank <= promoLimit },
+      }).catch(() => {});
+    }
+  }
+}
+
+/**
  * Whether the user currently holds an unsettled promo claim (a pending or
  * receipt-uploaded promo_50 order). Used to enforce one active promo claim at a
  * time so a user can't open several K50 orders.
@@ -61,14 +99,16 @@ export async function getUserPromoStatus(userId) {
   };
   if (!id) return base;
 
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id },
     select: {
       promoEligible: true, promoSignupRank: true, promoClaimedAt: true,
-      promoClaimedOrderId: true, promoClaimedDeploymentId: true,
+      promoClaimedOrderId: true, promoClaimedDeploymentId: true, createdAt: true,
     },
   });
   if (!user) return base;
+  // Back-fill eligibility for accounts created before the promo fields existed.
+  user = await ensureUserPromoFields(user, id);
 
   const used = Boolean(user.promoClaimedAt);
   const eligible = Boolean(user.promoEligible);
@@ -150,7 +190,11 @@ export async function resolveRequestedBillingTier({ userId, requestedTierId, dep
  * registered users (eligible + claimed), plus a paid-order revenue mix.
  */
 export async function getPromoUsage() {
-  const [eligibleUsers, claimedUsers, paidOrders] = await Promise.all([
+  // Heal any legacy users missing a signup rank so eligibility counts are right.
+  await backfillMissingPromoRanks().catch(() => {});
+
+  const [totalUsers, eligibleUsers, claimedUsers, paidOrders] = await Promise.all([
+    prisma.user.count(),
     prisma.user.count({ where: { promoEligible: true } }),
     prisma.user.count({ where: { NOT: { promoClaimedAt: null } } }),
     prisma.checkoutOrder.findMany({ where: { type: 'deployment', status: 'paid' }, select: { metadata: true } }),
@@ -163,9 +207,13 @@ export async function getPromoUsage() {
     else paidStandard += 1;
   }
 
-  const remaining = Math.max(0, eligibleUsers - claimedUsers);
+  // A promo "slot" is consumed when a user CLAIMS the K50 promo. With 20 launch
+  // slots and 0 claims, 20 remain — independent of how many of the first 20 have
+  // registered yet.
+  const remaining = Math.max(0, promoLimit - claimedUsers);
   return {
     limit: promoLimit,
+    totalUsers,
     eligibleUsers,
     claimedUsers,
     used: claimedUsers,
