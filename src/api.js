@@ -70,7 +70,7 @@ const {
 } = localDb;
 
 const domainApi = createDomainActions({
-  apiRequest,
+  apiRequest: isLiveMode() ? liveApiRequest : apiRequest,
   createId,
   mapApiDnsRecord,
   mapApiDomain,
@@ -109,19 +109,20 @@ export async function apiRequest(path, options = {}) {
 }
 
 async function registrarRequest(path, options = {}) {
-  const response = await fetch(`/api/spaceship${path}`, {
+  const response = await authFetch(liveApiUrl(`/registrar${path}`), {
     method: options.method || 'GET',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...(options.headers || {}),
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : undefined,
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result?.message || result?.error || `Spaceship request failed with ${response.status}.`);
+    throw new Error(result?.error?.message || result?.message || `Registrar request failed with ${response.status}.`);
   }
-  return result;
+  return result?.data ?? result;
 }
 
 async function hostingRequest(path, options = {}) {

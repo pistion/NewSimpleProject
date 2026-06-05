@@ -759,6 +759,10 @@ function buildStaticSiteUpdatePayload(input = {}) {
       ? { name: renderSafeName(input.name || input.serviceName) }
       : {}),
 
+    ...(input.autoDeploy !== undefined
+      ? { autoDeploy: normalizeAutoDeploy(input.autoDeploy) }
+      : {}),
+
     ...(input.branch
       ? { branch: input.branch }
       : {}),
@@ -789,6 +793,10 @@ function buildWebServiceUpdatePayload(input = {}) {
       ? { name: renderSafeName(input.name || input.serviceName) }
       : {}),
 
+    ...(input.autoDeploy !== undefined
+      ? { autoDeploy: normalizeAutoDeploy(input.autoDeploy) }
+      : {}),
+
     ...(input.branch
       ? { branch: input.branch }
       : {}),
@@ -808,6 +816,10 @@ function buildWebServiceUpdatePayload(input = {}) {
 
       ...(input.region
         ? { region: input.region }
+        : {}),
+
+      ...(input.healthCheckPath !== undefined
+        ? { healthCheckPath: input.healthCheckPath }
         : {}),
 
       envSpecificDetails: {
@@ -835,6 +847,10 @@ function buildSourceUpdatePayload(input = {}) {
 
     ...(input.rootDirectory !== undefined
       ? { rootDir: input.rootDirectory || undefined }
+      : {}),
+
+    ...(input.autoDeploy !== undefined
+      ? { autoDeploy: normalizeAutoDeploy(input.autoDeploy) }
       : {}),
   });
 }
@@ -883,6 +899,15 @@ function normalizeClearCache(value) {
   if (value === false || value === undefined || value === null) return 'do_not_clear';
   if (value === 'clear' || value === 'do_not_clear') return value;
   return 'do_not_clear';
+}
+
+function normalizeAutoDeploy(value) {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['yes', 'true', 'on', 'enabled', 'enable'].includes(normalized)) return 'yes';
+    if (['no', 'false', 'off', 'disabled', 'disable'].includes(normalized)) return 'no';
+  }
+  return value ? 'yes' : 'no';
 }
 
 function extractLogMessages(logs) {

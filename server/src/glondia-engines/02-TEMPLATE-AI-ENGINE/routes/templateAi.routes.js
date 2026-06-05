@@ -53,11 +53,15 @@ router.get('/settings', requireAiBuilder, templateAiController.getSettings);
 router.post('/intake/start', requireAiBuilder, templateAiController.startIntake);
 router.post('/intake/message', requireAiBuilder, templateAiController.sendMessage);
 router.post('/generate', requireAiBuilder, templateAiController.generateTailored);
-router.post('/sites', requireAiBuilder, templateAiController.createSite);
-router.get('/sites/:siteId', requireAiBuilder, templateAiController.getSite);
-router.get('/sites/:siteId/preview', requireAiBuilder, templateAiController.previewSite);
-router.post('/sites/:siteId/package', requireAiBuilder, templateAiController.packageSite);
-router.post('/sites/:siteId/deploy', requireAiBuilder, templateAiController.deploySite);
+router.get('/templates', requireTemplateMarketplace, templateAiController.listTemplates);
+router.get('/templates/:templateId', requireTemplateMarketplace, templateAiController.getTemplate);
+router.post('/sites', requireTemplateMarketplace, templateAiController.createSite);
+router.get('/sites/:siteId', requireTemplateMarketplace, templateAiController.getSite);
+router.get('/sites/:siteId/preview', requireTemplateMarketplace, templateAiController.previewSite);
+router.post('/sites/:siteId/prepare', requireTemplateMarketplace, templateAiController.prepareSite);
+router.post('/sites/:siteId/ai-edit', requireAiBuilder, templateAiController.aiEditSite);
+router.post('/sites/:siteId/package', requireTemplateMarketplace, templateAiController.packageSite);
+router.post('/sites/:siteId/deploy', requireTemplateMarketplace, templateAiController.deploySite);
 
 // Legacy compatibility route. New callers must use GET /api/deployments/settings.
 router.get('/zip/settings', (_req, res) => {

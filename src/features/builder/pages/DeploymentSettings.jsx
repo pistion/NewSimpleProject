@@ -3,8 +3,7 @@ import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { useTemplates } from '../../../use-templates';
 import { createBuilderSite, publishBuilderSite, createRenderDeployment, getStoredAuth } from '../../../api';
-import { createGeneratedSiteHostingDeployment } from '../../../api/hosting-deploy.js';
-import { getTailoredTemplateSite, getTailoredTemplatePreviewUrl, packageTailoredTemplate } from '../../../api/template-ai.js';
+import { deployTailoredTemplate, getTailoredTemplateSite, getTailoredTemplatePreviewUrl } from '../../../api/template-ai.js';
 
 const PLAN_COPY = {
   starter: { label: 'Starter', estimate: '$0/mo while available on free/static hosting', note: 'Best for early preview sites and simple static launches.' },
@@ -93,22 +92,16 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
     try {
       let deployment;
       if (siteId) {
-        const handoff = await packageTailoredTemplate(siteId, {
-          siteName: siteName.trim(), slug: siteSlug, serviceType, plan, environment,
-          buildCommand, publishDirectory, sourceReference: 'roxanne-ai-tailored-template',
-          repoUrl: repoUrl.trim() || undefined, branch: branch.trim() || 'main', rootDirectory: rootDirectory.trim() || undefined,
-        });
-        deployment = await createGeneratedSiteHostingDeployment({
-          ...handoff,
-          generatedSite: handoff.generatedSite,
-          siteName: handoff.siteName || siteName.trim(),
-          slug: handoff.slug || siteSlug,
+        deployment = await deployTailoredTemplate(siteId, {
+          siteName: siteName.trim(),
+          slug: siteSlug,
           serviceType,
           plan,
           environment,
           buildCommand,
           publishDirectory,
-          sourceReference: 'roxanne-ai-tailored-template',
+          source: 'template',
+          sourceReference: `templates/${templateId}`,
           repoUrl: repoUrl.trim() || undefined,
           branch: branch.trim() || 'main',
           rootDirectory: rootDirectory.trim() || undefined,

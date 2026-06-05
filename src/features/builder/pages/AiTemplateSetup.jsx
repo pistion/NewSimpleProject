@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ICN } from '../../../icons';
 import { GD } from '../../../data';
-import { generateTailoredTemplate, createSiteFromTailoredTemplate } from '../../../api/template-ai.js';
+import { aiEditTemplateHostingSite, createSiteFromTailoredTemplate, generateTailoredTemplate, prepareTemplateHostingSite } from '../../../api/template-ai.js';
 import './AiTemplateSetup.css';
 
 const QUESTIONS = [
@@ -63,6 +63,7 @@ function RoxanneGeneratingLoader({ templateName }) {
 export function BuilderAiIntake({ templateId, templateType, navigate }) {
   const template = GD.templates.find(t => t.id === templateId) || null;
   const isHtml = template?.contentJson?._source === 'html-template' || templateType === 'html';
+  const isRepoTemplate = templateType === 'repo-template';
   const tplPages = Array.isArray(template?.contentJson?.pages) ? template.contentJson.pages : [];
 
   const [messages, setMessages] = useState(() => [
@@ -123,7 +124,7 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
   const buildSiteProfile = () => ({
     source: 'roxanne-ai-intake',
     parentTemplateId: templateId,
-    templateType: 'html',
+    templateType: isRepoTemplate ? 'repo-template' : 'html',
     businessName: answers.businessName || '',
     industry: answers.industry || '',
     targetAudience: answers.audience || '',
@@ -142,7 +143,7 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
       setGenError('Please answer business name, industry, and products/services first.');
       return;
     }
-    if (!isHtml || tplPages.length === 0) {
+    if (!isRepoTemplate && (!isHtml || tplPages.length === 0)) {
       setGenError('This template is not ready for RoxanneAI generation yet. Choose Pulse Works or Forge.');
       return;
     }
@@ -153,6 +154,37 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
     try {
       const siteProfile = buildSiteProfile();
       const tailored = [];
+
+      if (isRepoTemplate) {
+        const record = await createSiteFromTailoredTemplate(templateId, siteProfile, [], {
+          siteName: siteProfile.businessName,
+          slug: slugify(siteProfile.businessName || templateId),
+        });
+        await prepareTemplateHostingSite(record.siteId, {
+          answers: siteProfile,
+          siteName: siteProfile.businessName,
+          slug: slugify(siteProfile.businessName || templateId),
+        });
+        try {
+          await aiEditTemplateHostingSite(record.siteId, {
+            answers: siteProfile,
+            siteName: siteProfile.businessName,
+            slug: slugify(siteProfile.businessName || templateId),
+          });
+        } catch {
+          // Deterministic questionnaire merge still creates a deployable copy when AI is unavailable.
+        }
+        navigate({
+          view: 'builder-deployment-settings',
+          params: {
+            siteId: record.siteId,
+            templateId,
+            templateType: 'repo-template',
+            tailored: true,
+          },
+        });
+        return;
+      }
 
       for (const page of tplPages) {
         const result = await generateTailoredTemplate(templateId, page.html || '', siteProfile);
@@ -269,3 +301,5 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
     </>
   );
 }
+
+function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }

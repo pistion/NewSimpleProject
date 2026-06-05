@@ -6,9 +6,14 @@
 import { tailorHtmlTemplate, INTAKE_QUESTIONS, REQUIRED_KEYS } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/04-AI-REFINEMENT-MOUNTAIN/openaiTailor.stage.js';
 import { makeId } from '../services/hostingStore.js';
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/store/templateSiteStore.js';
+import { getTemplateDetails, listTemplateCatalog } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/01-TEMPLATE-LIBRARY-MOUNTAIN/templateSelection.stage.js';
+import { applyQuestionnaireDataToGeneratedSource, prepareTemplateGeneratedSource } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/02-TEMPLATE-SOURCE-MOUNTAIN/templateSource.stage.js';
 import { generateViteStaticSiteFromTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/finalSourcePackager.stage.js';
 import { run as runGeneratedSiteToRender } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/pipelines/generatedSiteToRender.pipeline.js';
 import renderApiService from '../services/renderApiService.js';
+import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const sessions = new Map();
 
@@ -21,6 +26,7 @@ function maybeCleanSessions() {
 async function getSettings(req, res, next) {
   try {
     const sourceRepoConfigured = Boolean((process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim());
+    const templateRepo = process.env.TEMPLATE_LIBRARY_REPO_URL || process.env.RENDER_GENERATED_SITES_REPO_URL || 'https://github.com/pistion/glondia-generated-sites.git';
     const renderConfigured = renderApiService.configured();
     const openAiConfigured = Boolean(process.env.OPENAI_API_KEY);
     res.json({
@@ -28,6 +34,8 @@ async function getSettings(req, res, next) {
       renderConfigured,
       sourceRepoConfigured,
       sourceRepo: process.env.RENDER_GENERATED_SITES_REPO_URL || null,
+      templateRepo,
+      templateRoot: process.env.TEMPLATE_LIBRARY_ROOT || 'templates',
       defaultRootDirectory: process.env.RENDER_GENERATED_SITES_ROOT_DIR || null,
       missing: [
         !openAiConfigured ? 'OPENAI_API_KEY' : null,
@@ -35,6 +43,19 @@ async function getSettings(req, res, next) {
         !renderConfigured ? 'RENDER_API_KEY / RENDER_OWNER_ID' : null,
       ].filter(Boolean),
     });
+  } catch (err) { next(err); }
+}
+
+async function listTemplates(req, res, next) {
+  try {
+    res.json(await listTemplateCatalog());
+  } catch (err) { next(err); }
+}
+
+async function getTemplate(req, res, next) {
+  try {
+    const { templateId } = req.params;
+    res.json(await getTemplateDetails(templateId));
   } catch (err) { next(err); }
 }
 
@@ -87,13 +108,17 @@ async function generateTailored(req, res, next) {
 
 async function createSite(req, res, next) {
   try {
-    const { templateId, answers, tailoredPages } = req.body || {};
+    const { templateId, answers, tailoredPages, siteName, slug } = req.body || {};
     if (!templateId || typeof templateId !== 'string') return res.status(400).json({ error: 'templateId is required.' });
     if (templateId.length > 100) return res.status(400).json({ error: 'templateId is too long.' });
     if (answers !== undefined && (typeof answers !== 'object' || Array.isArray(answers))) return res.status(400).json({ error: 'answers must be an object.' });
     if (tailoredPages !== undefined && !Array.isArray(tailoredPages)) return res.status(400).json({ error: 'tailoredPages must be an array.' });
     const site = await createTemplateSite({ templateId, answers: answers || {}, tailoredPages: tailoredPages || [] });
-    res.status(201).json({ siteId: site.siteId, templateId: site.templateId, answers: site.answers, pages: site.pages, status: site.status, createdAt: site.createdAt });
+    const updates = {};
+    if (siteName) updates.siteName = String(siteName).slice(0, 140);
+    if (slug) updates.slug = slugify(slug);
+    const finalSite = Object.keys(updates).length ? await updateTemplateSite(site.siteId, updates) : site;
+    res.status(201).json({ siteId: finalSite.siteId, templateId: finalSite.templateId, answers: finalSite.answers, pages: finalSite.pages, status: finalSite.status, siteName: finalSite.siteName, slug: finalSite.slug, createdAt: finalSite.createdAt });
   } catch (err) { next(err); }
 }
 
@@ -115,10 +140,80 @@ async function previewSite(req, res, next) {
     const pages = Array.isArray(site.pages) ? site.pages : [];
     const pageIndex = Math.max(0, Number(req.query.page || 0) || 0);
     const activePage = pages[pageIndex] || pages[0];
+    if (!activePage?.html && site.generatedSite?.siteDir) {
+      const indexPath = join(site.generatedSite.siteDir, 'index.html');
+      if (existsSync(indexPath)) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        return res.send(await readFile(indexPath, 'utf8'));
+      }
+    }
     if (!activePage?.html) return res.status(404).send('<!doctype html><html><body><h1>No generated preview available</h1></body></html>');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(activePage.html);
+  } catch (err) { next(err); }
+}
+
+async function prepareSite(req, res, next) {
+  try {
+    const { siteId } = req.params;
+    if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
+    const site = await getTemplateSite(siteId);
+    if (!site) return res.status(404).json({ error: `Site "${siteId}" not found.` });
+    const mergedAnswers = { ...(site.answers || {}), ...(req.body?.answers || {}) };
+    const siteForPrepare = { ...site, answers: mergedAnswers };
+    const generatedSite = await prepareTemplateGeneratedSource(siteForPrepare, req.body || {});
+    const updated = await updateTemplateSite(siteId, {
+      answers: mergedAnswers,
+      siteName: req.body?.siteName || site.siteName || generatedSite.siteProfile?.siteName,
+      slug: req.body?.slug ? slugify(req.body.slug) : (site.slug || generatedSite.siteProfile?.slug),
+      pages: generatedSite.pages || site.pages || [],
+      status: 'prepared',
+      generatedSite,
+      templateMetadata: generatedSite.templateMetadata,
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+async function aiEditSite(req, res, next) {
+  try {
+    const { siteId } = req.params;
+    if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
+    let site = await getTemplateSite(siteId);
+    if (!site) return res.status(404).json({ error: `Site "${siteId}" not found.` });
+    if (!site.generatedSite?.siteDir) {
+      const generatedSite = await prepareTemplateGeneratedSource(site, req.body || {});
+      site = await updateTemplateSite(siteId, { status: 'prepared', generatedSite, pages: generatedSite.pages || [] });
+    }
+
+    const indexPath = join(site.generatedSite.siteDir, 'index.html');
+    if (!existsSync(indexPath)) {
+      return res.status(409).json({ error: 'AI edit currently requires an index.html file in the prepared template copy.', code: 'TEMPLATE_AI_INDEX_REQUIRED' });
+    }
+
+    const answers = { ...(site.answers || {}), ...(req.body?.answers || {}) };
+    const original = await readFile(indexPath, 'utf8');
+    const tailored = await tailorHtmlTemplate(original, answers);
+    await writeFile(indexPath, tailored, 'utf8');
+    await applyQuestionnaireDataToGeneratedSource(site.generatedSite.siteDir, answers);
+
+    const updated = await updateTemplateSite(siteId, {
+      answers,
+      status: 'ai_edited',
+      pages: [{ title: 'Home', path: '/', html: tailored }],
+      generatedSite: {
+        ...site.generatedSite,
+        pages: [{ title: 'Home', path: '/', html: tailored }],
+        aiEdit: {
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          changedFiles: ['index.html'],
+          editedAt: new Date().toISOString(),
+        },
+      },
+    });
+    res.json(updated);
   } catch (err) { next(err); }
 }
 
@@ -152,7 +247,8 @@ async function deploySite(req, res, next) {
       generatedSite: handoff.generatedSite,
       siteName: handoff.siteName,
       slug: handoff.slug,
-      sourceReference: 'roxanne-ai-tailored-template',
+      source: 'template',
+      sourceReference: `templates/${site.templateId}`,
     }, { userId: req.user?.id });
 
     await updateTemplateSite(siteId, {
@@ -188,12 +284,6 @@ async function getTemplatePreview(req, res, next) {
 }
 
 async function packageTemplateSiteForHosting(site, options = {}) {
-  if (!Array.isArray(site.pages) || site.pages.length === 0) {
-    const error = new Error('This tailored site has no generated pages. Run RoxanneAI generation first.');
-    error.status = 409;
-    throw error;
-  }
-
   const {
     siteName = '',
     slug = '',
@@ -207,15 +297,22 @@ async function packageTemplateSiteForHosting(site, options = {}) {
   } = options || {};
   const finalSiteName = siteName || site.answers?.businessName || site.templateId;
   const finalSlug = slugify(slug || finalSiteName || site.siteId);
-  const generatedSite = await generateViteStaticSiteFromTemplateSite(site, {
-    siteName: finalSiteName,
-    slug: finalSlug,
-    buildCommand,
-    publishDirectory,
-  });
+  let generatedSite = site.generatedSite;
+  if (!generatedSite?.siteDir) {
+    if (Array.isArray(site.pages) && site.pages.length > 0) {
+      generatedSite = await generateViteStaticSiteFromTemplateSite(site, {
+        siteName: finalSiteName,
+        slug: finalSlug,
+        buildCommand,
+        publishDirectory,
+      });
+    } else {
+      generatedSite = await prepareTemplateGeneratedSource(site, { ...options, siteName: finalSiteName, slug: finalSlug });
+    }
+  }
 
   return {
-    sourceType: 'roxanne-ai-template',
+    sourceType: generatedSite.sourceType || 'template',
     status: 'ready_for_hosting',
     siteId: site.siteId,
     templateId: site.templateId,
@@ -229,13 +326,13 @@ async function packageTemplateSiteForHosting(site, options = {}) {
       plan,
       environment,
       branch,
-      rootDirectory,
-      buildCommand: generatedSite.buildCommand,
-      publishDirectory: generatedSite.publishDirectory,
+      rootDirectory: rootDirectory || [process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'generated-sites', finalSlug].filter(Boolean).join('/'),
+      buildCommand: generatedSite.buildCommand || buildCommand,
+      publishDirectory: generatedSite.publishDirectory || publishDirectory,
     },
   };
 }
 
 function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }
 
-export const templateAiController = { getSettings, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, packageSite, deploySite, getTemplatePreview };
+export const templateAiController = { getSettings, listTemplates, getTemplate, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, prepareSite, aiEditSite, packageSite, deploySite, getTemplatePreview };

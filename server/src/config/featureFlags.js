@@ -18,7 +18,7 @@ const FLAG_DEFINITIONS = {
   DOMAINS:              { env: 'FEATURE_DOMAINS',              default: false, label: 'Domains' },
   VPS:                  { env: 'FEATURE_VPS',                  default: false, label: 'Cloud Servers' },
   AI_BUILDER:           { env: 'FEATURE_AI_BUILDER',           default: false, label: 'RoxanneAI advanced builder' },
-  TEMPLATE_MARKETPLACE: { env: 'FEATURE_TEMPLATE_MARKETPLACE', default: false, label: 'Template marketplace' },
+  TEMPLATE_MARKETPLACE: { env: 'FEATURE_TEMPLATE_MARKETPLACE', default: true,  label: 'Template marketplace' },
   ANALYTICS:            { env: 'FEATURE_ANALYTICS',            default: false, label: 'Analytics' },
   SETTINGS:             { env: 'FEATURE_SETTINGS',             default: false, label: 'Settings' },
 };

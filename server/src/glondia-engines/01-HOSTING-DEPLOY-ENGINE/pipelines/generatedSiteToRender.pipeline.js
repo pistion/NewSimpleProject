@@ -13,6 +13,8 @@ import { createAndTriggerRenderDeploy } from '../05-RENDER-DEPLOY-MOUNTAIN/rende
 import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../03-GITHUB-SOURCE-MOUNTAIN/generatedSitesRepoPublisher.stage.js';
 import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
 
+const DEFAULT_GENERATED_SITES_REPO_URL = 'https://github.com/pistion/glondia-generated-sites.git';
+
 export async function run(input = {}, context = {}) {
   const normalized = normalizeGeneratedSiteInput(input, context);
   const deployment = await createDeploymentRecord({
@@ -21,7 +23,7 @@ export async function run(input = {}, context = {}) {
     projectId: normalized.projectId || normalized.siteId,
     serviceName: renderSafeName(normalized.slug || normalized.siteName),
     serviceType: normalized.serviceType,
-    source: 'ai-tailored-template',
+    source: normalized.source,
     sourceReference: normalized.sourceReference,
     generatedSite: normalized.generatedSite,
     status: 'preparing',
@@ -196,7 +198,7 @@ function normalizeGeneratedSiteInput(input = {}, context = {}) {
   const siteName = input.siteName || input.name || input.generatedSite?.siteProfile?.siteName || input.templateId || 'glondia-site';
   const slug = slugify(input.slug || input.generatedSite?.siteProfile?.slug || siteName);
   const configuredRoot = process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'generated-sites';
-  const sourceRepo = String(input.repoUrl || input.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim();
+  const sourceRepo = String(input.repoUrl || input.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || DEFAULT_GENERATED_SITES_REPO_URL).trim();
   const rootDirectory = input.rootDirectory || [configuredRoot, slug].filter(Boolean).join('/');
   return {
     ...input,
@@ -212,6 +214,7 @@ function normalizeGeneratedSiteInput(input = {}, context = {}) {
     rootDirectory,
     githubTargetRoot: rootDirectory,
     sourceRepo,
+    source: input.source || 'ai-tailored-template',
     sourceReference: input.sourceReference || 'roxanne-ai-tailored-template',
     useTemporaryRepo: shouldUseTemporaryRepo(input),
   };

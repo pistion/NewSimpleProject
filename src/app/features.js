@@ -14,7 +14,7 @@ const DEFAULTS = {
   domains: false,
   vps: false,
   aiBuilder: false,
-  templateMarketplace: false,
+  templateMarketplace: true,
   analytics: false,
   settings: false,
   activity: false,

@@ -2,6 +2,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ICN } from './icons';
 import { Badge, Empty, StatusBadge, Tabs } from './components';
 import { uploadManualReceipt, createPaypalOrder, capturePaypalOrder } from './api/payments.js';
+import {
+  HOSTING_TABS,
+  BillingSection,
+  BuildLogsSection,
+  DeployHistorySection,
+  DisksSection,
+  DomainsSection,
+  EnvVarsSection,
+  HeadersSection,
+  HostingSettingsSection,
+  MetricsSection,
+  OverviewSection,
+  RulesSection,
+  SecretFilesSection,
+} from './features/hosting-management';
 
 // Glondia Hosting Hub owns live-site controls: logs, settings, env vars,
 // secret files, headers, routes, disks, domains, billing, and lifecycle actions.
@@ -50,14 +65,16 @@ import {
 
 function getHostingSourceType(app) {
   if (app?.source === 'zip-upload' || app?.generatedSite?.sourceType === 'uploaded-zip-source-artifact') return 'zip-upload';
+  if (app?.source === 'template') return 'template';
   if (app?.source === 'ai-tailored-template' || app?.sourceReference === 'roxanne-ai-tailored-template') return 'roxanne-ai';
   if (app?.githubRepo || app?.source === 'github') return 'github';
   return 'builder';
 }
 function isZipUpload(app) { return getHostingSourceType(app) === 'zip-upload'; }
+function isTemplateGenerated(app) { return getHostingSourceType(app) === 'template'; }
 function isRoxanneGenerated(app) { return getHostingSourceType(app) === 'roxanne-ai'; }
-function sourceLabel(app) { const t = getHostingSourceType(app); return t === 'zip-upload' ? 'ZIP Upload' : t === 'roxanne-ai' ? 'RoxanneAI generated' : t === 'github' ? 'GitHub import' : 'Builder'; }
-function sourceBadgeTone(app) { const t = getHostingSourceType(app); return t === 'zip-upload' || t === 'roxanne-ai' ? 'info' : 'muted'; }
+function sourceLabel(app) { const t = getHostingSourceType(app); return t === 'zip-upload' ? 'ZIP Upload' : t === 'template' ? 'Template' : t === 'roxanne-ai' ? 'RoxanneAI generated' : t === 'github' ? 'GitHub import' : 'Builder'; }
+function sourceBadgeTone(app) { const t = getHostingSourceType(app); return t === 'zip-upload' || t === 'template' || t === 'roxanne-ai' ? 'info' : 'muted'; }
 function getRenderSourceRoot(app) { return app?.generatedSite?.sourceArtifact?.targetRoot || app?.generatedSite?.githubTargetRoot || app?.render?.githubPublish?.targetRoot || app?.environmentConfiguration?.rootDirectory || ''; }
 function hasRealRenderId(id) { return Boolean(id && !String(id).includes('_pending')); }
 
@@ -79,7 +96,7 @@ function HostingAppCard({ app, navigate }) {
   return <button type="button" className="card" onClick={() => navigate({ view: 'hosting-detail', params: { id: app.deploymentId || app.id } })} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 14, color: 'inherit' }}><div className="row between"><div className="row" style={{ gap: 12, minWidth: 0 }}><span className="proj-thumb" style={{ width: 40, height: 40, fontSize: 15 }}>{(app.serviceName || app.siteName || 'A')[0]}</span><div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 15 }}>{app.serviceName || app.siteName}</div><div className="mono faint" style={{ fontSize: 12 }}>{src}</div></div></div><StatusBadge value={statusLabel(app.status)} /></div><Badge tone={sourceBadgeTone(app)} dot={false}>{src}</Badge>{building && <DeploymentPulse compact />}<div className="kv" style={{ gridTemplateColumns: '110px 1fr', gap: '6px 14px' }}><dt>Step</dt><dd>{app.currentStep || statusLabel(app.status)}</dd><dt>Build</dt><dd className="mono">{app.buildStatus || 'pending'}</dd><dt>Live URL</dt><dd className="mono">{app.liveUrl ? app.liveUrl.replace(/^https?:\/\//, '') : 'Pending'}</dd><dt>Source</dt><dd className="mono">{src}</dd></div><div className="row" style={{ gap: 8 }}>{app.liveUrl && <a className="btn btn-sm btn-outline" href={app.liveUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><ICN.ExternalLink size={13} /> View Live Site</a>}<span className="btn btn-sm btn-primary">Manage</span></div></button>;
 }
 
-const TAB_OPTIONS = ['Overview', 'Deploy History', 'Build Logs', 'Metrics', 'Hosting Settings', 'Env Vars', 'Secret Files', 'Headers', 'Rules', 'Disks', 'Domains', 'Billing'];
+const TAB_OPTIONS = HOSTING_TABS;
 
 export function HostingDetail({ id, navigate }) {
   const deploymentId = id;
@@ -176,25 +193,33 @@ export function HostingDetail({ id, navigate }) {
         onDelete={handleDelete}
       />
     </div>
-    <Tabs value={tab} onChange={setTab} options={TAB_OPTIONS} />
-    {tab === 'Overview' && <OverviewTab app={merged} deploymentId={deploymentId} />}
-    {tab === 'Deploy History' && <DeployHistoryTab app={merged} deploymentId={deploymentId} busy={busy} onRollback={(deployId) => window.confirm(`Roll back to deploy ${deployId.slice(0, 8)}?`) && runAction('rollback', () => rollbackHostingDeploy(deploymentId, deployId))} />}
-    {tab === 'Build Logs' && <LiveLogsPanel deploymentId={deploymentId} />}
-    {tab === 'Metrics' && <MetricsTab deploymentId={deploymentId} />}
-    {tab === 'Hosting Settings' && <RenderSettingsTab app={merged} deploymentId={deploymentId} onReload={load} isStatic={merged.serviceType !== 'web_service'} onPurgeCache={() => runAction('purgeCache', () => purgeHostingCache(deploymentId))} busy={busy} />}
-    {tab === 'Env Vars' && <EnvVarsTab deploymentId={deploymentId} />}
-    {tab === 'Secret Files' && <SecretFilesTab deploymentId={deploymentId} />}
-    {tab === 'Headers' && <HeadersTab deploymentId={deploymentId} />}
-    {tab === 'Rules' && <RulesTab deploymentId={deploymentId} />}
-    {tab === 'Disks' && <DisksTabV2 app={merged} deploymentId={deploymentId} />}
-    {tab === 'Domains' && <DomainsTab app={merged} deploymentId={deploymentId} />}
-    {tab === 'Billing' && <BillingTab deploymentId={deploymentId} app={merged} onReload={load} />}
+    <div className="hosting-tabs-wrap">
+      <Tabs value={tab} onChange={setTab} options={TAB_OPTIONS} />
+      <label className="hosting-tab-select">
+        <span className="label">Section</span>
+        <select className="select" value={tab} onChange={(event) => setTab(event.target.value)}>
+          {TAB_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      </label>
+    </div>
+    {tab === 'Overview' && <OverviewSection app={merged} deploymentId={deploymentId} />}
+    {tab === 'Deploy History' && <DeployHistorySection app={merged} deploymentId={deploymentId} busy={busy} onRollback={(deployId) => window.confirm(`Roll back to deploy ${deployId.slice(0, 8)}?`) && runAction('rollback', () => rollbackHostingDeploy(deploymentId, deployId))} />}
+    {tab === 'Build Logs' && <BuildLogsSection deploymentId={deploymentId} />}
+    {tab === 'Metrics' && <MetricsSection deploymentId={deploymentId} />}
+    {tab === 'Hosting Settings' && <HostingSettingsSection app={merged} deploymentId={deploymentId} onReload={load} isStatic={merged.serviceType !== 'web_service'} onPurgeCache={() => runAction('purgeCache', () => purgeHostingCache(deploymentId))} busy={busy} />}
+    {tab === 'Env Vars' && <EnvVarsSection deploymentId={deploymentId} />}
+    {tab === 'Secret Files' && <SecretFilesSection deploymentId={deploymentId} />}
+    {tab === 'Headers' && <HeadersSection deploymentId={deploymentId} />}
+    {tab === 'Rules' && <RulesSection deploymentId={deploymentId} />}
+    {tab === 'Disks' && <DisksSection app={merged} deploymentId={deploymentId} />}
+    {tab === 'Domains' && <DomainsSection app={merged} deploymentId={deploymentId} />}
+    {tab === 'Billing' && <BillingSection deploymentId={deploymentId} app={merged} onReload={load} />}
   </>;
 }
 
 function DeploymentStatusPanel({ app, onVerify, busy }) {
   const hasService = hasRealRenderId(app.renderServiceId); const hasDeploy = hasRealRenderId(app.renderDeployId); const renderAttempted = Boolean(app.render?.attempted || hasService || hasDeploy); const renderPending = !renderAttempted && (String(app.renderServiceId || '').includes('_pending') || app.render?.skippedReason); const shouldAnimate = ['preparing', 'queued', 'building', 'deploying', 'verifying'].includes(app.status) && !renderPending;
-  return <div className="card"><div className="row between"><div><div className="page-eyebrow" style={{ marginBottom: 6 }}>{sourceLabel(app)} deployment status</div><h2 style={{ margin: 0 }}>{statusLabel(app.status)}</h2></div><StatusBadge value={statusLabel(app.status)} /></div>{(isZipUpload(app) || isRoxanneGenerated(app)) && <SourcePackageBlock app={app} />}{renderAttempted && <RenderStartedBlock app={app} />}{!renderAttempted && renderPending && <RenderNotStartedBlock app={app} />}{shouldAnimate && <DeploymentPulse />}{app.status === 'failed' && <FailureBlock app={app} />}{app.status === 'live' && <SuccessBlock app={app} />}{app.status === 'deployed_unverified' && <WarmingBlock app={app} />}<div className="kv" style={{ marginTop: 16, gridTemplateColumns: '150px 1fr' }}><dt>Current step</dt><dd>{app.currentStep || statusLabel(app.status)}</dd><dt>Build status</dt><dd className="mono">{app.buildStatus || 'pending'}</dd><dt>Deploy handoff</dt><dd>{renderAttempted ? 'Started' : renderPending ? 'Waiting for configuration' : 'Ready'}</dd><dt>URL verification</dt><dd>{app.urlReachable ? 'Reachable' : app.liveUrl ? 'Warming up' : 'Pending URL'}</dd></div>{app.liveUrl && !app.urlReachable && <button className="btn btn-sm btn-outline" style={{ marginTop: 14 }} onClick={onVerify} disabled={busy === 'verify'}><ICN.Refresh size={13} /> Retry URL verification</button>}</div>;
+  return <div className="card"><div className="row between"><div><div className="page-eyebrow" style={{ marginBottom: 6 }}>{sourceLabel(app)} deployment status</div><h2 style={{ margin: 0 }}>{statusLabel(app.status)}</h2></div><StatusBadge value={statusLabel(app.status)} /></div>{(isZipUpload(app) || isTemplateGenerated(app) || isRoxanneGenerated(app)) && <SourcePackageBlock app={app} />}{renderAttempted && <RenderStartedBlock app={app} />}{!renderAttempted && renderPending && <RenderNotStartedBlock app={app} />}{shouldAnimate && <DeploymentPulse />}{app.status === 'failed' && <FailureBlock app={app} />}{app.status === 'live' && <SuccessBlock app={app} />}{app.status === 'deployed_unverified' && <WarmingBlock app={app} />}<div className="kv" style={{ marginTop: 16, gridTemplateColumns: '150px 1fr' }}><dt>Current step</dt><dd>{app.currentStep || statusLabel(app.status)}</dd><dt>Build status</dt><dd className="mono">{app.buildStatus || 'pending'}</dd><dt>Deploy handoff</dt><dd>{renderAttempted ? 'Started' : renderPending ? 'Waiting for configuration' : 'Ready'}</dd><dt>URL verification</dt><dd>{app.urlReachable ? 'Reachable' : app.liveUrl ? 'Warming up' : 'Pending URL'}</dd></div>{app.liveUrl && !app.urlReachable && <button className="btn btn-sm btn-outline" style={{ marginTop: 14 }} onClick={onVerify} disabled={busy === 'verify'}><ICN.Refresh size={13} /> Retry URL verification</button>}</div>;
 }
 
 function SourcePackageBlock({ app }) { const g = app.generatedSite || {}; const root = getRenderSourceRoot(app); const repo = app.environmentConfiguration?.sourceRepository || g.sourceRepository || ''; return <div style={{ marginTop: 18, padding: 14, border: '1px solid var(--accent)', borderRadius: 'var(--r-sm)', background: 'var(--accent-soft)' }}><div className="row" style={{ gap: 8, color: 'var(--accent)', fontWeight: 700 }}><ICN.CheckCircle size={16} /> {isZipUpload(app) ? 'ZIP source package prepared' : 'Generated Vite React site prepared'}</div><div className="kv" style={{ marginTop: 10, gridTemplateColumns: '155px 1fr', fontSize: 12.5 }}>{g.uploadedFileName && <><dt>Uploaded file</dt><dd className="mono">{g.uploadedFileName}</dd></>}<dt>Deployable files</dt><dd>{Array.isArray(g.files) ? g.files.length : 0}</dd>{Array.isArray(g.ignoredFiles) && <><dt>Ignored files</dt><dd>{g.ignoredFiles.length}</dd></>}<dt>Framework</dt><dd className="mono">{g.framework || g.projectType || 'vite-react'}</dd>{repo && <><dt>Source repository</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{repo}</dd></>}{root && <><dt>Source root directory</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{root}</dd></>}{g.siteDir && <><dt>Internal storage path</dt><dd className="mono" style={{ wordBreak: 'break-all', opacity: 0.7 }}>{g.siteDir}</dd></>}</div></div>; }
@@ -250,7 +275,7 @@ function AdminPanel({ app, busy, real, isSuspended, isBuilding, isWebService, is
 
 function OverviewTab({ app, deploymentId }) {
   const g = app.generatedSite || {}; const s = app.environmentConfiguration || {}; const root = getRenderSourceRoot(app);
-  return <div className="grid-side"><div style={{ display: 'grid', gap: 16 }}><div className="card"><h2 style={{ marginTop: 0 }}>Hosting app</h2><div className="kv"><dt>Source</dt><dd className="mono">{sourceLabel(app)}</dd><dt>Branch</dt><dd className="mono">{app.githubBranch || s.branch || 'main'}</dd><dt>Service type</dt><dd><Badge tone="info" dot={false}>{app.serviceType}</Badge></dd><dt>Live URL</dt><dd className="mono">{app.liveUrl || 'Pending'}</dd>{s.sourceRepository && <><dt>Source repository</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{s.sourceRepository}</dd></>}{root && <><dt>Source root</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{root}</dd></>}<dt>Build command</dt><dd className="mono">{s.buildCommand || g.buildCommand || 'Not set'}</dd><dt>Publish directory</dt><dd className="mono">{s.outputDirectory || g.publishDirectory || 'dist'}</dd></div></div>{(isZipUpload(app) || isRoxanneGenerated(app)) && <SourcePackageBlock app={app} />}</div><LiveLogsPanel deploymentId={deploymentId} compact /></div>;
+  return <div className="grid-side"><div style={{ display: 'grid', gap: 16 }}><div className="card"><h2 style={{ marginTop: 0 }}>Hosting app</h2><div className="kv"><dt>Source</dt><dd className="mono">{sourceLabel(app)}</dd><dt>Branch</dt><dd className="mono">{app.githubBranch || s.branch || 'main'}</dd><dt>Service type</dt><dd><Badge tone="info" dot={false}>{app.serviceType}</Badge></dd><dt>Live URL</dt><dd className="mono">{app.liveUrl || 'Pending'}</dd>{s.sourceRepository && <><dt>Source repository</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{s.sourceRepository}</dd></>}{root && <><dt>Source root</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{root}</dd></>}<dt>Build command</dt><dd className="mono">{s.buildCommand || g.buildCommand || 'Not set'}</dd><dt>Publish directory</dt><dd className="mono">{s.outputDirectory || g.publishDirectory || 'dist'}</dd></div></div>{(isZipUpload(app) || isTemplateGenerated(app) || isRoxanneGenerated(app)) && <SourcePackageBlock app={app} />}</div><LiveLogsPanel deploymentId={deploymentId} compact /></div>;
 }
 
 // ── Deploy History Tab ────────────────────────────────────────────────────────

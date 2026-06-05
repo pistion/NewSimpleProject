@@ -1,9 +1,10 @@
 // TemplateGallery.jsx — Real template picker for the Site Builder.
-import React, { useState as useStateB } from 'react';
+import React, { useEffect, useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { TEMPLATES_REPO } from '../../../data';
 import { Empty } from '../../../components';
 import { useTemplates } from '../../../use-templates';
+import { listTemplateHostingTemplates } from '../../../api/template-ai.js';
 
 function TemplateCardPreview({ tpl }) {
   const pages = Array.isArray(tpl?.contentJson?.pages) ? tpl.contentJson.pages : [];
@@ -76,14 +77,29 @@ export function BuilderTemplates({ navigate }) {
   const { templates, loading } = useTemplates();
   const [cat, setCat] = useStateB('All');
   const [previewTpl, setPreviewTpl] = useStateB(null);
+  const [repoTemplates, setRepoTemplates] = useStateB([]);
 
   const htmlTemplates = templates.filter(t => t.contentJson?._source === 'html-template');
-  const cats = ['All', ...Array.from(new Set(htmlTemplates.map(t => t.category)))];
-  const filtered = cat === 'All' ? htmlTemplates : htmlTemplates.filter(t => t.category === cat);
+  useEffect(() => {
+    listTemplateHostingTemplates()
+      .then((result) => setRepoTemplates((result.templates || []).map((tpl) => ({
+        id: tpl.templateId,
+        name: tpl.name,
+        category: tpl.category,
+        tagline: tpl.description || `${tpl.framework || 'Website'} template`,
+        previewImage: tpl.previewImage,
+        contentJson: { _source: 'template-library-repo', pages: [] },
+      }))))
+      .catch(() => setRepoTemplates([]));
+  }, []);
+
+  const displayTemplates = [...repoTemplates, ...htmlTemplates.filter((tpl) => !repoTemplates.some((repoTpl) => repoTpl.id === tpl.id))];
+  const cats = ['All', ...Array.from(new Set(displayTemplates.map(t => t.category).filter(Boolean)))];
+  const filtered = cat === 'All' ? displayTemplates : displayTemplates.filter(t => t.category === cat);
 
   const handleHostTemplate = (t) => {
     setPreviewTpl(null);
-    navigate({ view: 'builder-ai-intake', params: { templateId: t.id, templateType: 'html' } });
+    navigate({ view: 'builder-ai-intake', params: { templateId: t.id, templateType: t.contentJson?._source === 'template-library-repo' ? 'repo-template' : 'html' } });
   };
 
   return (
@@ -134,7 +150,7 @@ export function BuilderTemplates({ navigate }) {
               </div>
             ))}
           </div>
-        ) : htmlTemplates.length === 0 ? (
+        ) : displayTemplates.length === 0 ? (
           <div className="card" style={{ padding: '48px 24px' }}>
             <Empty icon="Layers" title="No real templates yet" body="Real HTML master templates will appear here once they are added to the builder template registry." action={TEMPLATES_REPO ? <a href={TEMPLATES_REPO} target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ICN.Git size={14} /> View template repo</a> : null} />
           </div>
@@ -147,7 +163,7 @@ export function BuilderTemplates({ navigate }) {
                   <div className="row between"><h4>{t.name}</h4><span className="faint" style={{ fontSize: 11 }}>{t.category}</span></div>
                   <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t.tagline}</p>
                   <div className="tag-row">
-                    <span className="ttag" style={{ background: 'var(--accent-soft)', color: 'var(--accent-ink)', border: '1px solid var(--accent)' }}>Real HTML</span>
+                    <span className="ttag" style={{ background: 'var(--accent-soft)', color: 'var(--accent-ink)', border: '1px solid var(--accent)' }}>{t.contentJson?._source === 'template-library-repo' ? 'Repo template' : 'Real HTML'}</span>
                     {Array.isArray(t.contentJson?.pages) && <span className="ttag">{t.contentJson.pages.length} {t.contentJson.pages.length === 1 ? 'page' : 'pages'}</span>}
                     <span className="ttag">AI ready</span>
                   </div>

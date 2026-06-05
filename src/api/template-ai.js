@@ -32,10 +32,18 @@ export async function generateTailoredTemplate(templateId, templateHtml, answers
   });
 }
 
-export async function createSiteFromTailoredTemplate(templateId, answers, tailoredPages) {
+export async function listTemplateHostingTemplates() {
+  return liveApiRequest('/template-ai/templates', { method: 'GET' });
+}
+
+export async function getTemplateHostingTemplate(templateId) {
+  return liveApiRequest(`/template-ai/templates/${encodeURIComponent(templateId)}`, { method: 'GET' });
+}
+
+export async function createSiteFromTailoredTemplate(templateId, answers, tailoredPages, options = {}) {
   return liveApiRequest('/template-ai/sites', {
     method: 'POST',
-    body: { templateId, answers, tailoredPages },
+    body: { templateId, answers, tailoredPages, ...options },
   });
 }
 
@@ -59,6 +67,20 @@ export async function deployTailoredTemplate(siteId, deploymentSettings = {}) {
   return liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/deploy`, {
     method: 'POST',
     body: deploymentSettings,
+  });
+}
+
+export async function prepareTemplateHostingSite(siteId, settings = {}) {
+  return liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/prepare`, {
+    method: 'POST',
+    body: settings,
+  });
+}
+
+export async function aiEditTemplateHostingSite(siteId, settings = {}) {
+  return liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/ai-edit`, {
+    method: 'POST',
+    body: settings,
   });
 }
 

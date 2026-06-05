@@ -530,18 +530,27 @@ class HostingService {
       });
     }
 
-    // Service-level changes (name, plan, region, PR previews)
-    if (incoming.plan || incoming.region || incoming.serviceName) {
+    // Service-level/deploy changes (name, plan, region, auto deploy, health checks)
+    const hasServiceChanges = incoming.plan
+      || incoming.region
+      || incoming.serviceName
+      || incoming.autoDeploy !== undefined
+      || incoming.healthCheckPath !== undefined
+      || incoming.pullRequestPreviewsEnabled !== undefined;
+    if (hasServiceChanges) {
       if (serviceType === 'static_site') {
         renderResponse = await renderApiService.updateStaticSiteSettings(deployment.renderServiceId, {
           serviceName: incoming.serviceName,
           pullRequestPreviewsEnabled: incoming.pullRequestPreviewsEnabled,
+          autoDeploy: incoming.autoDeploy,
         });
       } else {
         renderResponse = await renderApiService.updateWebServiceSettings(deployment.renderServiceId, {
           serviceName: incoming.serviceName,
           plan: incoming.plan,
           region: incoming.region,
+          autoDeploy: incoming.autoDeploy,
+          healthCheckPath: incoming.healthCheckPath,
         });
       }
     }
@@ -607,10 +616,15 @@ class HostingService {
       if (incoming.startCommand !== undefined) ec.startCommand = incoming.startCommand;
       if (incoming.sourceRepository !== undefined) ec.sourceRepository = incoming.sourceRepository;
       if (incoming.repoUrl !== undefined) ec.sourceRepository = incoming.repoUrl;
+      if (incoming.autoDeploy !== undefined) ec.autoDeploy = incoming.autoDeploy;
+      if (incoming.healthCheckPath !== undefined) ec.healthCheckPath = incoming.healthCheckPath;
+      if (incoming.pullRequestPreviewsEnabled !== undefined) ec.pullRequestPreviewsEnabled = incoming.pullRequestPreviewsEnabled;
       stored.environmentConfiguration = ec;
 
       if (incoming.serviceType) stored.serviceType = incoming.serviceType;
       if (incoming.plan) stored.plan = incoming.plan;
+      if (incoming.region) stored.region = incoming.region;
+      if (incoming.serviceName) stored.serviceName = incoming.serviceName;
       if (renderResponse) stored.renderSettings = renderResponse;
       stored.lastRenderSyncedAt = nowIso();
       stored.updatedAt = nowIso();

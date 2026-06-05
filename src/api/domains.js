@@ -67,7 +67,12 @@ export function createDomainActions({
     },
 
     async importZoneFile(domainId, content, overwrite = false) {
-      return { imported: 0, skipped: 0, warnings: ['Zone import is disabled in the Vite-only local build.'] };
+      const result = await apiRequest(`/domains/${domainId}/dns-records/import`, {
+        method: 'POST',
+        body: JSON.stringify({ content, overwrite }),
+      });
+      notifyDataChanged();
+      return result;
     },
 
     async exportZoneFile(domainId) {
@@ -82,11 +87,12 @@ export function createDomainActions({
 
     async checkDomainAvailability(domains) {
       if (registrarRequest) {
-        const result = await registrarRequest('/availability', {
+        const result = await registrarRequest('/available', {
           method: 'POST',
           body: { domains },
         });
-        return (result.domains || []).map((item) => ({
+        const items = Array.isArray(result) ? result : result.domains || [];
+        return items.map((item) => ({
           domain: item.domain,
           available: item.available,
           status: item.status,
@@ -98,9 +104,10 @@ export function createDomainActions({
 
     async registerDomain(input) {
       if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(input.hostname || input.domain || input.name)}/register`, {
+        const hostname = input.hostname || input.domain || input.name;
+        const result = await registrarRequest('/domains', {
           method: 'POST',
-          body: input,
+          body: { ...input, hostname },
         });
         notifyDataChanged();
         return result;
@@ -151,7 +158,7 @@ export function createDomainActions({
 
     async setRegistrarAutoRenew(name, autoRenew) {
       if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/auto-renew`, {
+        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/autorenew`, {
           method: 'PUT',
           body: { autoRenew },
         });
@@ -164,14 +171,7 @@ export function createDomainActions({
 
     async pushDnsToSpaceship(domainId) {
       if (registrarRequest) {
-        const db = readLocalDb();
-        const domain = db.domains.find((item) => item.id === domainId || item.hostname === domainId || item.name === domainId);
-        const hostname = domain?.hostname || domain?.name || domainId;
-        const records = db.dnsRecords[domain?.id || domainId] || [];
-        const result = await registrarRequest(`/dns/${encodeURIComponent(hostname)}/records`, {
-          method: 'PUT',
-          body: { force: true, records },
-        });
+        const result = await registrarRequest(`/domains/${encodeURIComponent(domainId)}/dns/push`, { method: 'POST' });
         notifyDataChanged();
         return result;
       }
@@ -181,10 +181,7 @@ export function createDomainActions({
 
     async pullDnsFromSpaceship(domainId) {
       if (registrarRequest) {
-        const db = readLocalDb();
-        const domain = db.domains.find((item) => item.id === domainId || item.hostname === domainId || item.name === domainId);
-        const hostname = domain?.hostname || domain?.name || domainId;
-        const result = await registrarRequest(`/dns/${encodeURIComponent(hostname)}/records`);
+        const result = await registrarRequest(`/domains/${encodeURIComponent(domainId)}/dns/pull`, { method: 'POST' });
         notifyDataChanged();
         return result;
       }
@@ -194,7 +191,7 @@ export function createDomainActions({
 
     async getRegistrarOperation(operationId) {
       if (registrarRequest) {
-        return registrarRequest(`/async-operations/${encodeURIComponent(operationId)}`);
+        return registrarRequest(`/operations/${encodeURIComponent(operationId)}`);
       }
       return { operationId, status: 'completed' };
     },
@@ -202,7 +199,7 @@ export function createDomainActions({
     async createRegistrarContact(data) {
       if (registrarRequest) {
         return registrarRequest('/contacts', {
-          method: 'PUT',
+          method: 'POST',
           body: data,
         });
       }
@@ -214,6 +211,67 @@ export function createDomainActions({
         return registrarRequest(`/contacts?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`);
       }
       return [];
+    },
+
+    async listRegisteredDomains(skip = 0, take = 100) {
+      if (registrarRequest) {
+        return registrarRequest(`/domains?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`);
+      }
+      return { items: readLocalDb().domains.slice(skip, skip + take), total: readLocalDb().domains.length };
+    },
+
+    async updateDomainNameservers(name, provider, hosts) {
+      if (registrarRequest) {
+        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/nameservers`, {
+          method: 'PUT',
+          body: { provider, hosts: hosts || [] },
+        });
+        notifyDataChanged();
+        return result;
+      }
+      notifyDataChanged();
+      return { domain: name, provider, hosts: hosts || [] };
+    },
+
+    async updateDomainAutoRenew(name, autoRenew) {
+      if (registrarRequest) {
+        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/autorenew`, {
+          method: 'PUT',
+          body: { autoRenew },
+        });
+        notifyDataChanged();
+        return result;
+      }
+      notifyDataChanged();
+      return { domain: name, autoRenew };
+    },
+
+    async listDnsRecords(domainId) {
+      const records = await apiRequest(`/domains/${domainId}/dns-records`);
+      return Array.isArray(records) ? records.map(mapApiDnsRecord) : [];
+    },
+
+    async saveDnsRecords(domainId, records, overwrite = true) {
+      if (overwrite) {
+        const existing = await apiRequest(`/domains/${domainId}/dns-records`);
+        if (existing.length) {
+          await apiRequest(`/domains/${domainId}/dns-records`, {
+            method: 'DELETE',
+            body: JSON.stringify({ recordIds: existing.map((record) => record.id) }),
+          });
+        }
+      }
+
+      const saved = [];
+      for (const record of records) {
+        const created = await apiRequest(`/domains/${domainId}/dns-records`, {
+          method: 'POST',
+          body: JSON.stringify(record),
+        });
+        saved.push(mapApiDnsRecord(created));
+      }
+      notifyDataChanged();
+      return { saved: saved.length, records: saved };
     },
   };
 }
