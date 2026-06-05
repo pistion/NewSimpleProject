@@ -240,15 +240,18 @@ export default function SignupPage({ navigate }) {
           {/* Social sign-up */}
           {SOCIAL_PROVIDERS.map(p => {
             const url = socialAuthUrl(p.id);
+            const icon = <i className={p.faClass} style={{ fontSize: '15px', width: '18px', textAlign: 'center' }} />;
             if (url) {
               return (
                 <a key={p.id} href={url} style={S.socialBtn(true)}>
+                  {icon}
                   {p.label}
                 </a>
               );
             }
             return (
               <button key={p.id} style={S.socialBtn(false)} disabled>
+                {icon}
                 {p.label}
                 <span style={{ position: 'absolute', right: 12, fontSize: 9, color: '#4A5550', letterSpacing: '0.1em', textTransform: 'uppercase' }}>coming soon</span>
               </button>

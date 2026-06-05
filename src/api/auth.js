@@ -122,8 +122,8 @@ export function socialAuthUrl(provider) {
 }
 
 export const SOCIAL_PROVIDERS = [
-  { id: 'google', label: 'Continue with Google', icon: 'Google' },
-  { id: 'github', label: 'Continue with GitHub', icon: 'Github' },
+  { id: 'google', label: 'Continue with Google', faClass: 'fa-brands fa-google' },
+  { id: 'github', label: 'Continue with GitHub', faClass: 'fa-brands fa-github' },
 ];
 
 // ─── Auth header helper (used by API clients) ─────────────────────────────────
