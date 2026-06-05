@@ -58,7 +58,7 @@ function hashToken(raw) {
   return createHash('sha256').update(String(raw)).digest('hex');
 }
 
-async function issueRefreshToken(userId) {
+export async function issueRefreshToken(userId) {
   const raw = randomBytes(48).toString('base64url');
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
   await prisma.refreshToken.create({

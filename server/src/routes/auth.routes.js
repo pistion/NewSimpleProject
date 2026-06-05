@@ -3,6 +3,7 @@ import multer from 'multer';
 import { mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import AuthController from '../controllers/auth.controller.js';
+import GitHubOAuthController from '../controllers/githubOAuth.controller.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 import { ID_PHOTOS_ROOT, USER_AVATARS_ROOT } from '../services/adminReceiptService.js';
 
@@ -72,6 +73,10 @@ const avatarUpload = multer({
     return cb(err);
   },
 });
+
+// GitHub OAuth sign-in
+router.get('/github',          GitHubOAuthController.redirect);
+router.get('/github/callback', GitHubOAuthController.callback);
 
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);

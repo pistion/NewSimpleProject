@@ -30,7 +30,7 @@ import BillingPage from './features/billing/BillingPage.jsx';
 import ProfilePage from './features/profile/ProfilePage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
-import { isAuthenticated, clearAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
+import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
 import { isViewComingSoon } from './app/features.js';
 import LoginPage from './features/auth/LoginPage.jsx';
 import SignupPage from './features/auth/SignupPage.jsx';
@@ -127,17 +127,43 @@ export default function App() {
   useEffectApp(() => { applyAccent(t.accent); }, [t.accent]);
   useEffectApp(() => { applyFontPair(t.fontPair); }, [t.fontPair]);
 
-  // GitHub OAuth callback — clear query params and show banner.
+  // GitHub OAuth callback — handle both repo-connect and sign-in flows.
   useEffectApp(() => {
     const params = new URLSearchParams(window.location.search);
+    const clean = new URL(window.location.href);
+    clean.search = '';
+
+    // Sign-in via GitHub OAuth
+    if (params.get('github_auth') === '1') {
+      const accessToken  = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      const ghLogin      = params.get('github_login') || '';
+      let   user         = null;
+      try { user = JSON.parse(params.get('user') || 'null'); } catch {}
+      window.history.replaceState({}, '', clean.toString());
+      if (accessToken) {
+        storeAuthSession({ tokens: { accessToken, refreshToken }, user });
+        setGithubBanner(ghLogin ? `Signed in with GitHub as @${ghLogin}` : 'Signed in with GitHub');
+        setRoute({ view: 'overview' });
+        const t = setTimeout(() => setGithubBanner(null), 5000);
+        return () => clearTimeout(t);
+      }
+    }
+
+    // Auth error from GitHub
+    if (params.get('auth_error')) {
+      const msg = params.get('auth_error') || 'GitHub sign-in failed.';
+      window.history.replaceState({}, '', clean.toString());
+      setGithubBanner(`Sign-in failed: ${msg}`);
+      const t = setTimeout(() => setGithubBanner(null), 7000);
+      return () => clearTimeout(t);
+    }
+
+    // Repo-connect callback (existing behaviour)
     if (params.get('github_connected') === '1') {
       const login = params.get('login') || '';
       setGithubBanner(login ? `GitHub connected as @${login}.` : 'GitHub connected successfully.');
-      // Clear query params without reload
-      const clean = new URL(window.location.href);
-      clean.search = '';
       window.history.replaceState({}, '', clean.toString());
-      // Land on hosting so the user can start importing
       setRoute({ view: 'hosting-list' });
       notifyDataChanged();
       const t = setTimeout(() => setGithubBanner(null), 6000);

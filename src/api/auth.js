@@ -112,17 +112,18 @@ export async function getMe() {
   return envelope?.data ?? envelope;
 }
 
-// ─── Social auth placeholders ─────────────────────────────────────────────────
+// ─── Social auth ──────────────────────────────────────────────────────────────
 
 export function socialAuthUrl(provider) {
-  // Placeholder — SDKs not installed yet. Backend routes will be wired when
-  // GITHUB_CLIENT_ID / GOOGLE_CLIENT_ID are configured.
+  if (provider === 'github') {
+    const base = liveApiBase();
+    return `${base}/v1/auth/github`;
+  }
   return null;
 }
 
 export const SOCIAL_PROVIDERS = [
-  { id: 'google', label: 'Continue with Google',  icon: 'Google'  },
-  { id: 'github', label: 'Continue with GitHub',  icon: 'Github'  },
+  { id: 'github', label: 'Continue with GitHub', icon: 'Github' },
 ];
 
 // ─── Auth header helper (used by API clients) ─────────────────────────────────

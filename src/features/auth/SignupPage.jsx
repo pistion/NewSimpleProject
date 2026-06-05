@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { register, SOCIAL_PROVIDERS } from '../../api/auth.js'
+import { register, SOCIAL_PROVIDERS, socialAuthUrl } from '../../api/auth.js'
 
 const S = {
   page: {
@@ -116,31 +116,25 @@ const S = {
     transition: 'background 0.15s',
     opacity: disabled ? 0.6 : 1,
   }),
-  socialBtn: {
+  socialBtn: (active) => ({
     width: '100%',
     background: 'transparent',
     border: '1px solid #1E2A20',
-    color: '#8A9388',
+    color: active ? '#E8E8DC' : '#8A9388',
     fontFamily: "'JetBrains Mono', 'SF Mono', ui-monospace, monospace",
     fontSize: '12px',
     padding: '10px 16px',
-    cursor: 'not-allowed',
+    cursor: active ? 'pointer' : 'not-allowed',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
     marginBottom: '8px',
-    opacity: 0.5,
+    opacity: active ? 1 : 0.5,
     position: 'relative',
-  },
-  comingSoon: {
-    position: 'absolute',
-    right: '12px',
-    fontSize: '9px',
-    color: '#4A5550',
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
-  },
+    textDecoration: 'none',
+    transition: 'border-color 0.15s, color 0.15s',
+  }),
   divider: {
     display: 'flex',
     alignItems: 'center',
@@ -243,13 +237,23 @@ export default function SignupPage({ navigate }) {
           <h1 style={S.h1}>Create Account</h1>
           <p style={S.sub}>Set up your workspace for hosting, domains, analytics, and more.</p>
 
-          {/* Social sign-up placeholders */}
-          {SOCIAL_PROVIDERS.map(p => (
-            <button key={p.id} style={S.socialBtn} disabled title="Coming soon">
-              {p.label}
-              <span style={S.comingSoon}>coming soon</span>
-            </button>
-          ))}
+          {/* Social sign-up */}
+          {SOCIAL_PROVIDERS.map(p => {
+            const url = socialAuthUrl(p.id);
+            if (url) {
+              return (
+                <a key={p.id} href={url} style={S.socialBtn(true)}>
+                  {p.label}
+                </a>
+              );
+            }
+            return (
+              <button key={p.id} style={S.socialBtn(false)} disabled>
+                {p.label}
+                <span style={{ position: 'absolute', right: 12, fontSize: 9, color: '#4A5550', letterSpacing: '0.1em', textTransform: 'uppercase' }}>coming soon</span>
+              </button>
+            );
+          })}
 
           <div style={S.divider}>
             <span style={S.dividerLine} />
