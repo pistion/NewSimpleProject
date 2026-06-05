@@ -267,7 +267,7 @@ export function AdminPage() {
                     onClick={() => act(d.deploymentId, () => suspendDeployment(d.deploymentId, 'admin_suspended'), 'Suspend deployment', () => patchDeployment(d.deploymentId, { status: 'suspended' }))}>Suspend</button>
                 )}{' '}
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
-                  onClick={() => { if (window.confirm('Delete this deployment from Render and remove it from this admin list?')) act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment', () => removeDeployment(d.deploymentId)); }}>Delete</button>
+                  onClick={() => { if (window.confirm('Delete this deployment and remove it from the admin list?')) act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment', () => removeDeployment(d.deploymentId)); }}>Delete</button>
                 <div style={{ marginTop: 6 }}>
                   <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Hosting plan:</span>
                   {['free', 'starter', 'standard'].map((p) => (

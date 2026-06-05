@@ -109,7 +109,7 @@ export function createLocalDbRuntime({ makeSession, ttlToSeconds }) {
     if (renderVerifyUrlMatch) {
       const deployment = db.deployments.find((item) => item.id === renderVerifyUrlMatch[1] || item.deploymentId === renderVerifyUrlMatch[1]);
       if (!deployment) throw new Error('Deployment not found.');
-      deployment.liveUrl ||= `https://${slugify(deployment.serviceName)}.onrender.com`;
+      deployment.liveUrl ||= `https://${slugify(deployment.serviceName)}.glondiasites.com`;
       deployment.verifiedUrl = deployment.liveUrl;
       deployment.urlReachable = true;
       deployment.status = 'live';
@@ -350,7 +350,7 @@ function makeRenderDeployment(body = {}) {
     renderServiceId: createId('render_svc'),
     renderDeployId: createId('render_deploy'),
     deploymentSessionId: createId('session'),
-    liveUrl: `https://${serviceName}.onrender.com`,
+    liveUrl: `https://${serviceName}.glondiasites.com`,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

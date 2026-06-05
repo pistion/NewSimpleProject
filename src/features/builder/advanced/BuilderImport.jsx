@@ -276,7 +276,7 @@ function PricingTierSelector({ pricing, value, onChange }) {
               }}
             >
               <div style={{ fontWeight: 700, fontSize: 16 }}>{t.displayAmount} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{t.label}</span></div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to the <b>{t.renderPlanAfterPayment}</b> hosting plan after payment{disabled ? ' · sold out' : ''}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to the <b>{t.renderPlanAfterPayment}</b> Glondia hosting plan after payment{disabled ? ' · sold out' : ''}</div>
             </button>
           );
         })}
