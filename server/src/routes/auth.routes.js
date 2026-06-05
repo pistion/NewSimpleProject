@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import AuthController from '../controllers/auth.controller.js';
 import GitHubOAuthController from '../controllers/githubOAuth.controller.js';
+import GoogleOAuthController from '../controllers/googleOAuth.controller.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 import { ID_PHOTOS_ROOT, USER_AVATARS_ROOT } from '../services/adminReceiptService.js';
 
@@ -77,6 +78,10 @@ const avatarUpload = multer({
 // GitHub OAuth sign-in
 router.get('/github',          GitHubOAuthController.redirect);
 router.get('/github/callback', GitHubOAuthController.callback);
+
+// Google OAuth sign-in
+router.get('/google',          GoogleOAuthController.redirect);
+router.get('/google/callback', GoogleOAuthController.callback);
 
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);

@@ -115,14 +115,14 @@ export async function getMe() {
 // ─── Social auth ──────────────────────────────────────────────────────────────
 
 export function socialAuthUrl(provider) {
-  if (provider === 'github') {
-    const base = liveApiBase();
-    return `${base}/v1/auth/github`;
-  }
+  const base = liveApiBase();
+  if (provider === 'github') return `${base}/v1/auth/github`;
+  if (provider === 'google') return `${base}/v1/auth/google`;
   return null;
 }
 
 export const SOCIAL_PROVIDERS = [
+  { id: 'google', label: 'Continue with Google', icon: 'Google' },
   { id: 'github', label: 'Continue with GitHub', icon: 'Github' },
 ];
 

@@ -150,6 +150,22 @@ export default function App() {
       }
     }
 
+    // Sign-in via Google OAuth
+    if (params.get('google_auth') === '1') {
+      const accessToken  = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      let   user         = null;
+      try { user = JSON.parse(params.get('user') || 'null'); } catch {}
+      window.history.replaceState({}, '', clean.toString());
+      if (accessToken) {
+        storeAuthSession({ tokens: { accessToken, refreshToken }, user });
+        setGithubBanner(`Signed in with Google${user?.name ? ` as ${user.name}` : ''}`);
+        setRoute({ view: 'overview' });
+        const t = setTimeout(() => setGithubBanner(null), 5000);
+        return () => clearTimeout(t);
+      }
+    }
+
     // Auth error from GitHub
     if (params.get('auth_error')) {
       const msg = params.get('auth_error') || 'GitHub sign-in failed.';
