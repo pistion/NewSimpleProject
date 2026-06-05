@@ -211,21 +211,36 @@ function ImportProgressPreview({ phase, repo, branch, error, showLoader, isImpor
         <div className="import-loader-copy">
           <div className="eyebrow">Preparation pipeline</div>
           <h2>{title}</h2>
-          <div className="muted">
-            {zipFile ? <span className="mono">{formatFileSize(zipFile.size)} ZIP package selected</span> : repo ? <span className="mono">{repo.url} - {branch}</span> : activeLabel}
+          <div className="muted" style={{ fontSize: 13 }}>
+            {zipFile
+              ? <span className="mono">{formatFileSize(zipFile.size)} ZIP selected</span>
+              : repo
+              ? <span className="mono">{repo.owner}/{repo.repo} · {branch}</span>
+              : <span>Add a GitHub repo or ZIP file to begin.</span>}
           </div>
         </div>
+
         {showLoader ? (
-          <div className="loader" aria-live="polite" aria-label={activeLabel}>{Array.from({ length: 9 }).map((_, index) => <div className="text" key={index}><span>{loaderText}</span></div>)}<div className="line" /></div>
+          <div className="loader" aria-live="polite" aria-label={activeLabel}>
+            {Array.from({ length: 9 }).map((_, index) => <div className="text" key={index}><span>{loaderText}</span></div>)}
+            <div className="line" />
+          </div>
         ) : (
-          <div className="import-loader-standby">{zipFile ? <ICN.Box size={18} /> : <ICN.Git size={18} />}<span>{zipFile ? 'ZIP ready for handoff' : repo ? 'Repository detected' : 'Waiting for project'}</span></div>
+          <div className="import-loader-standby">
+            {zipFile ? <ICN.Box size={18} /> : <ICN.Git size={18} />}
+            <span>{zipFile ? 'ZIP ready for handoff' : repo ? 'Repository detected' : 'Waiting for project'}</span>
+          </div>
         )}
-        <div className="term import-loader-term">
-          <div><span className="ts">now</span> <span className={error ? 'err' : 'info'}>{error || activeLabel}</span></div>
-          {repo && <div><span className="ts">repo</span> <span className="dim">{repo.owner}/{repo.repo}</span></div>}
-          {zipFile && <div><span className="ts">zip</span> <span className="ok">Selected: {zipFile.name} ({formatFileSize(zipFile.size)})</span></div>}
-          <div><span className="ts">next</span> <span className="ok">Hosting detail opens after the handoff record is created</span></div>
-        </div>
+
+        {/* Only show terminal block when there is something meaningful to display */}
+        {(error || isImporting || repo || zipFile) && (
+          <div className="term import-loader-term">
+            <div><span className="ts">now</span> <span className={error ? 'err' : 'info'}>{error || activeLabel}</span></div>
+            {repo && <div><span className="ts">repo</span> <span className="dim">{repo.owner}/{repo.repo}</span></div>}
+            {zipFile && <div><span className="ts">zip</span> <span className="ok">{zipFile.name} ({formatFileSize(zipFile.size)})</span></div>}
+            {(isImporting || phase === 'complete') && <div><span className="ts">next</span> <span className="ok">Hosting detail opens after handoff is created</span></div>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -645,22 +660,29 @@ export function BuilderImport({ mode = 'github', navigate }) {
             </>)}
           </>)}
 
-          {/* Handoff Doctor */}
-          <div style={{ marginTop: 14 }}>
+          {/* Handoff Doctor + Summary — compact stack */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
             <HandoffReadinessCard config={flatConfig} context={doctorContext} onApplyFix={applyDeployFix} />
-          </div>
-
-          {/* Deployment Preview */}
-          <div style={{ marginTop: 10 }}>
             <HandoffSummaryCard config={flatConfig} />
           </div>
 
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button className="btn btn-outline" disabled style={{ fontSize: 12 }}>Save Draft (coming soon)</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
             {activeMode === 'zip'
-              ? <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleZipDeploy} disabled={zipBusy || !zipFile}><ICN.Rocket size={14} /> {zipBusy ? 'Handing off...' : zipFile ? 'Send ZIP to Hosting' : 'Choose ZIP first'}</button>
-              : <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo}><ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening' : gitBusy ? 'Importing' : 'Import source'}</button>}
+              ? <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleZipDeploy} disabled={zipBusy || !zipFile}>
+                  <ICN.Rocket size={14} /> {zipBusy ? 'Handing off…' : zipFile ? 'Send to Hosting' : 'Choose ZIP first'}
+                </button>
+              : <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleGitConnect} disabled={gitBusy || importPhase === 'complete' || !detectedRepo}>
+                  <ICN.Git size={14} /> {importPhase === 'complete' ? 'Opening…' : gitBusy ? 'Importing…' : 'Import source'}
+                </button>}
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ fontSize: 12, flexShrink: 0 }}
+              onClick={() => navigate({ view: 'hosting-list' })}
+            >
+              View Hosting →
+            </button>
           </div>
         </div>
       </div><div className="bld-preview"><ImportProgressPreview phase={importPhase} repo={detectedRepo} branch={repoBranch || 'main'} error={activeError} showLoader={importStarted} isImporting={isImporting} zipFile={activeMode === 'zip' ? zipFile : null} /></div></div></div>

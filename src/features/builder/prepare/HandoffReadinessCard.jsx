@@ -47,33 +47,69 @@ function getReadinessScore(checks = []) {
   return Math.round((score / max) * 100);
 }
 
+const ICON = {
+  ok:   { symbol: '✓', color: 'var(--accent)' },
+  error:{ symbol: '✕', color: 'var(--danger)' },
+  warn: { symbol: '⚠', color: 'var(--warning)' },
+  info: { symbol: 'i', color: 'var(--text-muted)' },
+};
+
 export function HandoffReadinessCard({ config, context, onApplyFix }) {
   const checks = getHandoffReadinessChecks(config, context);
-  const errors = checks.filter((c) => c.status === 'error').length;
+  const errors   = checks.filter((c) => c.status === 'error').length;
   const warnings = checks.filter((c) => c.status === 'warn').length;
-  const score = getReadinessScore(checks);
+  const score    = getReadinessScore(checks);
+
+  const statusTone  = errors ? 'danger' : warnings ? 'warn' : 'success';
+  const statusLabel = errors
+    ? `${errors} issue${errors > 1 ? 's' : ''}`
+    : warnings
+    ? `${warnings} warning${warnings > 1 ? 's' : ''}`
+    : 'Ready';
 
   return (
-    <div className="card" style={{ padding: 14, background: 'var(--bg-deep)' }}>
-      <div className="row between">
-        <div><div className="eyebrow">Handoff Doctor</div><h3 style={{ margin: '4px 0 0' }}>Handoff readiness</h3></div>
-        <div className="row" style={{ gap: 8 }}>
-          <Badge tone={errors ? 'danger' : warnings ? 'warn' : 'success'} dot={false}>{errors ? `${errors} issue${errors > 1 ? 's' : ''}` : warnings ? `${warnings} warning${warnings > 1 ? 's' : ''}` : 'Ready'}</Badge>
-          <Badge tone={score >= 100 ? 'success' : score >= 70 ? 'warn' : 'danger'} dot={false}>{score}%</Badge>
+    <div className="card" style={{ padding: '10px 12px', background: 'var(--bg-deep)' }}>
+
+      {/* Header row — compact */}
+      <div className="row between" style={{ marginBottom: 8 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <span className="eyebrow" style={{ margin: 0 }}>Handoff Doctor</span>
+          <Badge tone={statusTone} dot={false}>{statusLabel}</Badge>
         </div>
+        <Badge tone={score >= 100 ? 'success' : score >= 70 ? 'warn' : 'danger'} dot={false}>{score}%</Badge>
       </div>
-      <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
-        {checks.map((check, i) => (
-          <div key={i} className="row between" style={{ gap: 8 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <span style={{ color: check.status === 'ok' ? 'var(--accent)' : check.status === 'error' ? 'var(--danger)' : check.status === 'warn' ? 'var(--warning)' : 'var(--text-muted)' }}>
-                {check.status === 'ok' ? 'OK' : check.status === 'error' ? '!' : check.status === 'warn' ? 'Warn' : 'Info'}
-              </span>
-              <span className="muted" style={{ fontSize: 13 }}>{check.label}</span>
+
+      {/* Check rows */}
+      <div style={{ display: 'grid', gap: 4 }}>
+        {checks.map((check, i) => {
+          const ic = ICON[check.status] || ICON.info;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span style={{
+                  color: ic.color,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  width: 14,
+                  textAlign: 'center',
+                  flexShrink: 0,
+                }}>
+                  {ic.symbol}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.35 }}>{check.label}</span>
+              </div>
+              {check.fix && (
+                <button
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 11, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                  onClick={() => onApplyFix?.(check.fix.patch)}
+                >
+                  {check.fix.label}
+                </button>
+              )}
             </div>
-            {check.fix && <button className="btn btn-sm btn-outline" onClick={() => onApplyFix?.(check.fix.patch)}>{check.fix.label}</button>}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
