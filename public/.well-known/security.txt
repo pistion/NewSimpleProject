@@ -1,0 +1,8 @@
+Contact: mailto:security@glondiasites.com
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://glondiasites.com/.well-known/security.txt
+
+# AI Training Policy
+# This site does not permit scraping or crawling for AI/ML training purposes.
+# All rights reserved. Unauthorized data collection is prohibited.
