@@ -119,14 +119,45 @@ export default function DashboardTopbar() {
               </div>
 
               <div className="dropdown">
-                <button className="btn btn-outline-secondary d-flex align-items-center gap-2" data-bs-toggle="dropdown" type="button">
-                  <UserCircle2 size={18} />
-                  <span className="d-none d-md-inline">Account</span>
+                <button
+                  className="btn topbar-account-btn d-flex align-items-center gap-2"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                  type="button"
+                >
+                  <div className="topbar-account-avatar">
+                    <UserCircle2 size={20} />
+                  </div>
+                  <div className="topbar-account-info d-none d-md-flex flex-column align-items-start">
+                    <span className="topbar-account-name">My Account</span>
+                    <span className="topbar-account-role">Admin</span>
+                  </div>
                 </button>
-                <ul className="dropdown-menu dropdown-menu-end shadow-sm">
-                  <li><Link className="dropdown-item" to="/dashboard/account">Profile</Link></li>
-                  <li><Link className="dropdown-item" to="/dashboard/settings">Settings</Link></li>
-                </ul>
+                <div className="dropdown-menu dropdown-menu-end topbar-account-menu shadow">
+                  <div className="topbar-account-menu-header">
+                    <div className="topbar-account-menu-avatar">
+                      <UserCircle2 size={36} />
+                    </div>
+                    <div>
+                      <div className="topbar-account-menu-name">My Account</div>
+                      <div className="topbar-account-menu-email">admin@glondia.com</div>
+                    </div>
+                  </div>
+                  <div className="dropdown-divider my-0" />
+                  <Link className="dropdown-item topbar-account-menu-item" to="/dashboard/account">
+                    Profile &amp; Details
+                  </Link>
+                  <Link className="dropdown-item topbar-account-menu-item" to="/dashboard/settings">
+                    Settings
+                  </Link>
+                  <Link className="dropdown-item topbar-account-menu-item" to="/dashboard/billing">
+                    Billing
+                  </Link>
+                  <div className="dropdown-divider my-0" />
+                  <Link className="dropdown-item topbar-account-menu-item topbar-account-menu-signout" to="/logout">
+                    Sign out
+                  </Link>
+                </div>
               </div>
             </div>
           </div>

@@ -74,6 +74,107 @@
   min-width: 22rem;
 }
 
+/* ── Topbar account button ── */
+.topbar-account-btn {
+  background: #1e2330;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.45rem 0.85rem;
+  transition: background 0.2s ease;
+}
+
+.topbar-account-btn:hover,
+.topbar-account-btn:focus,
+.topbar-account-btn:active,
+.topbar-account-btn.show {
+  background: #2c3347 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.topbar-account-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.topbar-account-info {
+  line-height: 1.2;
+}
+
+.topbar-account-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.topbar-account-role {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Account dropdown menu (extended card) ── */
+.topbar-account-menu {
+  min-width: 240px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 0;
+  margin-top: 6px;
+}
+
+.topbar-account-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  background: #1e2330;
+  color: #ffffff;
+}
+
+.topbar-account-menu-avatar {
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.topbar-account-menu-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.topbar-account-menu-email {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.topbar-account-menu-item {
+  padding: 0.7rem 1.1rem;
+  font-size: 0.875rem;
+  color: #1e2330;
+  transition: background 0.15s ease;
+}
+
+.topbar-account-menu-item:hover {
+  background: #f4f5f8;
+  color: #1e2330;
+}
+
+.topbar-account-menu-signout {
+  color: #dc3545;
+}
+
+.topbar-account-menu-signout:hover {
+  background: #fff5f5;
+  color: #dc3545;
+}
+
 .message-layout {
   min-height: 38rem;
   overflow: hidden;
