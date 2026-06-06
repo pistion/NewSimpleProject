@@ -66,7 +66,7 @@ router.get('/users', async (req, res, next) => {
 });
 
 router.get('/deployments', async (req, res, next) => {
-  try { res.json({ data: await adminService.listDeployments(req.user.id), requestId: req.id }); } catch (e) { next(e); }
+  try { res.json({ data: await adminService.listDeployments(null), requestId: req.id }); } catch (e) { next(e); }
 });
 
 router.get('/orders', async (req, res, next) => {

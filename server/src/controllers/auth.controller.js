@@ -21,8 +21,8 @@ import { streamUserIdPhoto, streamUserAvatar } from '../services/adminReceiptSer
 const AuthController = {
   register: async (req, res, next) => {
     try {
-      const { email, password, name } = req.body || {};
-      const session = await registerUser({ email, password, name });
+      const { email, password, name, organizationName } = req.body || {};
+      const session = await registerUser({ email, password, name, organizationName });
       res.created(session);
     } catch (error) {
       next(error);

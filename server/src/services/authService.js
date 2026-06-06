@@ -91,10 +91,12 @@ async function rotateRefreshToken(rawToken) {
 const OWN_AVATAR_URL = '/api/v1/auth/profile/avatar';
 
 function toPublicUser(user) {
+  const details = safeJson(user.profileDetails);
   return {
     id: user.id,
     email: user.email,
     name: user.name,
+    organizationName: details.organizationName || null,
     role: user.role,
     planId: user.planId,
     phone: user.phone || null,
@@ -116,7 +118,7 @@ async function buildSession(user) {
 
 // ─── Public operations ──────────────────────────────────────────────────────────
 
-export async function registerUser({ email, password, name }) {
+export async function registerUser({ email, password, name, organizationName }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) {
     throw httpError('A valid email address is required.', 400);
@@ -137,11 +139,13 @@ export async function registerUser({ email, password, name }) {
     const priorCount = await tx.user.count();
     const signupRank = priorCount + 1;
     const promoEligible = signupRank <= PROMO_SIGNUP_LIMIT;
+    const orgName = String(organizationName || '').trim() || null;
     return tx.user.create({
       data: {
         email: normalizedEmail,
         passwordHash,
         name: String(name || '').trim() || null,
+        profileDetails: JSON.stringify({ organizationName: orgName }),
         promoSignupRank: signupRank,
         promoEligible,
       },
@@ -195,15 +199,17 @@ function safeJson(text) {
 
 /** Profile shape returned to the account owner — never exposes the raw idPhotoPath. */
 function toProfile(user) {
+  const details = safeJson(user.profileDetails);
   return {
     id: user.id,
     email: user.email,
     name: user.name || null,
+    organizationName: details.organizationName || null,
     phone: user.phone || null,
     role: user.role,
     planId: user.planId,
     accountStatus: user.accountStatus || 'active',
-    profileDetails: safeJson(user.profileDetails),
+    profileDetails: details,
     hasAvatar: Boolean(user.avatarPath),
     avatarUrl: user.avatarPath ? OWN_AVATAR_URL : null,
     hasIdPhoto: Boolean(user.idPhotoPath),
