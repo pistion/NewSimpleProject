@@ -22,6 +22,8 @@ export const approveDeploymentBilling = (deploymentId) => liveApiRequest(`/admin
 export const renewDeploymentManually = (deploymentId) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/renew-manually`, { method: 'POST' });
 export const setDeploymentRenderPlan = (deploymentId, plan, redeploy = false) => liveApiRequest(`/admin/deployments/${encodeURIComponent(deploymentId)}/render-plan`, { method: 'POST', body: { plan, redeploy } });
 
+export const deleteOrder = (orderId) => liveApiRequest(`/admin/orders/${encodeURIComponent(orderId)}/delete`, { method: 'POST' });
+
 // ── User detail + account lifecycle ──────────────────────────────────────────
 export const getAdminUser   = (userId)          => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}`);
 export const updateAdminUser = (userId, patch)  => liveApiRequest(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: patch });

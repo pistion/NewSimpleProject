@@ -780,6 +780,24 @@ export async function setDeploymentRenderPlan(deploymentId, plan, { redeploy = f
   return { deploymentId, renderPlan: normalizedPlan, render: renderResult, redeployed };
 }
 
+export async function deleteOrder(orderId, adminUserId) {
+  const order = await prisma.checkoutOrder.findUnique({ where: { id: orderId } });
+  if (!order) throw httpError('Order not found.', 404);
+
+  // Hard-delete — cascades to linked PaymentReceipt rows (onDelete: Cascade).
+  await prisma.checkoutOrder.delete({ where: { id: orderId } });
+
+  await writeAuditLog({
+    actorUserId: adminUserId,
+    action: 'admin.order.deleted',
+    entityType: 'checkout_order',
+    entityId: orderId,
+    result: { status: order.status, deploymentId: order.deploymentId || null },
+  });
+
+  return { orderId, deleted: true };
+}
+
 export default {
   getOverview,
   listUsers,
@@ -802,4 +820,5 @@ export default {
   reactivateDeployment,
   approveDeploymentBilling,
   setDeploymentRenderPlan,
+  deleteOrder,
 };

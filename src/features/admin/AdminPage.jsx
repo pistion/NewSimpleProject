@@ -26,6 +26,7 @@ import {
   downloadReceipt,
   getUserIdPhotoUrl,
   getUserAvatarUrl,
+  deleteOrder,
 } from '../../api/admin.js';
 
 const { useState, useEffect, useCallback } = React;
@@ -102,6 +103,10 @@ export function AdminPage() {
 
   const removeDeployment = React.useCallback((deploymentId) => {
     setDeployments((rows) => rows.filter((row) => row.deploymentId !== deploymentId));
+  }, []);
+
+  const removeOrder = React.useCallback((orderId) => {
+    setOrders((rows) => rows.filter((row) => row.id !== orderId));
   }, []);
 
   const patchUser = React.useCallback((userId, patch) => {
@@ -267,7 +272,11 @@ export function AdminPage() {
                     onClick={() => act(d.deploymentId, () => suspendDeployment(d.deploymentId, 'admin_suspended'), 'Suspend deployment', () => patchDeployment(d.deploymentId, { status: 'suspended' }))}>Suspend</button>
                 )}{' '}
                 <button className="btn btn-sm btn-outline" disabled={busyId === d.deploymentId}
-                  onClick={() => { if (window.confirm('Delete this deployment and remove it from the admin list?')) act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment', () => removeDeployment(d.deploymentId)); }}>Delete</button>
+                  style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                  title="Delete deployment"
+                  onClick={() => { if (window.confirm('Delete this deployment and remove it from the admin list?')) act(d.deploymentId, () => deleteDeployment(d.deploymentId), 'Delete deployment', () => removeDeployment(d.deploymentId)); }}>
+                  <ICN.Trash2 size={13} /> Delete
+                </button>
                 <div style={{ marginTop: 6 }}>
                   <span className="muted" style={{ fontSize: 11, marginRight: 4 }}>Hosting plan:</span>
                   {['free', 'starter', 'standard'].map((p) => (
@@ -284,7 +293,7 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'orders' && (
-        <Table cols={['Created', 'Order', 'User', 'Deployment', 'Amount', 'Status', 'Paid at']}>
+        <Table cols={['Created', 'Order', 'User', 'Deployment', 'Amount', 'Status', 'Paid at', 'Actions']}>
           {orders.map((o) => (
             <tr key={o.id}>
               <td>{when(o.createdAt)}</td>
@@ -294,6 +303,20 @@ export function AdminPage() {
               <td>{money(o.totalAmountCents, o.currency)}</td>
               <td><StatusPill value={o.status} /></td>
               <td style={{ fontSize: 12 }}>{when(o.paidAt)}</td>
+              <td>
+                <button
+                  className="btn btn-sm btn-outline"
+                  style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                  title="Delete order"
+                  disabled={busyId === o.id}
+                  onClick={() => {
+                    if (window.confirm(`Delete order ${o.id.slice(0, 8)}? This also deletes linked receipts and cannot be undone.`))
+                      act(o.id, () => deleteOrder(o.id), 'Delete order', () => removeOrder(o.id));
+                  }}
+                >
+                  <ICN.Trash2 size={13} /> Delete
+                </button>
+              </td>
             </tr>
           ))}
         </Table>
