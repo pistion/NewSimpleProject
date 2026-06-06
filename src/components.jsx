@@ -469,25 +469,33 @@ function AuthMenu({ navigate }) {
       {open && (
         <div className="card auth-menu-panel">
           {signedIn ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <button
-                type="button"
-                onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}
-                title="View and edit your account details"
-                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-              >
-                <div className="label">Signed in — view profile</div>
-                <div style={{ fontWeight: 600 }}>{displayName}</div>
-                <div className="faint" style={{ fontSize: 12 }}>{auth.user?.email}</div>
-              </button>
-              <button className="btn btn-outline" onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
-                <ICN.Briefcase size={16} />
-                <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
-                  <span>Account details</span>
-                  <span className="faint" style={{ fontSize: 11 }}>Business profile and contact details</span>
-                </span>
-              </button>
-              <button className="btn btn-outline" onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}>Sign out</button>
+            <div>
+              <div className="auth-user-block">
+                <span className="auth-user-label">Signed in</span>
+                <span className="auth-user-name">{displayName}</span>
+                <span className="auth-user-email">{auth.user?.email}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="auth-panel-btn"
+                  onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}
+                  title="View and edit your account details"
+                >
+                  <ICN.Briefcase size={18} />
+                  <span className="auth-panel-btn-inner">
+                    <span className="auth-panel-btn-label">Account details</span>
+                    <span className="auth-panel-btn-sub">Business profile and contact details</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="auth-panel-signout"
+                  onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           ) : (
             <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
