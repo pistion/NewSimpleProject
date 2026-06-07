@@ -58,7 +58,7 @@ function TemplatePreviewModal({ template, onClose, onHost }) {
         )}
         <div style={{ flex: 1 }} />
         <button className="btn btn-primary" onClick={() => onHost(template)}>
-          <ICN.Sparkles size={14} /> Use AI to customize
+          <ICN.Sparkles size={14} /> Plan with this template
         </button>
       </div>
       <div className="tpl-preview-modal-body" onClick={(e) => e.stopPropagation()}>
@@ -99,7 +99,7 @@ export function BuilderTemplates({ navigate }) {
 
   const handleHostTemplate = (t) => {
     setPreviewTpl(null);
-    navigate({ view: 'builder-ai-intake', params: { templateId: t.id, templateType: t.contentJson?._source === 'template-library-repo' ? 'repo-template' : 'html' } });
+    navigate({ view: 'builder-site-plan', params: { templateId: t.id, templateType: t.contentJson?._source === 'template-library-repo' ? 'repo-template' : 'html' } });
   };
 
   return (

@@ -91,6 +91,23 @@ export async function packageTailoredTemplate(siteId, packageSettings = {}) {
   });
 }
 
+// Hybrid site plan API helpers
+export async function createTemplateSitePlan(plan) {
+  return liveApiRequest('/template-ai/plans', { method: 'POST', body: plan });
+}
+export async function getTemplateSitePlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}`, { method: 'GET' });
+}
+export async function updateTemplateSitePlanPart(planId, part, value) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/${part}`, { method: 'PUT', body: value });
+}
+export async function approveTemplateSitePlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/approve`, { method: 'POST' });
+}
+export async function handoffTemplateSitePlan(planId, options = {}) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/handoff`, { method: 'POST', body: options });
+}
+
 /**
  * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
  *

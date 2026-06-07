@@ -4,6 +4,8 @@ import { templateAiController } from '../controllers/templateAi.controller.js';
 import { validateZipSite, getZipDeployConfigStatus } from '../../01-HOSTING-DEPLOY-ENGINE/pipelines/base64ZipToRender.pipeline.js';
 import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templateAiZipRoute.adapter.js';
 import { requireFeature } from '../../../middleware/featureFlag.js';
+import { sitePlanController } from '../controllers/sitePlan.controller.js';
+import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
 
 const router = express.Router();
 
@@ -128,5 +130,15 @@ router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async 
 
 // Template Choose preview — disabled until TEMPLATE_MARKETPLACE launches.
 router.get('/templates/:templateId/preview', requireTemplateMarketplace, templateAiController.getTemplatePreview);
+
+// Hybrid site plan routes
+router.post('/plans', requireTemplateMarketplace, sitePlanController.createPlan);
+router.get('/plans/:planId', requireTemplateMarketplace, sitePlanController.getPlan);
+router.put('/plans/:planId/brief', requireTemplateMarketplace, sitePlanController.updateBrief);
+router.put('/plans/:planId/sitemap', requireTemplateMarketplace, sitePlanController.updateSitemap);
+router.put('/plans/:planId/wireframe', requireTemplateMarketplace, sitePlanController.updateWireframe);
+router.put('/plans/:planId/style', requireTemplateMarketplace, sitePlanController.updateStyle);
+router.post('/plans/:planId/approve', requireTemplateMarketplace, sitePlanController.approvePlan);
+router.post('/plans/:planId/handoff', requireTemplateMarketplace, sitePlanHandoffController.handoffPlan);
 
 export default router;

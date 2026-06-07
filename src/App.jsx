@@ -22,7 +22,7 @@ import { HostingList, HostingDetail } from './hosting-control';
 import { DomainsMine, DomainsBuy, DnsEditor } from './domains';
 import {
   BuilderGallery, BuilderTemplates, BuilderRoxanne, BuilderImport,
-  BuilderEditor, BuilderAiIntake, BuilderDeploymentSettings,
+  BuilderEditor, BuilderAiIntake, BuilderDeploymentSettings, BuilderSitePlan,
 } from './features/builder';
 import { ActivityPage } from './activity';
 import { AdminPage } from './features/admin/AdminPage.jsx';
@@ -194,7 +194,7 @@ export default function App() {
 
   const DASHBOARD_VIEWS = new Set([
     "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
-    "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings",
+    "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings","builder-site-plan",
     "analytics","activity","billing","settings","profile","vps-hosting","vps-create","vps-detail","admin",
   ]);
 
@@ -221,6 +221,7 @@ export default function App() {
       case "builder-roxanne":   return <BuilderRoxanne navigate={navigate} />;
       case "builder-import":    return <BuilderImport mode={route.params?.mode || "github"} navigate={navigate} />;
       case "builder-ai-intake":              return <BuilderAiIntake templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "html"} navigate={navigate} />;
+      case "builder-site-plan":              return <BuilderSitePlan templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "repo-template"} navigate={navigate} />;
       case "builder-deployment-settings":    return <BuilderDeploymentSettings siteId={route.params?.siteId || null} templateId={route.params?.templateId || ""} templateType={route.params?.templateType || "html"} navigate={navigate} />;
       case "builder-editor":                 return <BuilderEditor id={route.params?.id} siteId={route.params?.siteId} navigate={navigate} />;
       case "analytics":         return <SimplePage title="Analytics" body="Cross-project analytics — coming up next." />;
@@ -259,6 +260,7 @@ export default function App() {
       case "dns":             return [{ label: "Domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: route.params?.domain || "DNS" }, { label: "DNS records" }];
       case "builder-gallery":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Site builder" }];
       case "builder-ai-intake":           return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Template setup" }];
+      case "builder-site-plan":           return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Plan" }];
       case "builder-deployment-settings": return [{ label: "Template setup", onClick: () => navigate({ view: "builder-ai-intake" }) }, { label: "Deploy" }];
       case "builder-templates": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Templates" }];
       case "builder-roxanne": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "RoxanneAI" }];

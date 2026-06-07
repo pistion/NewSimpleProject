@@ -137,6 +137,10 @@ function lightweightTemplateMetadata(metadata = {}) {
     previewUrl: metadata.previewUrl || '',
     questionnaireProfile: metadata.questionnaireProfile || 'general',
     templatePath: metadata.templatePath || templatePathForId(metadata.templateId),
+    supportedPages: Array.isArray(metadata.supportedPages) ? metadata.supportedPages : [],
+    supportedSections: Array.isArray(metadata.supportedSections) ? metadata.supportedSections : [],
+    sectionSlotHints: (metadata.sectionSlotHints && typeof metadata.sectionSlotHints === 'object') ? metadata.sectionSlotHints : {},
+    placeholderHints: (metadata.placeholderHints && typeof metadata.placeholderHints === 'object') ? metadata.placeholderHints : {},
   };
 }
 
