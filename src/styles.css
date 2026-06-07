@@ -2237,6 +2237,147 @@ img, video, iframe { max-width: 100%; height: auto; }
 .notification-del { color: var(--text-faint); font-size: 16px; line-height: 1; padding: 0 2px; }
 .notification-del:hover { color: var(--danger); }
 
+/* ══════════════════════════════════════════════
+   Admin console
+   ══════════════════════════════════════════════ */
+
+.admin-console {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Inner tab bar used by hosting + billing sub-sections */
+.admin-inner-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px;
+  margin-bottom: 12px;
+}
+
+.admin-inner-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: calc(var(--r-sm) - 2px);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  white-space: nowrap;
+}
+
+.admin-inner-tabs button:hover {
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.admin-inner-tabs button.active {
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+/* Stat grid */
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-stat-card {
+  padding: 16px;
+}
+
+/* Scrollable table wrapper for wide admin tables */
+.admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-table-wrap .tbl {
+  min-width: 900px;
+}
+
+/* Mobile card view — one card per record (for narrow screens) */
+.admin-mobile-card {
+  display: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+/* Slide-in detail drawer */
+.admin-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 96vw);
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: drawer-slide-in .22s ease;
+}
+
+@keyframes drawer-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.admin-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 199;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Action button row inside admin tables */
+.admin-action-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Responsive: on narrow screens switch to stacked cards */
+@media (max-width: 800px) {
+  .admin-inner-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding: 3px;
+  }
+
+  .admin-stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+
+  .admin-drawer {
+    width: 100vw;
+  }
+}
+
 @media (max-width: 480px) {
   .dash-search { display: none; }
   .auth-menu-trigger { max-width: 38vw; }
