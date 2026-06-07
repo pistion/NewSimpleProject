@@ -120,7 +120,10 @@ function deploymentView(d, orderByDeployment = {}) {
 
 async function loadDeployments() {
   const store = await readHostingStore();
-  return (store.deployments || []).filter((d) => d.platformDeployed === true || d.checkoutOrderId);
+  // Return ALL deployments so the admin hosting section can show pending/failed too.
+  // The old filter (platformDeployed || checkoutOrderId) hid deployments that are
+  // still building or failed before an order was created.
+  return store.deployments || [];
 }
 
 function safeJson(text) {
@@ -128,14 +131,22 @@ function safeJson(text) {
 }
 
 export async function getOverview() {
-  const [users, orders, receiptsPending, cleanupJobs, deployments, promo] = await Promise.all([
-    prisma.user.count(),
+  const [userRows, orders, receiptsPending, cleanupJobs, deployments, promo] = await Promise.all([
+    prisma.user.findMany({ select: { accountStatus: true, promoEligible: true, promoClaimedAt: true } }),
     prisma.checkoutOrder.findMany({ where: { type: 'deployment' }, select: { status: true, totalAmountCents: true, currency: true, metadata: true } }),
     prisma.paymentReceipt.count({ where: { status: 'pending' } }),
     prisma.deploymentCleanupJob.count(),
     loadDeployments(),
     getPromoUsage(),
   ]);
+
+  // User breakdown
+  const users = userRows.length;
+  const activeUsers     = userRows.filter((u) => (u.accountStatus || 'active') === 'active').length;
+  const suspendedUsers  = userRows.filter((u) => u.accountStatus === 'suspended').length;
+  const disabledUsers   = userRows.filter((u) => u.accountStatus === 'disabled').length;
+  const deletedUsers    = userRows.filter((u) => u.accountStatus === 'deleted').length;
+  const promoUsers      = userRows.filter((u) => u.promoClaimedAt).length;
 
   const ordersByStatus = { paid: 0, pending: 0, payment_uploaded: 0, expired: 0 };
   let paidCents = 0;
@@ -155,15 +166,37 @@ export async function getOverview() {
     }
   }
 
+  // Deployment breakdowns
   const deploymentsByPayment = {};
+  let activeHosting = 0, pendingHosting = 0, failedHosting = 0, suspendedHosting = 0;
+  let freeHosting = 0, paidHosting = 0, promoHosting = 0;
   for (const d of deployments) {
     const k = d.paymentStatus || 'none';
     deploymentsByPayment[k] = (deploymentsByPayment[k] || 0) + 1;
+    const s = (d.status || '').toLowerCase();
+    if (s === 'live' || s === 'deployed') activeHosting++;
+    else if (s === 'building' || s === 'queued') pendingHosting++;
+    else if (s === 'failed' || s === 'error') failedHosting++;
+    else if (s === 'suspended' || s === 'account_suspended') suspendedHosting++;
+    if (d.paymentStatus === 'paid') paidHosting++;
+    else freeHosting++;
+    if (d.billingTierId === 'promo_50') promoHosting++;
   }
 
   return {
     users,
-    deployments: { total: deployments.length, byPaymentStatus: deploymentsByPayment },
+    userBreakdown: { active: activeUsers, suspended: suspendedUsers, disabled: disabledUsers, deleted: deletedUsers, promo: promoUsers },
+    deployments: {
+      total: deployments.length,
+      active: activeHosting,
+      pending: pendingHosting,
+      failed: failedHosting,
+      suspended: suspendedHosting,
+      free: freeHosting,
+      paid: paidHosting,
+      promo: promoHosting,
+      byPaymentStatus: deploymentsByPayment,
+    },
     orders: {
       total: orders.length,
       byStatus: ordersByStatus,
@@ -780,6 +813,73 @@ export async function setDeploymentRenderPlan(deploymentId, plan, { redeploy = f
   return { deploymentId, renderPlan: normalizedPlan, render: renderResult, redeployed };
 }
 
+/**
+ * Activity log — returns the most recent audit log entries for the admin
+ * activity timeline. Falls back to an empty array when audit_logs table
+ * does not yet exist (migrations pending).
+ */
+export async function getActivity({ limit = 100, offset = 0, action = null, userId = null } = {}) {
+  try {
+    const where = {};
+    if (action) where.action = { contains: action };
+    if (userId) where.actorUserId = userId;
+    const rows = await prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit) || 100,
+      skip: Number(offset) || 0,
+      select: {
+        id: true,
+        actorUserId: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    return rows;
+  } catch (err) {
+    // Table may not exist yet — return empty rather than crashing
+    if (err?.code === 'P2021') return [];
+    throw err;
+  }
+}
+
+/**
+ * Config status — tells the frontend which integrations are configured
+ * without exposing the actual secret values.
+ */
+export function getConfigStatus() {
+  const bool = (v) => Boolean(v && String(v).trim().length > 0);
+  return {
+    render: {
+      configured: bool(process.env.RENDER_API_KEY) && bool(process.env.RENDER_SERVICE_ID),
+      serviceId: process.env.RENDER_SERVICE_ID ? `…${String(process.env.RENDER_SERVICE_ID).slice(-6)}` : null,
+    },
+    paypal: {
+      configured: bool(process.env.PAYPAL_CLIENT_ID) && bool(process.env.PAYPAL_SECRET),
+    },
+    github: {
+      configured: bool(process.env.GITHUB_GENERATED_SITES_TOKEN),
+      repoUrl: process.env.RENDER_GENERATED_SITES_REPO_URL || null,
+    },
+    spaceship: {
+      configured: bool(process.env.SPACESHIP_API_KEY) && bool(process.env.SPACESHIP_SECRET),
+    },
+    database: {
+      url: process.env.DATABASE_URL ? `…configured` : 'NOT SET',
+    },
+    billing: {
+      currency: process.env.BILLING_CURRENCY || 'PGK',
+      markupPercent: Number(process.env.PLATFORM_MARKUP_PERCENT || 30),
+      promoLimit: Number(process.env.DEPLOYMENT_PROMO_SIGNUP_LIMIT || 20),
+      manualBankEnabled: bool(process.env.MANUAL_BANK_ACCOUNT_NAME) || bool(process.env.MANUAL_BANK_DETAILS),
+      bankDetails: process.env.MANUAL_BANK_ACCOUNT_NAME || null,
+    },
+  };
+}
+
 export async function deleteOrder(orderId, adminUserId) {
   const order = await prisma.checkoutOrder.findUnique({ where: { id: orderId } });
   if (!order) throw httpError('Order not found.', 404);
@@ -821,4 +921,6 @@ export default {
   approveDeploymentBilling,
   setDeploymentRenderPlan,
   deleteOrder,
+  getActivity,
+  getConfigStatus,
 };

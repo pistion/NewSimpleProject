@@ -5,11 +5,13 @@
 import { liveApiRequest, liveApiUrl } from '../api.js';
 import { authHeaders } from './auth.js';
 
-export const getAdminOverview    = ()           => liveApiRequest('/admin/overview');
-export const listAdminUsers      = ()           => liveApiRequest('/admin/users');
-export const listAdminDeployments = ()          => liveApiRequest('/admin/deployments');
-export const listAdminOrders     = ()           => liveApiRequest('/admin/orders');
-export const listAdminReceipts   = ()           => liveApiRequest('/admin/receipts');
+export const getAdminOverview      = ()                       => liveApiRequest('/admin/overview');
+export const listAdminUsers        = ()                       => liveApiRequest('/admin/users');
+export const listAdminDeployments  = ()                       => liveApiRequest('/admin/deployments');
+export const listAdminOrders       = ()                       => liveApiRequest('/admin/orders');
+export const listAdminReceipts     = ()                       => liveApiRequest('/admin/receipts');
+export const getAdminActivity      = (params = {})            => liveApiRequest(`/admin/activity?${new URLSearchParams(params)}`);
+export const getAdminConfigStatus  = ()                       => liveApiRequest('/admin/config-status');
 
 export const approveReceipt = (receiptId)        => liveApiRequest(`/admin/receipts/${encodeURIComponent(receiptId)}/approve`, { method: 'POST' });
 export const rejectReceipt  = (receiptId, note)  => liveApiRequest(`/admin/receipts/${encodeURIComponent(receiptId)}/reject`, { method: 'POST', body: { note } });

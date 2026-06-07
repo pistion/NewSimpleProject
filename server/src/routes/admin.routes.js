@@ -61,6 +61,19 @@ router.get('/overview', async (req, res, next) => {
   try { res.json({ data: await adminService.getOverview(), requestId: req.id }); } catch (e) { next(e); }
 });
 
+// Activity log (audit_logs table, newest first, paginated)
+router.get('/activity', async (req, res, next) => {
+  try {
+    const { limit, offset, action, userId } = req.query;
+    res.json({ data: await adminService.getActivity({ limit, offset, action, userId }), requestId: req.id });
+  } catch (e) { next(e); }
+});
+
+// Config status — which integrations are wired up (no secret values)
+router.get('/config-status', async (req, res, next) => {
+  try { res.json({ data: adminService.getConfigStatus(), requestId: req.id }); } catch (e) { next(e); }
+});
+
 router.get('/users', async (req, res, next) => {
   try { res.json({ data: await adminService.listUsers(), requestId: req.id }); } catch (e) { next(e); }
 });

@@ -8,6 +8,8 @@ import {
   listAdminDeployments,
   listAdminOrders,
   listAdminReceipts,
+  getAdminActivity,
+  getAdminConfigStatus,
 } from '../../api/admin.js';
 
 import { AdminOverviewSection }  from './sections/AdminOverviewSection.jsx';
@@ -40,6 +42,8 @@ export function AdminPage() {
   const [deployments, setDeployments] = useState([]);
   const [orders, setOrders]           = useState([]);
   const [receipts, setReceipts]       = useState([]);
+  const [activity, setActivity]       = useState([]);
+  const [configStatus, setConfigStatus] = useState(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState(null);
   const [busyId, setBusyId]           = useState(null);
@@ -49,18 +53,22 @@ export function AdminPage() {
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [ov, us, dep, ord, rec] = await Promise.all([
+      const [ov, us, dep, ord, rec, act, cfg] = await Promise.all([
         getAdminOverview(),
         listAdminUsers(),
         listAdminDeployments(),
         listAdminOrders(),
         listAdminReceipts(),
+        getAdminActivity({ limit: 200 }).catch(() => []),
+        getAdminConfigStatus().catch(() => null),
       ]);
       setOverview(ov);
       setUsers(us || []);
       setDeployments(dep || []);
       setOrders(ord || []);
       setReceipts(rec || []);
+      setActivity(act || []);
+      setConfigStatus(cfg);
     } catch (err) {
       setError(err.message || 'Failed to load admin data.');
     } finally {
@@ -216,6 +224,7 @@ export function AdminPage() {
 
       {!loading && tab === 'activity' && (
         <AdminActivitySection
+          auditLogs={activity}
           users={users}
           deployments={deployments}
           orders={orders}
@@ -224,7 +233,7 @@ export function AdminPage() {
       )}
 
       {!loading && tab === 'settings' && (
-        <AdminSettingsSection overview={overview} />
+        <AdminSettingsSection overview={overview} configStatus={configStatus} />
       )}
 
       {detailUserId && (
