@@ -789,12 +789,268 @@ function BriefTab({ brief, onChange, onSuggest }) {
   );
 }
 
+// ─── Canvas view (node tree) ──────────────────────────────────────────────────
+function SitemapCanvasView({ sitemap, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection }) {
+  const viewportRef = useRef(null);
+  const panRef      = useRef(null);
+  const stageRef    = useRef(null);
+  const svgRef      = useRef(null);
+  const nav         = useRef({ tx: 40, ty: 40, scale: 1, min: 0.35, max: 1.7 });
+  const drag        = useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 });
+  const rafRef      = useRef(0);
+
+  // Apply transform
+  const applyTransform = () => {
+    const { tx, ty, scale } = nav.current;
+    if (panRef.current) {
+      panRef.current.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+    }
+    const el = viewportRef.current?.querySelector('.spb-cv-zoom-val');
+    if (el) el.textContent = Math.round(scale * 100) + '%';
+  };
+
+  const zoom = (delta) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const prev = nav.current.scale;
+    const next = Math.max(nav.current.min, Math.min(nav.current.max, +(prev + delta).toFixed(2)));
+    const cx = vp.clientWidth / 2, cy = vp.clientHeight / 2;
+    nav.current.tx = cx - (cx - nav.current.tx) * (next / prev);
+    nav.current.ty = cy - (cy - nav.current.ty) * (next / prev);
+    nav.current.scale = next;
+    applyTransform();
+    scheduleWires();
+  };
+
+  const fitView = () => {
+    const vp = viewportRef.current, stage = stageRef.current;
+    if (!vp || !stage) return;
+    const vw = vp.clientWidth, vh = vp.clientHeight;
+    const sw = stage.offsetWidth, sh = stage.offsetHeight;
+    const scale = Math.max(nav.current.min, Math.min(1, (vw - 48) / sw, (vh - 48) / sh));
+    nav.current.scale = scale;
+    nav.current.tx = Math.max(16, (vw - sw * scale) / 2);
+    nav.current.ty = 32;
+    applyTransform();
+    scheduleWires();
+  };
+
+  // Draw connector wires
+  const drawWires = () => {
+    const stage = stageRef.current, svg = svgRef.current;
+    if (!stage || !svg) return;
+    const root = stage.querySelector('.spb-cv-root');
+    const branches = [...(stage.querySelectorAll('.spb-cv-branch') || [])];
+    if (!root || !branches.length) { svg.innerHTML = ''; return; }
+
+    const W = stage.offsetWidth, H = stage.offsetHeight;
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.style.width = W + 'px'; svg.style.height = H + 'px';
+
+    const cx = el => el.offsetLeft + el.offsetWidth / 2;
+    const tops = branches.map(b => b.querySelector('.spb-cv-page') || b.querySelector('.spb-cv-add-page'));
+
+    const rootBottom = { x: cx(root), y: root.offsetTop + root.offsetHeight };
+    const firstTop = Math.min(...tops.filter(Boolean).map(t => t.offsetTop));
+    const railY = rootBottom.y + (firstTop - rootBottom.y) * 0.52;
+
+    const paths = [], dots = [];
+    const validTops = tops.filter(Boolean);
+
+    if (validTops.length === 1) {
+      paths.push(`M ${rootBottom.x} ${rootBottom.y} L ${cx(validTops[0])} ${validTops[0].offsetTop}`);
+    } else {
+      paths.push(`M ${rootBottom.x} ${rootBottom.y} L ${rootBottom.x} ${railY}`);
+      const xs = validTops.map(cx);
+      paths.push(`M ${Math.min(...xs)} ${railY} L ${Math.max(...xs)} ${railY}`);
+      validTops.forEach(t => {
+        const x = cx(t);
+        paths.push(`M ${x} ${railY} L ${x} ${t.offsetTop}`);
+        dots.push({ x, y: railY, cls: 'accent' });
+      });
+    }
+    dots.push({ x: rootBottom.x, y: rootBottom.y, cls: 'ink' });
+
+    // Section spines
+    branches.forEach(b => {
+      const page = b.querySelector('.spb-cv-page');
+      if (!page) return;
+      const items = [...b.querySelectorAll('.spb-cv-section, .spb-cv-add-section')];
+      if (!items.length) return;
+      const x = cx(page);
+      let prevBottom = page.offsetTop + page.offsetHeight;
+      items.forEach(it => {
+        paths.push(`M ${x} ${prevBottom} L ${x} ${it.offsetTop}`);
+        if (!it.classList.contains('spb-cv-add-section')) dots.push({ x, y: it.offsetTop, cls: 'soft' });
+        prevBottom = it.offsetTop + it.offsetHeight;
+      });
+    });
+
+    const ink = '#181a1f', accent = '#2b54f0', line = '#c6c6bd';
+    let markup = paths.map(d =>
+      `<path d="${d}" fill="none" stroke="${line}" stroke-width="1.5" stroke-linecap="round"/>`
+    ).join('');
+    markup += dots.map(dt => {
+      if (dt.cls === 'accent') return `<circle cx="${dt.x}" cy="${dt.y}" r="3.5" fill="#fff" stroke="${accent}" stroke-width="1.5"/>`;
+      if (dt.cls === 'ink')    return `<circle cx="${dt.x}" cy="${dt.y}" r="3" fill="${ink}"/>`;
+      return `<circle cx="${dt.x}" cy="${dt.y}" r="2.5" fill="${line}"/>`;
+    }).join('');
+    svg.innerHTML = markup;
+  };
+
+  const scheduleWires = () => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(drawWires);
+  };
+
+  // Pointer-based pan
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+
+    const onDown = (e) => {
+      if (e.target.closest('.spb-cv-page, .spb-cv-section, button, input, textarea, .spb-cv-controls')) return;
+      drag.current = { active: true, sx: e.clientX, sy: e.clientY, ox: nav.current.tx, oy: nav.current.ty };
+      vp.classList.add('spb-cv-panning');
+      vp.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e) => {
+      if (!drag.current.active) return;
+      nav.current.tx = drag.current.ox + (e.clientX - drag.current.sx);
+      nav.current.ty = drag.current.oy + (e.clientY - drag.current.sy);
+      applyTransform();
+    };
+    const onUp = (e) => {
+      drag.current.active = false;
+      vp.classList.remove('spb-cv-panning');
+      try { vp.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    const onWheel = (e) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) { zoom(e.deltaY > 0 ? -0.1 : 0.1); }
+      else { nav.current.tx -= e.deltaX; nav.current.ty -= e.deltaY; applyTransform(); scheduleWires(); }
+    };
+
+    vp.addEventListener('pointerdown', onDown);
+    vp.addEventListener('pointermove', onMove);
+    vp.addEventListener('pointerup', onUp);
+    vp.addEventListener('pointercancel', onUp);
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      vp.removeEventListener('pointerdown', onDown);
+      vp.removeEventListener('pointermove', onMove);
+      vp.removeEventListener('pointerup', onUp);
+      vp.removeEventListener('pointercancel', onUp);
+      vp.removeEventListener('wheel', onWheel);
+    };
+  }, []);
+
+  // Redraw wires whenever sitemap changes
+  useEffect(() => {
+    scheduleWires();
+  }, [sitemap]);
+
+  // Fit on first mount
+  useEffect(() => {
+    const t = setTimeout(() => { fitView(); drawWires(); }, 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="spb-cv-viewport" ref={viewportRef}>
+      <div className="spb-cv-pan" ref={panRef}>
+        <div className="spb-cv-stage" ref={stageRef}>
+          <svg className="spb-cv-wires" ref={svgRef} />
+
+          {/* Root node */}
+          <div className="spb-cv-root">
+            <span className="spb-cv-root-tag">Root</span>
+            <span className="spb-cv-root-name">{sitemap.name || 'New Website'}</span>
+          </div>
+
+          {/* Branches */}
+          <div className="spb-cv-branches">
+            {sitemap.pages.map((page) => (
+              <div className="spb-cv-branch" key={page.id}>
+                {/* Page node */}
+                <div className="spb-cv-node spb-cv-page">
+                  <div className="spb-cv-page-head">
+                    <span className="spb-cv-page-dot" />
+                    <input
+                      className="spb-cv-page-input"
+                      value={page.name}
+                      onChange={e => { onUpdatePage(page.id, 'name', e.target.value); scheduleWires(); }}
+                      spellCheck={false}
+                    />
+                    <button
+                      className="spb-cv-icon-btn spb-cv-icon-btn--delete"
+                      onClick={() => onDeletePage(page.id)}
+                      title="Delete page"
+                    >✕</button>
+                  </div>
+                  <div className="spb-cv-page-meta">
+                    <span className="spb-cv-page-path">{page.path}</span>
+                    <span className="spb-cv-page-count">{page.sections.length} sec</span>
+                  </div>
+                </div>
+
+                {/* Section nodes */}
+                <div className="spb-cv-sections">
+                  {page.sections.map(s => (
+                    <div
+                      key={s.id}
+                      className="spb-cv-node spb-cv-section"
+                      onClick={() => onEditSection(page.id, s)}
+                      title="Click to edit"
+                    >
+                      <span className="spb-cv-sec-dot" />
+                      <span className="spb-cv-sec-title">{s.title}</span>
+                      <span className="spb-cv-sec-type">{s.type}</span>
+                      <button
+                        className="spb-cv-icon-btn spb-cv-icon-btn--delete spb-cv-sec-del"
+                        onClick={e => { e.stopPropagation(); onDeleteSection(page.id, s.id); }}
+                        title="Delete section"
+                      >✕</button>
+                    </div>
+                  ))}
+                  <button
+                    className="spb-cv-add spb-cv-add-section"
+                    onClick={() => { onAddSection(page.id); scheduleWires(); }}
+                  >+ Section</button>
+                </div>
+              </div>
+            ))}
+
+            {/* Add page node */}
+            <div className="spb-cv-branch">
+              <button className="spb-cv-add spb-cv-add-page" onClick={() => { onAddPage(); scheduleWires(); }}>
+                <span className="spb-cv-add-page-ic">+</span>
+                Add page
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Zoom controls */}
+      <div className="spb-cv-controls">
+        <button onClick={() => zoom(-0.15)} title="Zoom out">−</button>
+        <button onClick={fitView} title="Fit to view"><span className="spb-cv-zoom-val">100%</span></button>
+        <button onClick={() => zoom(0.15)} title="Zoom in">+</button>
+      </div>
+      <div className="spb-cv-hint">Drag to pan · scroll or +/− to zoom</div>
+    </div>
+  );
+}
+
 // ─── SitemapTab ───────────────────────────────────────────────────────────────
 function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection }) {
+  const [view, setView] = useState('cards'); // 'cards' | 'canvas'
+
   return (
     <div className="spb-panel">
       <div className="spb-panel-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h2 className="spb-panel-title" style={{ margin: 0 }}>Sitemap</h2>
           <input
             className="spb-input spb-site-name-input"
@@ -802,65 +1058,103 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
             onChange={e => onNameChange(e.target.value)}
             placeholder="Site name"
           />
+          {/* Cards / Canvas toggle — exact style from source */}
+          <div className="spb-view-seg">
+            <button
+              className={view === 'cards' ? 'active' : ''}
+              onClick={() => setView('cards')}
+              title="Card columns view"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
+                <rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/>
+              </svg>
+              Cards
+            </button>
+            <button
+              className={view === 'canvas' ? 'active' : ''}
+              onClick={() => setView('canvas')}
+              title="Node tree canvas"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
+                <rect x="8" y="2.5" width="8" height="5" rx="1.2"/>
+                <rect x="2.5" y="16.5" width="7" height="5" rx="1.2"/>
+                <rect x="14.5" y="16.5" width="7" height="5" rx="1.2"/>
+                <path d="M12 7.5v4M6 16.5v-2.5h12v2.5"/>
+              </svg>
+              Canvas
+            </button>
+          </div>
+          <span className="spb-count-chip"><b>{sitemap.pages.length}</b> pages</span>
         </div>
         <p className="spb-panel-sub">Build out the page structure and sections for this site.</p>
       </div>
 
-      <div className="spb-pages-grid">
-        {sitemap.pages.map(page => (
-          <div key={page.id} className="spb-page-card">
-            <div className="spb-page-card-head">
-              <div className="spb-page-fields">
-                <input
-                  className="spb-input spb-input--sm spb-page-name"
-                  value={page.name}
-                  onChange={e => onUpdatePage(page.id, 'name', e.target.value)}
-                  placeholder="Page name"
-                />
-                <input
-                  className="spb-input spb-input--sm spb-page-path"
-                  value={page.path}
-                  onChange={e => onUpdatePage(page.id, 'path', e.target.value)}
-                  placeholder="/path"
-                />
+      {/* Cards view */}
+      {view === 'cards' && (
+        <div className="spb-pages-grid">
+          {sitemap.pages.map(page => (
+            <div key={page.id} className="spb-page-card">
+              <div className="spb-page-card-head">
+                <div className="spb-page-fields">
+                  <input
+                    className="spb-input spb-input--sm spb-page-name"
+                    value={page.name}
+                    onChange={e => onUpdatePage(page.id, 'name', e.target.value)}
+                    placeholder="Page name"
+                  />
+                  <input
+                    className="spb-input spb-input--sm spb-page-path"
+                    value={page.path}
+                    onChange={e => onUpdatePage(page.id, 'path', e.target.value)}
+                    placeholder="/path"
+                  />
+                </div>
+                <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">
+                  ✕
+                </button>
               </div>
-              <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">
-                ✕
+              <div className="spb-sections-list">
+                {page.sections.map(section => (
+                  <div key={section.id} className="spb-section-card" onClick={() => onEditSection(page.id, section)}>
+                    <div className="spb-section-card-inner">
+                      <div className="spb-section-type-badge">{section.type}</div>
+                      <div className="spb-section-title">{section.title}</div>
+                      {section.description && <div className="spb-section-desc">{section.description}</div>}
+                    </div>
+                    <button
+                      className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn"
+                      onClick={e => { e.stopPropagation(); onDeleteSection(page.id, section.id); }}
+                      title="Delete section"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+              <button className="spb-btn spb-btn--ghost spb-btn--sm spb-add-section-btn" onClick={() => onAddSection(page.id)}>
+                + Add section
               </button>
             </div>
-
-            <div className="spb-sections-list">
-              {page.sections.map(section => (
-                <div key={section.id} className="spb-section-card" onClick={() => onEditSection(page.id, section)}>
-                  <div className="spb-section-card-inner">
-                    <div className="spb-section-type-badge">{section.type}</div>
-                    <div className="spb-section-title">{section.title}</div>
-                    {section.description && <div className="spb-section-desc">{section.description}</div>}
-                  </div>
-                  <button
-                    className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn"
-                    onClick={e => { e.stopPropagation(); onDeleteSection(page.id, section.id); }}
-                    title="Delete section"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+          ))}
+          <div className="spb-page-card spb-page-card--add" onClick={onAddPage} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onAddPage()}>
+            <div className="spb-add-page-inner">
+              <div className="spb-add-page-icon">+</div>
+              <div className="spb-add-page-label">Add page</div>
             </div>
-
-            <button className="spb-btn spb-btn--ghost spb-btn--sm spb-add-section-btn" onClick={() => onAddSection(page.id)}>
-              + Add section
-            </button>
-          </div>
-        ))}
-
-        <div className="spb-page-card spb-page-card--add" onClick={onAddPage} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onAddPage()}>
-          <div className="spb-add-page-inner">
-            <div className="spb-add-page-icon">+</div>
-            <div className="spb-add-page-label">Add page</div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Canvas view */}
+      {view === 'canvas' && (
+        <SitemapCanvasView
+          sitemap={sitemap}
+          onAddPage={onAddPage}
+          onDeletePage={onDeletePage}
+          onUpdatePage={onUpdatePage}
+          onAddSection={onAddSection}
+          onDeleteSection={onDeleteSection}
+          onEditSection={onEditSection}
+        />
+      )}
     </div>
   );
 }
