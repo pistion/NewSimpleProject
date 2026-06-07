@@ -6,6 +6,7 @@ import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templat
 import { requireFeature } from '../../../middleware/featureFlag.js';
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
+import { suggestSitemapForPlan } from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
 
 const router = express.Router();
 
@@ -140,5 +141,13 @@ router.put('/plans/:planId/wireframe', requireTemplateMarketplace, sitePlanContr
 router.put('/plans/:planId/style', requireTemplateMarketplace, sitePlanController.updateStyle);
 router.post('/plans/:planId/approve', requireTemplateMarketplace, sitePlanController.approvePlan);
 router.post('/plans/:planId/handoff', requireTemplateMarketplace, sitePlanHandoffController.handoffPlan);
+
+// AI refinement — requires AI_BUILDER feature flag
+router.post('/plans/:planId/ai/suggest-sitemap', requireAiBuilder, async (req, res, next) => {
+  try {
+    const result = await suggestSitemapForPlan(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
 
 export default router;

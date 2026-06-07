@@ -1071,3 +1071,69 @@
     font-size: 12px;
   }
 }
+
+/* ─── AI button ─────────────────────────────────────────────────────────────── */
+.site-plan-builder .spb-btn--ai {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.site-plan-builder .spb-btn--ai:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4338ca, #6d28d9);
+}
+.site-plan-builder .spb-btn--ai:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ─── AI preview panel (Phase 3) ─────────────────────────────────────────────── */
+.site-plan-builder .spb-ai-preview-backdrop {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.site-plan-builder .spb-ai-preview-panel {
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.2);
+  width: min(680px, 100%); max-height: 85vh;
+  overflow-y: auto; padding: 28px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.site-plan-builder .spb-ai-preview-head {
+  display: flex; align-items: center; gap: 12px;
+}
+.site-plan-builder .spb-ai-preview-head h3 { margin: 0; flex: 1; font-size: 18px; }
+.site-plan-builder .spb-ai-badge {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff; border-radius: 999px; padding: 3px 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+}
+.site-plan-builder .spb-ai-summary {
+  margin: 0; font-size: 14px; color: #555;
+  background: #f5f3ff; border-radius: 8px; padding: 12px 14px;
+  border-left: 3px solid #7c3aed;
+}
+.site-plan-builder .spb-ai-warnings { display: flex; flex-direction: column; gap: 6px; }
+.site-plan-builder .spb-ai-warning {
+  font-size: 13px; color: #92400e;
+  background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 8px 12px;
+}
+.site-plan-builder .spb-ai-pages { display: flex; flex-direction: column; gap: 12px; }
+.site-plan-builder .spb-ai-page {
+  border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px;
+}
+.site-plan-builder .spb-ai-page-name {
+  font-weight: 700; font-size: 14px; margin-bottom: 8px;
+}
+.site-plan-builder .spb-ai-page-path {
+  font-size: 12px; color: #888; font-weight: 400; margin-left: 6px;
+  font-family: monospace;
+}
+.site-plan-builder .spb-ai-sections {
+  margin: 0; padding-left: 18px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.site-plan-builder .spb-ai-sections li { font-size: 13px; color: #444; }
+.site-plan-builder .spb-ai-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding-top: 8px; border-top: 1px solid #e5e7eb;
+}

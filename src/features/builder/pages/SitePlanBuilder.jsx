@@ -2,12 +2,14 @@
 // Ported from sitemap/wireframe builder source files into React.
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import './SitePlanBuilder.css';
-import { createSiteFromTailoredTemplate } from '../../../api/template-ai.js';
 import {
+  createSiteFromTailoredTemplate,
   createTemplateSitePlan,
-  getTemplateSitePlan,
   updateTemplateSitePlanPart,
   approveTemplateSitePlan,
+  handoffTemplateSitePlan,
+  aiSuggestSitemapForPlan,
+  getTemplateHostingTemplate,
 } from '../../../api/template-ai.js';
 
 // ─── uid ────────────────────────────────────────────────────────────────────
@@ -309,10 +311,83 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
   const [editingSection, setEditingSection] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [planId, setPlanId] = useState(null);
+  // Phase 3 — AI suggest state
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiPreview, setAiPreview] = useState(null); // { summary, sitemap, warnings }
+  // Phase 6 — template metadata
+  const [templateMeta, setTemplateMeta] = useState(null);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
   }, []);
+
+  // Phase 6 — fetch template metadata on mount, seed sitemap from supportedPages
+  useEffect(() => {
+    if (!templateId) return;
+    getTemplateHostingTemplate(templateId)
+      .then(meta => {
+        setTemplateMeta(meta);
+        // If template has supportedPages, seed the sitemap with them
+        if (Array.isArray(meta?.supportedPages) && meta.supportedPages.length > 0) {
+          setSitePlan(p => {
+            // Only seed if user hasn't changed from defaults (first 2 pages)
+            if (p.sitemap.pages.length <= 2) {
+              const seeded = meta.supportedPages.map((pageName, i) => {
+                const path = i === 0 ? '/' : `/${pageName.toLowerCase().replace(/\s+/g, '-')}`;
+                const defaultSections = meta.supportedSections?.slice(0, 2).map(type => ({
+                  id: uid(), title: type.charAt(0).toUpperCase() + type.slice(1), type, description: '',
+                })) || [{ id: uid(), title: 'Section', type: 'hero', description: '' }];
+                return { id: uid(), name: pageName, path, sections: defaultSections };
+              });
+              return { ...p, sitemap: { ...p.sitemap, pages: seeded } };
+            }
+            return p;
+          });
+        }
+      })
+      .catch(() => {}); // fail silently — metadata is optional
+  }, [templateId]);
+
+  // Phase 3 — AI suggest sitemap handler
+  const handleAiSuggest = async () => {
+    if (!planId) {
+      // Need to save plan first so the backend has context
+      try {
+        const result = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
+        const newPlanId = result?.data?.planId || result?.planId;
+        if (newPlanId) {
+          setPlanId(newPlanId);
+          await doAiSuggest(newPlanId);
+        }
+      } catch {
+        showToast('Save failed — could not start AI suggestion.');
+      }
+    } else {
+      // Save latest sitemap first
+      try { await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap); } catch {}
+      await doAiSuggest(planId);
+    }
+  };
+
+  const doAiSuggest = async (pid) => {
+    setAiSuggesting(true);
+    try {
+      const result = await aiSuggestSitemapForPlan(pid);
+      setAiPreview(result?.data || result);
+    } catch (e) {
+      showToast(e?.message || 'AI suggestion failed. Check that AI_BUILDER is enabled.');
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  const applyAiSuggestion = () => {
+    if (!aiPreview?.sitemap) return;
+    setSitePlan(p => ({ ...p, sitemap: aiPreview.sitemap }));
+    setAiPreview(null);
+    showToast('AI suggestion applied. Review and edit as needed.');
+    setActiveTab('sitemap');
+  };
 
   const [sitePlan, setSitePlan] = useState(() => ({
     source: 'hybrid-site-plan',
@@ -476,19 +551,50 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     }
   };
 
-  // ── Generate ─────────────────────────────────────────────────────────────
+  // ── Generate (Phase 5 — full handoff flow) ──────────────────────────────
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const answers = {
-        source: 'hybrid-site-plan',
-        ...sitePlan.brief,
-        sitemap: sitePlan.sitemap,
-        style: sitePlan.style,
-      };
-      const result = await createSiteFromTailoredTemplate(templateId, answers, []);
-      const siteId = result?.siteId || result?.data?.siteId;
-      navigate({ view: 'builder-deployment-settings', params: { siteId, templateId, templateType } });
+      let activePlanId = planId;
+
+      // Step 1: create or save the plan
+      if (!activePlanId) {
+        const created = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
+        activePlanId = created?.data?.planId || created?.planId;
+        if (activePlanId) setPlanId(activePlanId);
+      } else {
+        await updateTemplateSitePlanPart(activePlanId, 'brief', sitePlan.brief);
+        await updateTemplateSitePlanPart(activePlanId, 'sitemap', sitePlan.sitemap);
+        await updateTemplateSitePlanPart(activePlanId, 'style', sitePlan.style);
+      }
+
+      if (!activePlanId) throw new Error('Could not create plan record.');
+
+      // Step 2: approve
+      await approveTemplateSitePlan(activePlanId);
+
+      // Step 3: handoff to Hosting Deploy Engine
+      let deploymentId, siteId;
+      try {
+        const handoff = await handoffTemplateSitePlan(activePlanId);
+        deploymentId = handoff?.deploymentId || handoff?.data?.deploymentId;
+        siteId = handoff?.siteId || handoff?.data?.siteId;
+      } catch (handoffErr) {
+        // Handoff unavailable (GitHub/Render not configured) — fall back to prepare flow
+        console.warn('[SitePlanBuilder] Handoff failed, falling back to createSite:', handoffErr.message);
+        const answers = { source: 'hybrid-site-plan', ...sitePlan.brief, sitemap: sitePlan.sitemap, style: sitePlan.style };
+        const fallback = await createSiteFromTailoredTemplate(templateId, answers, []);
+        siteId = fallback?.siteId || fallback?.data?.siteId;
+      }
+
+      // Step 4: navigate to deployment settings or hosting detail
+      if (deploymentId) {
+        navigate({ view: 'hosting-detail', params: { id: deploymentId } });
+      } else if (siteId) {
+        navigate({ view: 'builder-deployment-settings', params: { siteId, templateId, templateType } });
+      } else {
+        navigate({ view: 'hosting-list' });
+      }
     } catch (e) {
       showToast(e?.message || 'Generation failed. Please try again.');
     } finally {
@@ -508,6 +614,14 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
           {sitePlan.sitemap.name || 'New Website'} — Site Plan
         </div>
         <div className="spb-topbar-right">
+          <button
+            className="spb-btn spb-btn--ai spb-btn--sm"
+            onClick={handleAiSuggest}
+            disabled={aiSuggesting}
+            title="Ask RoxanneAI to suggest a sitemap based on your brief"
+          >
+            {aiSuggesting ? '⏳ Thinking…' : '✦ RoxanneAI'}
+          </button>
           <button className="spb-btn spb-btn--outline spb-btn--sm" onClick={handleSavePlan}>
             Save Plan
           </button>
@@ -569,6 +683,41 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
           onSave={updated => updateSection(editingSection.pageId, updated)}
           onClose={() => setEditingSection(null)}
         />
+      )}
+
+      {/* AI suggestion preview panel (Phase 3) */}
+      {aiPreview && (
+        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreview(null)}>
+          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
+            <div className="spb-ai-preview-head">
+              <span className="spb-ai-badge">✦ RoxanneAI</span>
+              <h3>Sitemap suggestion</h3>
+              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreview(null)}>✕</button>
+            </div>
+            <p className="spb-ai-summary">{aiPreview.summary}</p>
+            {aiPreview.warnings?.length > 0 && (
+              <div className="spb-ai-warnings">
+                {aiPreview.warnings.map((w, i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}
+              </div>
+            )}
+            <div className="spb-ai-pages">
+              {(aiPreview.sitemap?.pages || []).map(page => (
+                <div key={page.id} className="spb-ai-page">
+                  <div className="spb-ai-page-name">{page.name} <span className="spb-ai-page-path">{page.path}</span></div>
+                  <ul className="spb-ai-sections">
+                    {(page.sections || []).map(s => (
+                      <li key={s.id}><strong>{s.title}</strong> — {s.description}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <div className="spb-ai-actions">
+              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreview(null)}>Cancel</button>
+              <button className="spb-btn spb-btn--primary" onClick={applyAiSuggestion}>Apply changes</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast */}

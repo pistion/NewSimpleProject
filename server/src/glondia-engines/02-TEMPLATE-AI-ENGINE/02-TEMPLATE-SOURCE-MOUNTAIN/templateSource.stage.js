@@ -117,7 +117,21 @@ export async function applyQuestionnaireDataToGeneratedSource(siteDir, answers =
   }
 
   const dataPath = join(siteDir, 'glondia-site-data.json');
-  await writeFile(dataPath, JSON.stringify({ answers, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+  const siteData = {
+    answers,
+    sitemap: answers.sitemap || null,
+    wireframe: answers.wireframe || null,
+    style: answers.style || null,
+    generationProfile: {
+      source: answers.source || 'template-ai',
+      templateId: answers.parentTemplateId || answers.templateId || templateId,
+      templateType: answers.templateType || 'repo-template',
+      siteName: answers.siteName || answers.businessName || '',
+      slug: answers.slug || slug || '',
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await writeFile(dataPath, JSON.stringify(siteData, null, 2), 'utf8');
 }
 
 export async function copyPreparedSource(sourceDir, targetDir) {

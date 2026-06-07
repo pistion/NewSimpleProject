@@ -108,6 +108,11 @@ export async function handoffTemplateSitePlan(planId, options = {}) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/handoff`, { method: 'POST', body: options });
 }
 
+// Phase 3 — AI refinement (requires AI_BUILDER feature)
+export async function aiSuggestSitemapForPlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sitemap`, { method: 'POST' });
+}
+
 /**
  * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
  *
