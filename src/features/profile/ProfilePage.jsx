@@ -1,45 +1,69 @@
-// ProfilePage.jsx — self-service account details for the signed-in customer.
+/**
+ * ProfilePage.jsx — Account settings page.
+ * Design inspired by render-account-settings-preview.html.
+ * Sections: Profile · Appearance · Account Security · Contact Details · Identity · Delete Account
+ */
 import React from 'react';
-import { ICN } from '../../icons';
-import { getProfile, updateProfile, uploadIdPhoto, getIdPhotoUrl, uploadAvatar, getAvatarUrl } from '../../api/profile.js';
+import './ProfilePage.css';
+import {
+  getProfile,
+  updateProfile,
+  uploadAvatar,
+  getAvatarUrl,
+  uploadIdPhoto,
+  changePassword,
+} from '../../api/profile.js';
 import { updateStoredAuthUser } from '../../api/auth.js';
 
 const { useState, useEffect, useCallback } = React;
 
-// Structured personal details stored inside profileDetails (JSON).
 const DETAIL_FIELDS = [
-  { key: 'address',   label: 'Address' },
-  { key: 'city',      label: 'City / Town' },
-  { key: 'province',  label: 'Province / State' },
-  { key: 'country',   label: 'Country' },
-  { key: 'idType',    label: 'ID type (e.g. Passport, NID)' },
-  { key: 'idNumber',  label: 'ID number' },
+  { key: 'address',  label: 'Street Address' },
+  { key: 'city',     label: 'City / Town' },
+  { key: 'province', label: 'Province / State' },
+  { key: 'country',  label: 'Country' },
+  { key: 'idType',   label: 'ID Type (e.g. Passport)' },
+  { key: 'idNumber', label: 'ID Number' },
 ];
 
-export default function ProfilePage() {
+function initials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+function fmt(val) {
+  return val && String(val).trim() ? String(val).trim() : null;
+}
+
+export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThemeChange }) {
   const [profile, setProfile] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', details: {} });
-  const [photoUrl, setPhotoUrl] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
-  const [file, setFile] = useState(null);
-  const [avatarFile, setAvatarFile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // editing: null | 'name' | 'phone' | 'avatar' | 'details' | 'theme' | 'password' | 'idphoto'
+  const [editing, setEditing] = useState(null);
+
+  // field values for single-field edits
+  const [fieldVal, setFieldVal] = useState('');
+  const [detailsVal, setDetailsVal] = useState({});
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [idFile, setIdFile] = useState(null);
+
+  // password form
+  const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' });
+
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
-  const loadPhoto = useCallback(async () => {
-    try {
-      const url = await getIdPhotoUrl();
-      setPhotoUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
-    } catch { /* no photo yet */ }
-  }, []);
+  // ── Data loading ──────────────────────────────────────────────────────────────
 
   const loadAvatar = useCallback(async () => {
     try {
       const url = await getAvatarUrl();
       setAvatarUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
-    } catch { /* no avatar yet */ }
+    } catch { /* no avatar */ }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -47,165 +71,546 @@ export default function ProfilePage() {
     try {
       const p = await getProfile();
       setProfile(p);
-      setForm({ name: p.name || '', phone: p.phone || '', details: p.profileDetails || {} });
-      if (p.hasIdPhoto) await loadPhoto();
       if (p.hasAvatar) await loadAvatar();
     } catch (e) {
       setErr(e.message || 'Could not load your profile.');
     } finally {
       setLoading(false);
     }
-  }, [loadPhoto, loadAvatar]);
+  }, [loadAvatar]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
   useEffect(() => () => { if (avatarUrl) URL.revokeObjectURL(avatarUrl); }, [avatarUrl]);
 
-  const setDetail = (key, value) => setForm((f) => ({ ...f, details: { ...f.details, [key]: value } }));
+  // ── Edit helpers ──────────────────────────────────────────────────────────────
 
-  const save = async () => {
-    setBusy('save'); setErr(''); setMsg('');
-    try {
-      const updated = await updateProfile({ name: form.name, phone: form.phone, profileDetails: form.details });
-      setProfile(updated);
-      // Reflect the saved name/phone in the topbar account menu immediately.
-      updateStoredAuthUser({ name: updated.name, phone: updated.phone });
-      setMsg('Account details saved.');
-    } catch (e) {
-      setErr(e.message || 'Could not save your details.');
-    } finally { setBusy(''); }
+  const startEdit = (field) => {
+    setEditing(field);
+    setMsg(''); setErr('');
+    if (field === 'name') setFieldVal(profile?.name || '');
+    if (field === 'phone') setFieldVal(profile?.phone || '');
+    if (field === 'details') setDetailsVal({ ...(profile?.profileDetails || {}) });
+    if (field === 'password') setPwForm({ current: '', newPw: '', confirm: '' });
+    if (field === 'avatar') setAvatarFile(null);
+    if (field === 'idphoto') setIdFile(null);
   };
 
-  const upload = async () => {
-    if (!file) { setErr('Choose a photo of your ID (PNG, JPG or JPEG).'); return; }
-    setBusy('photo'); setErr(''); setMsg('');
+  const cancelEdit = () => setEditing(null);
+
+  const flash = (ok, m) => { if (ok) setMsg(m); else setErr(m); };
+
+  // ── Save handlers ─────────────────────────────────────────────────────────────
+
+  const saveName = async () => {
+    setBusy('name'); setErr('');
     try {
-      const updated = await uploadIdPhoto(file);
-      setProfile(updated);
-      setFile(null);
-      await loadPhoto();
-      setMsg('ID photo uploaded.');
-    } catch (e) {
-      setErr(e.message || 'Upload failed.');
-    } finally { setBusy(''); }
+      const p = await updateProfile({ name: fieldVal });
+      setProfile(p);
+      updateStoredAuthUser({ name: p.name });
+      setEditing(null);
+      flash(true, 'Name updated.');
+    } catch (e) { flash(false, e.message || 'Could not save name.'); }
+    finally { setBusy(''); }
   };
 
-  const uploadHeadshot = async () => {
-    if (!avatarFile) { setErr('Choose a profile photo (PNG, JPG or JPEG).'); return; }
-    setBusy('avatar'); setErr(''); setMsg('');
+  const savePhone = async () => {
+    setBusy('phone'); setErr('');
     try {
-      const updated = await uploadAvatar(avatarFile);
-      setProfile(updated);
-      setAvatarFile(null);
+      const p = await updateProfile({ phone: fieldVal });
+      setProfile(p);
+      updateStoredAuthUser({ phone: p.phone });
+      setEditing(null);
+      flash(true, 'Phone number updated.');
+    } catch (e) { flash(false, e.message || 'Could not save phone.'); }
+    finally { setBusy(''); }
+  };
+
+  const saveDetails = async () => {
+    setBusy('details'); setErr('');
+    try {
+      const p = await updateProfile({ profileDetails: detailsVal });
+      setProfile(p);
+      setEditing(null);
+      flash(true, 'Contact details updated.');
+    } catch (e) { flash(false, e.message || 'Could not save details.'); }
+    finally { setBusy(''); }
+  };
+
+  const saveAvatar = async () => {
+    if (!avatarFile) { setErr('Choose a photo first.'); return; }
+    setBusy('avatar'); setErr('');
+    try {
+      const p = await uploadAvatar(avatarFile);
+      setProfile(p);
       await loadAvatar();
-      // Topbar avatar updates immediately; cache-bust the authenticated route.
       updateStoredAuthUser({ hasAvatar: true, avatarUrl: `/api/v1/auth/profile/avatar?t=${Date.now()}` });
-      setMsg('Profile photo updated.');
-    } catch (e) {
-      setErr(e.message || 'Upload failed.');
-    } finally { setBusy(''); }
+      setEditing(null);
+      flash(true, 'Profile photo updated.');
+    } catch (e) { flash(false, e.message || 'Upload failed.'); }
+    finally { setBusy(''); }
   };
+
+  const saveIdPhoto = async () => {
+    if (!idFile) { setErr('Choose a photo of your ID first.'); return; }
+    setBusy('idphoto'); setErr('');
+    try {
+      const p = await uploadIdPhoto(idFile);
+      setProfile(p);
+      setEditing(null);
+      flash(true, 'ID photo uploaded.');
+    } catch (e) { flash(false, e.message || 'Upload failed.'); }
+    finally { setBusy(''); }
+  };
+
+  const savePassword = async () => {
+    if (pwForm.newPw !== pwForm.confirm) { setErr('New passwords do not match.'); return; }
+    if (pwForm.newPw.length < 8) { setErr('New password must be at least 8 characters.'); return; }
+    setBusy('password'); setErr('');
+    try {
+      await changePassword(pwForm.current, pwForm.newPw);
+      setEditing(null);
+      setPwForm({ current: '', newPw: '', confirm: '' });
+      flash(true, 'Password updated successfully.');
+    } catch (e) { flash(false, e.message || 'Could not update password.'); }
+    finally { setBusy(''); }
+  };
+
+  const applyTheme = (v) => {
+    onThemeChange?.(v);
+    setEditing(null);
+    flash(true, `Theme set to ${v}.`);
+  };
+
+  // ── Address summary ───────────────────────────────────────────────────────────
+
+  const addressSummary = () => {
+    const d = profile?.profileDetails || {};
+    const parts = [d.address, d.city, d.province, d.country].filter(Boolean);
+    return parts.length ? parts.join(', ') : null;
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="acct-page">
+        <div className="card" style={{ padding: 28, color: 'var(--text-muted)' }}>Loading account…</div>
+      </div>
+    );
+  }
+
+  const currentTheme = themeProp || 'dark';
 
   return (
-    <>
-      <div className="page-head">
+    <div className="acct-page">
+
+      {/* Page head */}
+      <div className="acct-page-head">
         <div>
-          <div className="page-eyebrow">Account</div>
-          <h1>Your profile</h1>
-          <p className="sub">Keep your contact and identity details up to date. We use these to verify payments and contact you about your hosting.</p>
+          <div className="acct-eyebrow">Account</div>
+          <h1>Account settings</h1>
+          <p>Manage your profile, security settings, and dashboard preferences.</p>
+        </div>
+        <div className="acct-badge">
+          <span className="acct-badge-dot" />
+          Personal account
         </div>
       </div>
 
-      {err && <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger)' }}>{err}</div>}
-      {msg && <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--accent)' }}>{msg}</div>}
+      {/* Flash */}
+      {msg && <div className="acct-flash ok">{msg}</div>}
+      {err && <div className="acct-flash err">{err}</div>}
 
-      {loading ? (
-        <div className="card" style={{ padding: 28 }}>Loading…</div>
-      ) : (
-        <div style={{ display: 'grid', gap: 16 }}>
-          {/* Identity (read-only) + contact */}
-          <div className="card" style={{ padding: 18 }}>
-            <div className="page-eyebrow" style={{ marginBottom: 10 }}>Contact details</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-              <Field label="Email (sign-in)"><input className="input" value={profile?.email || ''} disabled /></Field>
-              <Field label="Full name"><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Your name" /></Field>
-              <Field label="Phone"><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. +675 7000 0000" /></Field>
+      {/* ── Main panel ── */}
+      <div className="acct-panel">
+
+        {/* ──── Profile ──── */}
+        <div className="acct-section" id="profile">
+          <div className="acct-section-head">
+            <div>
+              <h2>Profile</h2>
+              <p>Your account name, email address, and profile image.</p>
             </div>
           </div>
+          <div className="acct-rows">
 
-          {/* Personal details */}
-          <div className="card" style={{ padding: 18 }}>
-            <div className="page-eyebrow" style={{ marginBottom: 10 }}>Personal details</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-              {DETAIL_FIELDS.map((f) => (
-                <Field key={f.key} label={f.label}>
-                  <input className="input" value={form.details?.[f.key] || ''} onChange={(e) => setDetail(f.key, e.target.value)} />
-                </Field>
-              ))}
+            {/* Full Name */}
+            <div className="acct-row">
+              <div className="acct-row-label">Full Name</div>
+              {editing === 'name' ? (
+                <>
+                  <input
+                    className="acct-input"
+                    value={fieldVal}
+                    onChange={(e) => setFieldVal(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="acct-btn primary" disabled={busy === 'name'} onClick={saveName}>
+                      {busy === 'name' ? 'Saving…' : 'Save'}
+                    </button>
+                    <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{fmt(profile?.name) || '—'}</strong>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('name')}>Edit</button>
+                </>
+              )}
             </div>
-            <div className="row" style={{ marginTop: 14 }}>
-              <button className="btn btn-primary" disabled={busy === 'save'} onClick={save}>
-                <ICN.CheckCircle size={14} /> {busy === 'save' ? 'Saving…' : 'Save details'}
-              </button>
-            </div>
-          </div>
 
-          {/* Profile photo / Headshot (used as your account avatar) */}
-          <div className="card" style={{ padding: 18 }}>
-            <div className="page-eyebrow" style={{ marginBottom: 10 }}>Profile photo / Headshot</div>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <div style={{ flex: '0 0 120px' }}>
-                {avatarUrl
-                  ? <img src={avatarUrl} alt="Your profile" style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)' }} />
-                  : <div style={{ width: 120, height: 120, borderRadius: '50%', background: 'var(--bg-deep)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}><ICN.User size={40} /></div>}
+            {/* Email (read-only) */}
+            <div className="acct-row">
+              <div className="acct-row-label">Email</div>
+              <div className="acct-row-value">
+                <strong>{profile?.email}</strong>
+                <div className="acct-row-hint">Used to sign in to your account.</div>
               </div>
-              <div style={{ flex: '1 1 280px' }}>
-                <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-                  This is used as your account avatar across the dashboard (PNG, JPG or JPEG, up to 5MB). It is separate from your private ID photo.
-                </div>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <input type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" onChange={(e) => setAvatarFile(e.target.files?.[0] || null)} />
-                  <button className="btn btn-primary btn-sm" disabled={busy === 'avatar' || !avatarFile} onClick={uploadHeadshot}>
-                    <ICN.Cloud size={13} /> {busy === 'avatar' ? 'Uploading…' : (profile?.hasAvatar ? 'Replace photo' : 'Upload photo')}
-                  </button>
-                </div>
-              </div>
+              <button className="acct-btn" disabled title="Email changes are not supported yet">Edit</button>
             </div>
-          </div>
 
-          {/* ID photo (private verification document) */}
-          <div className="card" style={{ padding: 18 }}>
-            <div className="page-eyebrow" style={{ marginBottom: 10 }}>ID photo</div>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <div style={{ flex: '0 0 220px' }}>
-                {photoUrl
-                  ? <img src={photoUrl} alt="Your ID" style={{ maxWidth: 220, borderRadius: 8, border: '1px solid var(--border)' }} />
-                  : <div className="muted" style={{ fontSize: 13 }}>{profile?.hasIdPhoto ? 'Loading…' : 'No ID photo uploaded yet.'}</div>}
-              </div>
-              <div style={{ flex: '1 1 280px' }}>
-                <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-                  Upload a clear photo or scan of your government ID (PNG, JPG or JPEG, up to 5MB). Only you and an administrator can view it.
-                </div>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <input type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                  <button className="btn btn-primary btn-sm" disabled={busy === 'photo' || !file} onClick={upload}>
-                    <ICN.Cloud size={13} /> {busy === 'photo' ? 'Uploading…' : (profile?.hasIdPhoto ? 'Replace ID photo' : 'Upload ID photo')}
-                  </button>
-                </div>
-              </div>
+            {/* Avatar */}
+            <div className="acct-row">
+              <div className="acct-row-label">Avatar</div>
+              {editing === 'avatar' ? (
+                <>
+                  <div className="acct-file-row">
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                      onChange={(e) => setAvatarFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="acct-btn primary" disabled={busy === 'avatar' || !avatarFile} onClick={saveAvatar}>
+                      {busy === 'avatar' ? 'Uploading…' : 'Upload'}
+                    </button>
+                    <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="acct-row-value">
+                    {avatarUrl
+                      ? <img className="acct-avatar-img" src={avatarUrl} alt="Your avatar" />
+                      : <div className="acct-avatar-box">{initials(profile?.name)}</div>}
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('avatar')}>Edit</button>
+                </>
+              )}
             </div>
+
           </div>
         </div>
-      )}
-    </>
-  );
-}
 
-function Field({ label, children }) {
-  return (
-    <div>
-      <label className="label" style={{ display: 'block', marginBottom: 4 }}>{label}</label>
-      {children}
+        {/* ──── Appearance ──── */}
+        <div className="acct-section" id="appearance">
+          <div className="acct-section-head">
+            <div>
+              <h2>Appearance</h2>
+              <p>Theme and display preferences for the dashboard.</p>
+            </div>
+          </div>
+          <div className="acct-rows">
+
+            {/* Dashboard Theme */}
+            <div className="acct-row">
+              <div className="acct-row-label">Dashboard Theme</div>
+              {editing === 'theme' ? (
+                <>
+                  <div>
+                    <div className="acct-theme-seg">
+                      {['light', 'dark'].map((t) => (
+                        <button
+                          key={t}
+                          className={`acct-theme-opt${currentTheme === t ? ' active' : ''}`}
+                          onClick={() => applyTheme(t)}
+                        >
+                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1)}</strong>
+                    <div className="acct-row-mono">themeSetting</div>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('theme')}>Edit</button>
+                </>
+              )}
+            </div>
+
+            {/* High Contrast (placeholder) */}
+            <div className="acct-row">
+              <div className="acct-row-label">High Contrast</div>
+              <div className="acct-row-value">
+                <span className="acct-status">
+                  <span className="acct-status-dot" />
+                  Disabled
+                </span>
+                <div className="acct-row-hint">Increases visibility of interactive elements.</div>
+              </div>
+              <button className="acct-btn" disabled>Enable</button>
+            </div>
+
+          </div>
+        </div>
+
+        {/* ──── Account Security ──── */}
+        <div className="acct-section" id="security">
+          <div className="acct-section-head">
+            <div>
+              <h2>Account Security</h2>
+              <p>Password, login methods, and two-factor authentication.</p>
+            </div>
+          </div>
+          <div className="acct-rows">
+
+            {/* Password */}
+            <div className="acct-row">
+              <div className="acct-row-label">Password</div>
+              {editing !== 'password' && (
+                <>
+                  <div className="acct-row-value">
+                    <strong>••••••••</strong>
+                    <div className="acct-row-hint">Update your account password.</div>
+                  </div>
+                  <button className="acct-btn primary" onClick={() => startEdit('password')}>Update</button>
+                </>
+              )}
+            </div>
+
+            {/* Password expanded form */}
+            {editing === 'password' && (
+              <div className="acct-form-block">
+                <div className="acct-row-label">Change Password</div>
+                <div className="acct-form-grid">
+                  <div className="acct-field">
+                    <label>Current Password</label>
+                    <input
+                      type="password"
+                      className="acct-input"
+                      value={pwForm.current}
+                      onChange={(e) => setPwForm({ ...pwForm, current: e.target.value })}
+                      autoFocus
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <div className="acct-field">
+                    <label>New Password</label>
+                    <input
+                      type="password"
+                      className="acct-input"
+                      value={pwForm.newPw}
+                      onChange={(e) => setPwForm({ ...pwForm, newPw: e.target.value })}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="acct-field">
+                    <label>Confirm New Password</label>
+                    <input
+                      type="password"
+                      className="acct-input"
+                      value={pwForm.confirm}
+                      onChange={(e) => setPwForm({ ...pwForm, confirm: e.target.value })}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+                <div className="acct-form-actions">
+                  <button className="acct-btn primary" disabled={busy === 'password'} onClick={savePassword}>
+                    {busy === 'password' ? 'Saving…' : 'Update Password'}
+                  </button>
+                  <button className="acct-btn" onClick={() => { cancelEdit(); setPwForm({ current: '', newPw: '', confirm: '' }); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Login Method */}
+            <div className="acct-row">
+              <div className="acct-row-label">Login Method</div>
+              <div className="acct-row-value">
+                <strong>{profile?.email}</strong>
+                <div className="acct-row-hint">Your account is accessed using this email address.</div>
+              </div>
+              <button className="acct-btn" disabled>Options</button>
+            </div>
+
+            {/* Two-Factor Auth */}
+            <div className="acct-row">
+              <div className="acct-row-label">Two-Factor Auth</div>
+              <div className="acct-row-value">
+                <span className="acct-status">
+                  <span className="acct-status-dot" />
+                  Disabled
+                </span>
+                <div className="acct-row-hint">Time-based OTP compatible with major authenticator apps.</div>
+              </div>
+              <button className="acct-btn" disabled>Enable</button>
+            </div>
+
+          </div>
+        </div>
+
+        {/* ──── Contact Details ──── */}
+        <div className="acct-section" id="contact">
+          <div className="acct-section-head">
+            <div>
+              <h2>Contact Details</h2>
+              <p>Phone number and postal address information.</p>
+            </div>
+          </div>
+          <div className="acct-rows">
+
+            {/* Phone */}
+            <div className="acct-row">
+              <div className="acct-row-label">Phone</div>
+              {editing === 'phone' ? (
+                <>
+                  <input
+                    className="acct-input"
+                    value={fieldVal}
+                    onChange={(e) => setFieldVal(e.target.value)}
+                    placeholder="+675 7000 0000"
+                    onKeyDown={(e) => e.key === 'Enter' && savePhone()}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="acct-btn primary" disabled={busy === 'phone'} onClick={savePhone}>
+                      {busy === 'phone' ? 'Saving…' : 'Save'}
+                    </button>
+                    <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{fmt(profile?.phone) || '—'}</strong>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('phone')}>Edit</button>
+                </>
+              )}
+            </div>
+
+            {/* Address */}
+            <div className="acct-row">
+              <div className="acct-row-label">Address</div>
+              {editing !== 'details' && (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{addressSummary() || '—'}</strong>
+                    {profile?.profileDetails?.country && (
+                      <div className="acct-row-hint">{profile.profileDetails.country}</div>
+                    )}
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('details')}>Edit</button>
+                </>
+              )}
+            </div>
+
+            {/* Address expanded form */}
+            {editing === 'details' && (
+              <div className="acct-form-block">
+                <div className="acct-row-label">Address Details</div>
+                <div className="acct-form-grid">
+                  {DETAIL_FIELDS.map((f) => (
+                    <div key={f.key} className="acct-field">
+                      <label>{f.label}</label>
+                      <input
+                        className="acct-input"
+                        value={detailsVal[f.key] || ''}
+                        onChange={(e) => setDetailsVal({ ...detailsVal, [f.key]: e.target.value })}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="acct-form-actions">
+                  <button className="acct-btn primary" disabled={busy === 'details'} onClick={saveDetails}>
+                    {busy === 'details' ? 'Saving…' : 'Save Details'}
+                  </button>
+                  <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+
+        {/* ──── Identity Verification ──── */}
+        <div className="acct-section" id="identity">
+          <div className="acct-section-head">
+            <div>
+              <h2>Identity Verification</h2>
+              <p>Government ID photo for payment and account verification. Only visible to you and administrators.</p>
+            </div>
+          </div>
+          <div className="acct-rows">
+
+            <div className="acct-row">
+              <div className="acct-row-label">ID Document</div>
+              {editing !== 'idphoto' && (
+                <>
+                  <div className="acct-row-value">
+                    <span className={`acct-status${profile?.hasIdPhoto ? ' on' : ''}`}>
+                      <span className="acct-status-dot" />
+                      {profile?.hasIdPhoto ? 'Uploaded' : 'Not uploaded'}
+                    </span>
+                    <div className="acct-row-hint">PNG, JPG or JPEG, up to 5 MB.</div>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('idphoto')}>
+                    {profile?.hasIdPhoto ? 'Replace' : 'Upload'}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {editing === 'idphoto' && (
+              <div className="acct-form-block">
+                <div className="acct-row-label">Upload ID Photo</div>
+                <div className="acct-file-row">
+                  <input
+                    type="file"
+                    accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                    onChange={(e) => setIdFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+                <div className="acct-form-actions">
+                  <button className="acct-btn primary" disabled={busy === 'idphoto' || !idFile} onClick={saveIdPhoto}>
+                    {busy === 'idphoto' ? 'Uploading…' : 'Upload'}
+                  </button>
+                  <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+
+      </div>{/* end .acct-panel */}
+
+      {/* ── Danger Zone ── */}
+      <div className="acct-danger-panel">
+        <div className="acct-section-head">
+          <div>
+            <h2>Delete Account</h2>
+            <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
+          </div>
+          <button className="acct-btn danger" disabled title="Contact support to delete your account">
+            Delete Account
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }

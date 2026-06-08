@@ -15,6 +15,7 @@ import {
   logoutUser,
   refreshSession,
   registerUser,
+  changePassword,
 } from '../services/authService.js';
 import { streamUserIdPhoto, streamUserAvatar } from '../services/adminReceiptService.js';
 
@@ -124,6 +125,16 @@ const AuthController = {
   viewAvatar: async (req, res, next) => {
     try {
       await streamUserAvatar({ userId: req.user?.id, res, viewerUserId: req.user?.id });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  changePassword: async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = req.body || {};
+      await changePassword(req.user?.id, currentPassword, newPassword);
+      res.ok({ message: 'Password updated successfully.' });
     } catch (error) {
       next(error);
     }

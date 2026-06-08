@@ -53,6 +53,13 @@ export async function uploadAvatar(file) {
   return result?.data ?? result;
 }
 
+/** Change the caller's own password. Requires currentPassword unless account has no password yet. */
+export const changePassword = (currentPassword, newPassword) =>
+  liveApiRequest('/v1/auth/profile/password', {
+    method: 'PATCH',
+    body: { currentPassword, newPassword },
+  });
+
 /** Returns an object URL for the caller's own avatar (caller revokes when done). */
 export async function getAvatarUrl() {
   const response = await fetch(liveApiUrl('/v1/auth/profile/avatar'), { headers: { ...authHeaders() } });

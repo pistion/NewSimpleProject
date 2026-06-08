@@ -244,6 +244,24 @@ export async function setOwnIdPhotoPath(userId, filePath) {
   return toProfile(user);
 }
 
+/** Change the caller's own password. Requires current password unless the account has no password yet. */
+export async function changePassword(userId, currentPassword, newPassword) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  if (!newPassword || String(newPassword).length < 8) {
+    throw httpError('New password must be at least 8 characters.', 400);
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+  if (user.passwordHash) {
+    if (!currentPassword) throw httpError('Current password is required.', 400);
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) throw httpError('Current password is incorrect.', 401);
+  }
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  return { success: true };
+}
+
 /** Record the SSD path of the caller's own profile avatar/headshot. */
 export async function setOwnAvatarPath(userId, filePath) {
   if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);

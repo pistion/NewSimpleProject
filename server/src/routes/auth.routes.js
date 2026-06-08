@@ -98,5 +98,6 @@ router.post('/profile/id-photo', authMiddleware, idPhotoUpload.single('idPhoto')
 router.get('/profile/id-photo', authMiddleware, AuthController.viewIdPhoto);
 router.post('/profile/avatar', authMiddleware, avatarUpload.single('avatar'), AuthController.uploadAvatar);
 router.get('/profile/avatar', authMiddleware, AuthController.viewAvatar);
+router.patch('/profile/password', authMiddleware, AuthController.changePassword);
 
 export default router;

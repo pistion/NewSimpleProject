@@ -36,7 +36,7 @@ import LoginPage from './features/auth/LoginPage.jsx';
 import SignupPage from './features/auth/SignupPage.jsx';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "dark",
+  "theme": (() => { try { return localStorage.getItem('glondia-theme') || 'dark'; } catch { return 'dark'; } })(),
   "accent": "#198754",
   "density": "regular",
   "fontPair": "serif-sans"
@@ -228,7 +228,7 @@ export default function App() {
       case "activity":          return <ActivityPage />;
       case "admin":             return <AdminPage navigate={navigate} />;
       case "billing":           return <BillingPage navigate={navigate} />;
-      case "profile":           return <ProfilePage navigate={navigate} />;
+      case "profile":           return <ProfilePage navigate={navigate} theme={t.theme} onThemeChange={(v) => { setTweak('theme', v); try { localStorage.setItem('glondia-theme', v); } catch {} }} />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
       case "vps-create":        return <VpsCreateWizard navigate={navigate} initialPlan={route.params?.plan || ''} initialPlanType={route.params?.planType || ''} />;
