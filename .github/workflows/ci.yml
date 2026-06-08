@@ -26,4 +26,16 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma validate
+
+      # Syntax-only check — node --check parses but never executes files,
+      # so server entry-points and async top-level code can't hang the runner.
+      - name: Syntax check (server JS)
+        run: |
+          find server/src -name "*.js" \
+            -not -path "*/node_modules/*" \
+            -not -name "*.min.js" \
+            -not -name "*.cjs" | while read f; do
+              node --check "$f" 2>&1 && true || { echo "SYNTAX ERROR: $f"; exit 1; }
+            done
+
       - run: npm run build
