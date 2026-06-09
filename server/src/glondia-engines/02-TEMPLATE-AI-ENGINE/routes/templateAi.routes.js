@@ -7,7 +7,13 @@ import { requireFeature } from '../../../middleware/featureFlag.js';
 import authMiddleware from '../../../middleware/authMiddleware.js';
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
-import { suggestSitemapForPlan } from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
+import {
+  suggestSitemapForPlan,
+  autofillOptionalBrief,
+  suggestSectionsForPage,
+  suggestWireframe,
+} from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
+import { getSitePlan } from '../store/sitePlanStore.js';
 
 const router = express.Router();
 
@@ -143,10 +149,53 @@ router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, s
 router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
 router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
 
-// AI refinement — requires AI_BUILDER feature flag
-router.post('/plans/:planId/ai/suggest-sitemap', requireAiBuilder, async (req, res, next) => {
+// ── AI plan helpers ── all require AI_BUILDER feature flag + plan ownership ──
+
+// Helper: validate plan exists and caller owns it (or is admin)
+async function assertAiPlanAccess(planId, user) {
+  const plan = await getSitePlan(planId);
+  if (!plan) { const e = new Error('Plan not found.'); e.status = 404; e.expose = true; throw e; }
+  if (user?.role === 'admin') return plan;
+  const owner = plan.userId || plan.ownerUserId || null;
+  if (!user?.id || owner !== user.id) {
+    const e = new Error('You do not have access to this site plan.'); e.status = 403; e.expose = true; throw e;
+  }
+  return plan;
+}
+
+// Suggest/refine full sitemap
+router.post('/plans/:planId/ai/suggest-sitemap', requireAiBuilder, authMiddleware, async (req, res, next) => {
   try {
+    await assertAiPlanAccess(req.params.planId, req.user);
     const result = await suggestSitemapForPlan(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Autofill optional brief fields (never touches businessName, industry, offer)
+router.post('/plans/:planId/ai/autofill-optional-brief', requireAiBuilder, authMiddleware, async (req, res, next) => {
+  try {
+    await assertAiPlanAccess(req.params.planId, req.user);
+    const result = await autofillOptionalBrief(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Suggest improved sections for one specific page
+router.post('/plans/:planId/ai/suggest-sections', requireAiBuilder, authMiddleware, async (req, res, next) => {
+  try {
+    await assertAiPlanAccess(req.params.planId, req.user);
+    const { pageId } = req.body || {};
+    const result = await suggestSectionsForPage(req.params.planId, pageId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Generate wireframe layout guidance from sitemap + style
+router.post('/plans/:planId/ai/suggest-wireframe', requireAiBuilder, authMiddleware, async (req, res, next) => {
+  try {
+    await assertAiPlanAccess(req.params.planId, req.user);
+    const result = await suggestWireframe(req.params.planId);
     res.json({ data: result });
   } catch (e) { next(e); }
 });
