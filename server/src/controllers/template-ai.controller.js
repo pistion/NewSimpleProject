@@ -8,7 +8,9 @@ import { makeId } from '../services/hostingStore.js';
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/store/templateSiteStore.js';
 import { getTemplateDetails, listTemplateCatalog } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/01-TEMPLATE-LIBRARY-MOUNTAIN/templateSelection.stage.js';
 import { applyQuestionnaireDataToGeneratedSource, prepareTemplateGeneratedSource } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/02-TEMPLATE-SOURCE-MOUNTAIN/templateSource.stage.js';
+import { buildGeneratedTemplateTargetRoot } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
 import { generateViteStaticSiteFromTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/finalSourcePackager.stage.js';
+import { scanGeneratedTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/generatedTemplateSiteScanner.stage.js';
 import { run as runGeneratedSiteToRender } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/pipelines/generatedSiteToRender.pipeline.js';
 import renderApiService from '../services/renderApiService.js';
 import { existsSync } from 'node:fs';
@@ -37,6 +39,7 @@ async function getSettings(req, res, next) {
       templateRepo,
       templateRoot: process.env.TEMPLATE_LIBRARY_ROOT || 'templates',
       defaultRootDirectory: process.env.RENDER_GENERATED_SITES_ROOT_DIR || null,
+      generatedTemplateSitesRoot: process.env.RENDER_GENERATED_TEMPLATE_SITES_ROOT_DIR || process.env.GENERATED_TEMPLATE_SITES_ROOT_DIR || 'generated-template-sites',
       missing: [
         !openAiConfigured ? 'OPENAI_API_KEY' : null,
         !sourceRepoConfigured ? 'RENDER_GENERATED_SITES_REPO_URL' : null,
@@ -113,7 +116,14 @@ async function createSite(req, res, next) {
     if (templateId.length > 100) return res.status(400).json({ error: 'templateId is too long.' });
     if (answers !== undefined && (typeof answers !== 'object' || Array.isArray(answers))) return res.status(400).json({ error: 'answers must be an object.' });
     if (tailoredPages !== undefined && !Array.isArray(tailoredPages)) return res.status(400).json({ error: 'tailoredPages must be an array.' });
-    const site = await createTemplateSite({ templateId, answers: answers || {}, tailoredPages: tailoredPages || [] });
+    const ownerUserId = req.user?.id || null;
+    const site = await createTemplateSite({
+      templateId,
+      answers: { ...(answers || {}), userId: ownerUserId },
+      tailoredPages: tailoredPages || [],
+      userId: ownerUserId,
+      ownerUserId,
+    });
     const updates = {};
     if (siteName) updates.siteName = String(siteName).slice(0, 140);
     if (slug) updates.slug = slugify(slug);
@@ -128,6 +138,7 @@ async function getSite(req, res, next) {
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     const site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found.` });
+    if (!canAccessTemplateSite(req.user, site)) return res.status(403).json({ error: 'You do not have access to this template site.' });
     res.json(site);
   } catch (err) { next(err); }
 }
@@ -161,9 +172,10 @@ async function prepareSite(req, res, next) {
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     const site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found.` });
+    if (!canAccessTemplateSite(req.user, site)) return res.status(403).json({ error: 'You do not have access to this template site.' });
     const mergedAnswers = { ...(site.answers || {}), ...(req.body?.answers || {}) };
     const siteForPrepare = { ...site, answers: mergedAnswers };
-    const generatedSite = await prepareTemplateGeneratedSource(siteForPrepare, req.body || {});
+    const generatedSite = await prepareTemplateGeneratedSource(siteForPrepare, { ...(req.body || {}), userId: site.userId || req.user?.id });
     const updated = await updateTemplateSite(siteId, {
       answers: mergedAnswers,
       siteName: req.body?.siteName || site.siteName || generatedSite.siteProfile?.siteName,
@@ -183,8 +195,9 @@ async function aiEditSite(req, res, next) {
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     let site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found.` });
+    if (!canAccessTemplateSite(req.user, site)) return res.status(403).json({ error: 'You do not have access to this template site.' });
     if (!site.generatedSite?.siteDir) {
-      const generatedSite = await prepareTemplateGeneratedSource(site, req.body || {});
+      const generatedSite = await prepareTemplateGeneratedSource(site, { ...(req.body || {}), userId: site.userId || req.user?.id });
       site = await updateTemplateSite(siteId, { status: 'prepared', generatedSite, pages: generatedSite.pages || [] });
     }
 
@@ -197,7 +210,26 @@ async function aiEditSite(req, res, next) {
     const original = await readFile(indexPath, 'utf8');
     const tailored = await tailorHtmlTemplate(original, answers);
     await writeFile(indexPath, tailored, 'utf8');
-    await applyQuestionnaireDataToGeneratedSource(site.generatedSite.siteDir, answers);
+    await applyQuestionnaireDataToGeneratedSource(site.generatedSite.siteDir, answers, {
+      site,
+      template: site.templateMetadata || site.generatedSite.templateMetadata || {},
+      slug: site.slug || answers.slug,
+      targetRoot: site.generatedSite.githubTargetRoot || buildGeneratedTemplateTargetRoot({ userId: site.userId || req.user?.id, siteId, slug: site.slug || answers.slug || answers.businessName }),
+      sourceReference: `templates/${site.templateId}`,
+    });
+    const scan = await scanGeneratedTemplateSite(site.generatedSite.siteDir, {
+      siteId,
+      siteName: site.siteName || answers.siteName || answers.businessName,
+      slug: site.slug || answers.slug || answers.businessName,
+      templateId: site.templateId,
+      framework: site.generatedSite.framework,
+      packageManager: site.generatedSite.packageManager,
+      buildCommand: site.generatedSite.buildCommand,
+      publishDirectory: site.generatedSite.publishDirectory,
+      rootDirectory: site.generatedSite.githubTargetRoot || buildGeneratedTemplateTargetRoot({ userId: site.userId || req.user?.id, siteId, slug: site.slug || answers.slug || answers.businessName }),
+      repoUrl: req.body?.repoUrl || req.body?.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || 'https://github.com/pistion/glondia-generated-sites.git',
+      branch: req.body?.branch || 'main',
+    });
 
     const updated = await updateTemplateSite(siteId, {
       answers,
@@ -206,6 +238,8 @@ async function aiEditSite(req, res, next) {
       generatedSite: {
         ...site.generatedSite,
         pages: [{ title: 'Home', path: '/', html: tailored }],
+        scan,
+        files: Array.from(new Set([...(site.generatedSite.files || []), ...(scan.manifestFiles || [])])),
         aiEdit: {
           model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
           changedFiles: ['index.html'],
@@ -223,7 +257,8 @@ async function packageSite(req, res, next) {
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     const site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found. Complete the AI intake to create it.` });
-    const handoff = await packageTemplateSiteForHosting(site, req.body || {});
+    if (!canAccessTemplateSite(req.user, site)) return res.status(403).json({ error: 'You do not have access to this template site.' });
+    const handoff = await packageTemplateSiteForHosting(site, { ...(req.body || {}), userId: site.userId || req.user?.id });
     await updateTemplateSite(siteId, {
       status: 'ready_for_hosting',
       generatedSite: handoff.generatedSite,
@@ -239,8 +274,9 @@ async function deploySite(req, res, next) {
     if (!siteId) return res.status(400).json({ error: 'siteId is required.' });
     const site = await getTemplateSite(siteId);
     if (!site) return res.status(404).json({ error: `Site "${siteId}" not found. Complete the AI intake to create it.` });
+    if (!canAccessTemplateSite(req.user, site)) return res.status(403).json({ error: 'You do not have access to this template site.' });
 
-    const handoff = await packageTemplateSiteForHosting(site, req.body || {});
+    const handoff = await packageTemplateSiteForHosting(site, { ...(req.body || {}), userId: site.userId || req.user?.id });
     const deployment = await runGeneratedSiteToRender({
       ...(req.body || {}),
       ...handoff,
@@ -297,6 +333,8 @@ async function packageTemplateSiteForHosting(site, options = {}) {
   } = options || {};
   const finalSiteName = siteName || site.answers?.businessName || site.templateId;
   const finalSlug = slugify(slug || finalSiteName || site.siteId);
+  const ownerUserId = options.userId || site.userId || site.ownerUserId || site.answers?.userId || 'anonymous';
+  const templateTargetRoot = buildGeneratedTemplateTargetRoot({ userId: ownerUserId, siteId: site.siteId, slug: finalSlug });
   let generatedSite = site.generatedSite;
   if (!generatedSite?.siteDir) {
     if (Array.isArray(site.pages) && site.pages.length > 0) {
@@ -307,8 +345,32 @@ async function packageTemplateSiteForHosting(site, options = {}) {
         publishDirectory,
       });
     } else {
-      generatedSite = await prepareTemplateGeneratedSource(site, { ...options, siteName: finalSiteName, slug: finalSlug });
+      generatedSite = await prepareTemplateGeneratedSource(site, { ...options, userId: ownerUserId, siteName: finalSiteName, slug: finalSlug });
     }
+  }
+  const scan = generatedSite?.siteDir
+    ? await scanGeneratedTemplateSite(generatedSite.siteDir, {
+      siteId: site.siteId,
+      userId: ownerUserId,
+      siteName: finalSiteName,
+      slug: finalSlug,
+      templateId: site.templateId,
+      framework: generatedSite.framework,
+      packageManager: generatedSite.packageManager,
+      buildCommand: generatedSite.buildCommand || buildCommand,
+      publishDirectory: generatedSite.publishDirectory || publishDirectory,
+      rootDirectory: rootDirectory || templateTargetRoot,
+      repoUrl: options.repoUrl || options.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || 'https://github.com/pistion/glondia-generated-sites.git',
+      branch,
+    })
+    : null;
+  if (scan) {
+    generatedSite = {
+      ...generatedSite,
+      scan,
+      githubTargetRoot: rootDirectory || templateTargetRoot,
+      files: Array.from(new Set([...(generatedSite.files || []), ...(scan.manifestFiles || [])])),
+    };
   }
 
   return {
@@ -318,6 +380,10 @@ async function packageTemplateSiteForHosting(site, options = {}) {
     templateId: site.templateId,
     siteName: finalSiteName,
     slug: finalSlug,
+    branch,
+    rootDirectory: rootDirectory || templateTargetRoot,
+    buildCommand: generatedSite.buildCommand || buildCommand,
+    publishDirectory: generatedSite.publishDirectory || publishDirectory,
     sourceArtifactId: generatedSite.siteDir,
     previewUrl: `/api/template-ai/sites/${site.siteId}/preview`,
     generatedSite,
@@ -326,7 +392,7 @@ async function packageTemplateSiteForHosting(site, options = {}) {
       plan,
       environment,
       branch,
-      rootDirectory: rootDirectory || [process.env.RENDER_GENERATED_SITES_ROOT_DIR || 'generated-sites', finalSlug].filter(Boolean).join('/'),
+      rootDirectory: rootDirectory || templateTargetRoot,
       buildCommand: generatedSite.buildCommand || buildCommand,
       publishDirectory: generatedSite.publishDirectory || publishDirectory,
     },
@@ -334,5 +400,11 @@ async function packageTemplateSiteForHosting(site, options = {}) {
 }
 
 function slugify(value) { return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site'; }
+
+function canAccessTemplateSite(user, site) {
+  if (user?.role === 'admin') return true;
+  const owner = site?.userId || site?.ownerUserId || site?.answers?.userId || null;
+  return Boolean(user?.id && owner && user.id === owner);
+}
 
 export const templateAiController = { getSettings, listTemplates, getTemplate, startIntake, sendMessage, generateTailored, createSite, getSite, previewSite, prepareSite, aiEditSite, packageSite, deploySite, getTemplatePreview };

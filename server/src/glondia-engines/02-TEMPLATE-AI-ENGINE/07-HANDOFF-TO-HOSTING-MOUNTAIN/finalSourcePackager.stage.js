@@ -1,10 +1,14 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import {
+  buildGeneratedTemplateTargetRoot,
+  buildTemplateCopyData,
+} from '../02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
 
 const rootDir = resolve(process.cwd());
 const fallbackDataDir = join(rootDir, '.glondia-data');
 const dataDir = resolve(process.env.DATA_DIR || fallbackDataDir);
-const generatedRoot = join(dataDir, 'generated-sites');
+const generatedRoot = join(dataDir, 'generated-template-sites');
 
 export async function generateViteStaticSiteFromTemplateSite(site, options = {}) {
   if (!site?.siteId) throw new Error('site.siteId is required to generate a static site.');
@@ -28,11 +32,22 @@ export async function generateViteStaticSiteFromTemplateSite(site, options = {})
   const siteProfile = {
     ...(site.answers || {}),
     siteId: site.siteId,
+    userId: options.userId || site.userId || site.ownerUserId || site.answers?.userId || 'anonymous',
     parentTemplateId: site.templateId,
     siteName,
     slug,
     generatedAt: new Date().toISOString(),
   };
+  const ownerUserId = options.userId || site.userId || site.ownerUserId || site.answers?.userId || 'anonymous';
+  const githubTargetRoot = buildGeneratedTemplateTargetRoot({ userId: ownerUserId, siteId: site.siteId, slug });
+  const templateCopyData = buildTemplateCopyData({
+    answers: { ...(site.answers || {}), userId: ownerUserId },
+    site: { ...site, userId: ownerUserId, siteName, slug },
+    template: { templateId: site.templateId, name: site.templateId, framework: 'vite-react', buildCommand: options.buildCommand || 'npm run build', publishDirectory: options.publishDirectory || 'dist' },
+    slug,
+    targetRoot: githubTargetRoot,
+    sourceReference: `templates/${site.templateId}`,
+  });
 
   const files = {
     'package.json': JSON.stringify({
@@ -60,6 +75,8 @@ export async function generateViteStaticSiteFromTemplateSite(site, options = {})
     'src/styles.css': buildCssSource(),
     'src/data/siteProfile.json': JSON.stringify(siteProfile, null, 2),
     'src/data/pages.json': JSON.stringify(safePages, null, 2),
+    'glondia-site-data.json': JSON.stringify(templateCopyData, null, 2),
+    'glondia-template-copy.json': JSON.stringify(templateCopyData, null, 2),
   };
 
   for (const [relativePath, content] of Object.entries(files)) {
@@ -75,6 +92,7 @@ export async function generateViteStaticSiteFromTemplateSite(site, options = {})
     publishDirectory: options.publishDirectory || 'dist',
     files: Object.keys(files),
     pages: safePages.map(({ title, path }) => ({ title, path })),
+    githubTargetRoot,
     siteProfile,
   };
 }

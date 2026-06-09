@@ -17,6 +17,7 @@
     "db:status": "prisma migrate status",
     "db:validate": "prisma validate",
     "db:preflight": "node scripts/pre-migration-check.mjs",
+    "templates:bootstrap": "node scripts/bootstrap-generated-template-repo.mjs",
     "predeploy": "npm run db:validate && npm run db:preflight && npm run build"
   },
   "dependencies": {

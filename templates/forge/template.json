@@ -1,0 +1,54 @@
+{
+  "templateId": "forge",
+  "name": "Forge",
+  "category": "Commerce",
+  "description": "A technical outdoor storefront template with shop, product, repair, field notes, and support routes ready for generated deployments.",
+  "framework": "vite-react",
+  "packageManager": "npm",
+  "buildCommand": "npm run build",
+  "publishDirectory": "dist",
+  "questionnaireProfile": "commerce-gear",
+  "previewImage": "",
+  "supportedPages": [
+    { "title": "Home", "path": "/" },
+    { "title": "Shop", "path": "/shop" },
+    { "title": "Product", "path": "/product" },
+    { "title": "Repair", "path": "/repair" },
+    { "title": "Field Notes", "path": "/field-notes" },
+    { "title": "Support", "path": "/support" }
+  ],
+  "supportedSections": [
+    "navigation",
+    "technical-hero",
+    "product-grid",
+    "spec-sheet",
+    "repair-intake",
+    "field-notes",
+    "support",
+    "newsletter",
+    "footer"
+  ],
+  "sectionSlotHints": {
+    "technical-hero": "Brand promise and core categories.",
+    "product-grid": "Durable product cards and prices.",
+    "repair-intake": "Post-purchase care or service workflow.",
+    "field-notes": "Blog, route reports, or customer education."
+  },
+  "placeholderHints": {
+    "businessName": "Public brand name.",
+    "industry": "Outdoor, gear, service, or commerce niche.",
+    "offer": "Main promise or featured collection.",
+    "audience": "Target customer group.",
+    "contactEmail": "Public support email.",
+    "location": "Store, studio, or service area.",
+    "slug": "Generated site slug."
+  },
+  "routes": [
+    "/",
+    "/shop",
+    "/product",
+    "/repair",
+    "/field-notes",
+    "/support"
+  ]
+}

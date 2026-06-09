@@ -1,0 +1,55 @@
+{
+  "templateId": "pulse-works",
+  "name": "Pulse Works",
+  "category": "Commerce",
+  "description": "A bold editorial commerce template for drops, capsule products, studio stories, and customer-ready storefront deployment.",
+  "framework": "vite-react",
+  "packageManager": "npm",
+  "buildCommand": "npm run build",
+  "publishDirectory": "dist",
+  "questionnaireProfile": "commerce-drop",
+  "previewImage": "",
+  "supportedPages": [
+    { "title": "Home", "path": "/" },
+    { "title": "Shop", "path": "/shop" },
+    { "title": "Product", "path": "/product" },
+    { "title": "Lookbook", "path": "/lookbook" },
+    { "title": "Studio", "path": "/studio" },
+    { "title": "Contact", "path": "/contact" }
+  ],
+  "supportedSections": [
+    "promo-bar",
+    "navigation",
+    "hero",
+    "drop-ticker",
+    "featured-products",
+    "lookbook",
+    "studio-story",
+    "contact-form",
+    "newsletter",
+    "footer"
+  ],
+  "sectionSlotHints": {
+    "hero": "Primary launch story and current offer.",
+    "featured-products": "Four to six sale-ready products.",
+    "lookbook": "Editorial image grid or campaign notes.",
+    "contact-form": "Customer inquiry form placeholder."
+  },
+  "placeholderHints": {
+    "businessName": "Public brand name.",
+    "industry": "Commerce niche or product category.",
+    "offer": "Main launch offer or drop name.",
+    "audience": "Target customer group.",
+    "contactEmail": "Public support or sales email.",
+    "location": "Studio, store, or service area.",
+    "slug": "Generated site slug."
+  },
+  "routes": [
+    "/",
+    "/shop",
+    "/product",
+    "/lookbook",
+    "/studio",
+    "/contact"
+  ]
+}

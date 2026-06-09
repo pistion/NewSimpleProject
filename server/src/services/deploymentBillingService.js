@@ -33,6 +33,7 @@ import {
   isAdminVia,
 } from './paymentVerificationGuards.js';
 import { createUserNotification } from './notificationService.js';
+import { archiveGeneratedSiteFolder } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSiteRepoCleanup.stage.js';
 import { renderCosts, estimatedProviderCostCents } from '../config/renderCosts.js';
 import {
   ensureTrialSubscription,
@@ -536,6 +537,20 @@ export async function expireDeployment({ deployment, order = null, action = null
     }
   }
 
+  const targetRoot = deployment.generatedSite?.githubTargetRoot || deployment.environmentConfiguration?.rootDirectory;
+  if (mode === DELETED && isGeneratedTemplateRoot(targetRoot)) {
+    try {
+      detail.githubArchive = await archiveGeneratedSiteFolder({
+        repoUrl: deployment.repoUrl || deployment.githubRepo || deployment.environmentConfiguration?.sourceRepository,
+        branch: deployment.githubBranch || deployment.environmentConfiguration?.branch || 'main',
+        targetRoot,
+        reason,
+      });
+    } catch (err) {
+      detail.githubArchive = { attempted: true, error: err.message };
+    }
+  }
+
   const isSubscriptionExpiry = reason === 'subscription_period_expired';
   const newStatus = mode === DELETED ? DELETED : 'payment_expired';
   const expiredMessage = isSubscriptionExpiry
@@ -596,6 +611,11 @@ export async function expireDeployment({ deployment, order = null, action = null
 
 function safeJson(text) {
   try { return JSON.parse(text || '{}'); } catch { return {}; }
+}
+
+function isGeneratedTemplateRoot(value = '') {
+  const root = String(process.env.RENDER_GENERATED_TEMPLATE_SITES_ROOT_DIR || process.env.GENERATED_TEMPLATE_SITES_ROOT_DIR || 'generated-template-sites').replace(/^\/+|\/+$/g, '');
+  return String(value || '').replace(/\\/g, '/').startsWith(`${root}/`);
 }
 
 export default {

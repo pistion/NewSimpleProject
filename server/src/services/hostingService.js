@@ -1,6 +1,7 @@
 import renderApiService from './renderApiService.js';
 import deploymentStatusService from './deploymentStatusService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
+import { archiveGeneratedSiteFolder } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSiteRepoCleanup.stage.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status constants — avoids bare literals that trip linter word-blockers
@@ -128,6 +129,8 @@ class HostingService {
       renderDeleted: false,
       renderResult: null,
       localFilesRemoved: false,
+      repoArchived: false,
+      repoArchiveResult: null,
     };
 
     // ── 1. Delete from Render ──────────────────────────────────────────────
@@ -154,6 +157,21 @@ class HostingService {
         await rm(siteDir, { recursive: true, force: true });
         result.localFilesRemoved = true;
       } catch { /* best-effort */ }
+    }
+
+    const targetRoot = deployment.generatedSite?.githubTargetRoot || deployment.environmentConfiguration?.rootDirectory;
+    if (targetRoot && isGeneratedTemplateRoot(targetRoot)) {
+      try {
+        result.repoArchiveResult = await archiveGeneratedSiteFolder({
+          repoUrl: deployment.repoUrl || deployment.githubRepo || deployment.environmentConfiguration?.sourceRepository,
+          branch: deployment.githubBranch || deployment.environmentConfiguration?.branch || 'main',
+          targetRoot,
+          reason: 'customer_deleted_deployment',
+        });
+        result.repoArchived = result.repoArchiveResult?.attempted === true && !result.repoArchiveResult?.errors?.length;
+      } catch (error) {
+        result.repoArchiveResult = { attempted: true, error: error.message };
+      }
     }
 
     // ── 3. Purge record + logs from store entirely ────────────────────────
@@ -1012,6 +1030,11 @@ function appendHostingLog(store, deploymentId, message, level = 'info') {
     createdAt: nowIso(),
   };
   store.logs[deploymentId] = [entry, ...(store.logs[deploymentId] || [])];
+}
+
+function isGeneratedTemplateRoot(value = '') {
+  const root = String(process.env.RENDER_GENERATED_TEMPLATE_SITES_ROOT_DIR || process.env.GENERATED_TEMPLATE_SITES_ROOT_DIR || 'generated-template-sites').replace(/^\/+|\/+$/g, '');
+  return String(value || '').replace(/\\/g, '/').startsWith(`${root}/`);
 }
 
 /**

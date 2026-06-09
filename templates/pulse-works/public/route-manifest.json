@@ -1,0 +1,5 @@
+{
+  "templateId": "pulse-works",
+  "fallback": "/",
+  "routes": ["/", "/shop", "/product", "/lookbook", "/studio", "/contact"]
+}

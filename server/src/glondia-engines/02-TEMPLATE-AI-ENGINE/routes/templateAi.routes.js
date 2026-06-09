@@ -4,6 +4,7 @@ import { templateAiController } from '../controllers/templateAi.controller.js';
 import { validateZipSite, getZipDeployConfigStatus } from '../../01-HOSTING-DEPLOY-ENGINE/pipelines/base64ZipToRender.pipeline.js';
 import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templateAiZipRoute.adapter.js';
 import { requireFeature } from '../../../middleware/featureFlag.js';
+import authMiddleware from '../../../middleware/authMiddleware.js';
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
 import { suggestSitemapForPlan } from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
@@ -58,13 +59,13 @@ router.post('/intake/message', requireAiBuilder, templateAiController.sendMessag
 router.post('/generate', requireAiBuilder, templateAiController.generateTailored);
 router.get('/templates', requireTemplateMarketplace, templateAiController.listTemplates);
 router.get('/templates/:templateId', requireTemplateMarketplace, templateAiController.getTemplate);
-router.post('/sites', requireTemplateMarketplace, templateAiController.createSite);
-router.get('/sites/:siteId', requireTemplateMarketplace, templateAiController.getSite);
+router.post('/sites', requireTemplateMarketplace, authMiddleware, templateAiController.createSite);
+router.get('/sites/:siteId', requireTemplateMarketplace, authMiddleware, templateAiController.getSite);
 router.get('/sites/:siteId/preview', requireTemplateMarketplace, templateAiController.previewSite);
-router.post('/sites/:siteId/prepare', requireTemplateMarketplace, templateAiController.prepareSite);
-router.post('/sites/:siteId/ai-edit', requireAiBuilder, templateAiController.aiEditSite);
-router.post('/sites/:siteId/package', requireTemplateMarketplace, templateAiController.packageSite);
-router.post('/sites/:siteId/deploy', requireTemplateMarketplace, templateAiController.deploySite);
+router.post('/sites/:siteId/prepare', requireTemplateMarketplace, authMiddleware, templateAiController.prepareSite);
+router.post('/sites/:siteId/ai-edit', requireAiBuilder, authMiddleware, templateAiController.aiEditSite);
+router.post('/sites/:siteId/package', requireTemplateMarketplace, authMiddleware, templateAiController.packageSite);
+router.post('/sites/:siteId/deploy', requireTemplateMarketplace, authMiddleware, templateAiController.deploySite);
 
 // Legacy compatibility route. New callers must use GET /api/deployments/settings.
 router.get('/zip/settings', (_req, res) => {
@@ -133,14 +134,14 @@ router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async 
 router.get('/templates/:templateId/preview', requireTemplateMarketplace, templateAiController.getTemplatePreview);
 
 // Hybrid site plan routes
-router.post('/plans', requireTemplateMarketplace, sitePlanController.createPlan);
-router.get('/plans/:planId', requireTemplateMarketplace, sitePlanController.getPlan);
-router.put('/plans/:planId/brief', requireTemplateMarketplace, sitePlanController.updateBrief);
-router.put('/plans/:planId/sitemap', requireTemplateMarketplace, sitePlanController.updateSitemap);
-router.put('/plans/:planId/wireframe', requireTemplateMarketplace, sitePlanController.updateWireframe);
-router.put('/plans/:planId/style', requireTemplateMarketplace, sitePlanController.updateStyle);
-router.post('/plans/:planId/approve', requireTemplateMarketplace, sitePlanController.approvePlan);
-router.post('/plans/:planId/handoff', requireTemplateMarketplace, sitePlanHandoffController.handoffPlan);
+router.post('/plans', requireTemplateMarketplace, authMiddleware, sitePlanController.createPlan);
+router.get('/plans/:planId', requireTemplateMarketplace, authMiddleware, sitePlanController.getPlan);
+router.put('/plans/:planId/brief', requireTemplateMarketplace, authMiddleware, sitePlanController.updateBrief);
+router.put('/plans/:planId/sitemap', requireTemplateMarketplace, authMiddleware, sitePlanController.updateSitemap);
+router.put('/plans/:planId/wireframe', requireTemplateMarketplace, authMiddleware, sitePlanController.updateWireframe);
+router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, sitePlanController.updateStyle);
+router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
+router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
 
 // AI refinement — requires AI_BUILDER feature flag
 router.post('/plans/:planId/ai/suggest-sitemap', requireAiBuilder, async (req, res, next) => {

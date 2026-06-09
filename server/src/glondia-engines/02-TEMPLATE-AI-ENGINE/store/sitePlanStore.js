@@ -31,6 +31,8 @@ export async function createSitePlan(input) {
   const plan = {
     planId: makeId(),
     source: 'hybrid-site-plan',
+    userId: input.userId || input.ownerUserId || null,
+    ownerUserId: input.ownerUserId || input.userId || null,
     templateId: String(input.templateId || '').slice(0, 100),
     templateType: ['html','repo-template'].includes(input.templateType) ? input.templateType : 'repo-template',
     status: 'draft',

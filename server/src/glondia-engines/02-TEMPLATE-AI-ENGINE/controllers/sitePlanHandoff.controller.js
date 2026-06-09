@@ -1,10 +1,12 @@
 // sitePlanHandoff.controller.js — Handoff controller for hybrid site plans
 import { getSitePlan, updateSitePlan } from '../store/sitePlanStore.js';
+import { buildGeneratedTemplateTargetRoot } from '../02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
 
 function err(msg, status = 400) { return Object.assign(new Error(msg), { status, expose: true }); }
 function slugify(name) { return String(name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'site'; }
 
 function buildAnswersFromPlan(plan) {
+  const wireframe = plan.wireframe || deriveWireframeFromSitemap(plan.sitemap);
   return {
     source: 'hybrid-site-plan',
     parentTemplateId: plan.templateId,
@@ -21,8 +23,29 @@ function buildAnswersFromPlan(plan) {
     domainPreference: plan.brief?.domainPreference || '',
     notes: plan.brief?.notes || '',
     sitemap: plan.sitemap || {},
-    wireframe: plan.wireframe || null,
+    wireframe,
     style: plan.style || {},
+  };
+}
+
+function deriveWireframeFromSitemap(sitemap = {}) {
+  const pages = Array.isArray(sitemap?.pages) ? sitemap.pages : [];
+  return {
+    source: 'derived-from-sitemap',
+    pages: pages.map((page) => ({
+      id: page.id || null,
+      name: page.name || '',
+      path: page.path || '',
+      sections: Array.isArray(page.sections)
+        ? page.sections.map((section, index) => ({
+          id: section.id || null,
+          order: index + 1,
+          title: section.title || '',
+          type: section.type || '',
+          description: section.description || '',
+        }))
+        : [],
+    })),
   };
 }
 
@@ -32,10 +55,12 @@ export const sitePlanHandoffController = {
       const { planId } = req.params;
       const plan = await getSitePlan(planId);
       if (!plan) throw err('Plan not found.', 404);
+      if (!canAccessPlan(req.user, plan)) throw err('You do not have access to this site plan.', 403);
 
       const answers = buildAnswersFromPlan(plan);
       const siteName = answers.businessName || plan.sitemap?.name || plan.templateId || 'glondia-site';
       const slug = slugify(siteName);
+      const ownerUserId = plan.userId || plan.ownerUserId || req.user?.id || 'anonymous';
 
       // Dynamically import to avoid circular dep at startup
       let createTemplateSite, updateTemplateSite;
@@ -63,11 +88,18 @@ export const sitePlanHandoffController = {
         throw err('Hosting deploy pipeline not available.', 503);
       }
 
-      const site = await createTemplateSite({ templateId: plan.templateId, answers, tailoredPages: [] });
+      const site = await createTemplateSite({
+        templateId: plan.templateId,
+        answers: { ...answers, userId: ownerUserId },
+        tailoredPages: [],
+        userId: ownerUserId,
+        ownerUserId,
+      });
+      const rootDirectory = buildGeneratedTemplateTargetRoot({ userId: ownerUserId, siteId: site.siteId, slug });
 
       const generatedSite = await prepareTemplateGeneratedSource(
-        { ...site, answers, siteName, slug },
-        { answers, siteName, slug, sitemap: plan.sitemap, wireframe: plan.wireframe, style: plan.style }
+        { ...site, answers: { ...answers, userId: ownerUserId }, siteName, slug },
+        { answers: { ...answers, userId: ownerUserId }, userId: ownerUserId, siteName, slug, sitemap: plan.sitemap, wireframe: plan.wireframe, style: plan.style }
       );
 
       await updateTemplateSite(site.siteId, {
@@ -82,10 +114,11 @@ export const sitePlanHandoffController = {
         siteName, slug, generatedSite,
         source: 'hybrid-site-builder',
         sourceReference: planId,
+        rootDirectory,
         buildCommand: generatedSite?.buildCommand,
         publishDirectory: generatedSite?.publishDirectory,
         framework: generatedSite?.framework,
-      }, { userId: req.user?.id || 'local-user' });
+      }, { userId: ownerUserId });
 
       await updateSitePlan(planId, {
         status: 'handed_off',
@@ -107,3 +140,9 @@ export const sitePlanHandoffController = {
     } catch (e) { next(e); }
   },
 };
+
+function canAccessPlan(user, plan) {
+  if (user?.role === 'admin') return true;
+  const owner = plan.userId || plan.ownerUserId || null;
+  return Boolean(user?.id && owner && user.id === owner);
+}

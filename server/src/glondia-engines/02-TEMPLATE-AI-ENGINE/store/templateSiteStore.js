@@ -45,10 +45,12 @@ async function writeStore(store) {
  * @param {Array}  params.tailoredPages — [{title, path, html}]
  * @returns {Promise<object>}  The created site record
  */
-export async function createTemplateSite({ templateId, answers = {}, tailoredPages = [] }) {
+export async function createTemplateSite({ templateId, answers = {}, tailoredPages = [], userId = null, ownerUserId = null }) {
   const store = await readStore();
   const site = {
     siteId:        makeId('tai'),
+    userId:        userId || ownerUserId || null,
+    ownerUserId:   ownerUserId || userId || null,
     templateId,
     answers,
     pages:         tailoredPages,

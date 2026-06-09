@@ -19,6 +19,7 @@ import {
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { getPromoUsage } from './deploymentPromoService.js';
 import { createUserNotification } from './notificationService.js';
+import { archiveGeneratedSiteFolder } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSiteRepoCleanup.stage.js';
 
 const VALID_ROLES = new Set(['owner', 'admin', 'member']);
 const VALID_ACCOUNT_STATUS = new Set(['active', 'suspended', 'disabled', 'deleted']);
@@ -472,6 +473,20 @@ async function cascadeSuspendUserDeployments(userId, reason) {
       try { await renderApiService.suspendService(d.renderServiceId); render = 'suspended'; }
       catch (err) { render = `error: ${err.message}`; }
     }
+    let githubArchive = null;
+    const targetRoot = d.generatedSite?.githubTargetRoot || d.environmentConfiguration?.rootDirectory;
+    if (isGeneratedTemplateRoot(targetRoot)) {
+      try {
+        githubArchive = await archiveGeneratedSiteFolder({
+          repoUrl: d.repoUrl || d.githubRepo || d.environmentConfiguration?.sourceRepository,
+          branch: d.githubBranch || d.environmentConfiguration?.branch || 'main',
+          targetRoot,
+          reason: reason || 'account_deleted',
+        });
+      } catch (err) {
+        githubArchive = { attempted: true, error: err.message };
+      }
+    }
     await updateDeploymentRecord(d.deploymentId, {
       status: 'suspended',
       currentStep: 'Suspended (account suspended)',
@@ -510,9 +525,10 @@ async function cascadeBringDownUserDeployments(userId, reason) {
       currentStep: 'Account closed — site brought down',
       deletedReason: reason || 'account_deleted',
       deletedAt: nowIso(),
+      ...(githubArchive ? { githubArchive } : {}),
       ...(cleanupNeeded ? { cleanupNeeded: true } : {}),
     });
-    results.push({ deploymentId: d.deploymentId, render, cleanupNeeded });
+    results.push({ deploymentId: d.deploymentId, render, githubArchive, cleanupNeeded });
   }
   return results;
 }
@@ -896,6 +912,11 @@ export async function deleteOrder(orderId, adminUserId) {
   });
 
   return { orderId, deleted: true };
+}
+
+function isGeneratedTemplateRoot(value = '') {
+  const root = String(process.env.RENDER_GENERATED_TEMPLATE_SITES_ROOT_DIR || process.env.GENERATED_TEMPLATE_SITES_ROOT_DIR || 'generated-template-sites').replace(/^\/+|\/+$/g, '');
+  return String(value || '').replace(/\\/g, '/').startsWith(`${root}/`);
 }
 
 export default {

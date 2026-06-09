@@ -14,6 +14,11 @@ import {
   getTemplateRepositoryFiles,
   readTemplateRepositoryFile,
 } from '../01-TEMPLATE-LIBRARY-MOUNTAIN/templateSelection.stage.js';
+import {
+  buildGeneratedTemplateTargetRoot,
+  buildTemplateCopyData,
+} from './templateGeneratedCopy.stage.js';
+import { scanGeneratedTemplateSite } from '../07-HANDOFF-TO-HOSTING-MOUNTAIN/generatedTemplateSiteScanner.stage.js';
 
 export function resolveTemplateSource(input = {}, template = {}) {
   if (template.templateId) {
@@ -47,6 +52,8 @@ export async function prepareTemplateGeneratedSource(site, options = {}) {
 
   const metadata = await getTemplateDetails(templateId);
   const slug = slugify(options.slug || site.slug || site.siteName || site.answers?.businessName || site.siteId);
+  const ownerUserId = options.userId || site.userId || site.ownerUserId || site.answers?.userId || 'anonymous';
+  const githubTargetRoot = buildGeneratedTemplateTargetRoot({ userId: ownerUserId, siteId: site.siteId, slug });
   const siteDir = generatedSiteDir(site.siteId);
   await resetDirectory(siteDir);
 
@@ -73,6 +80,27 @@ export async function prepareTemplateGeneratedSource(site, options = {}) {
     businessName: options.siteName || site.answers?.businessName || site.siteName || metadata.name,
     slug,
     templateId,
+  }, {
+    site,
+    template: metadata,
+    slug,
+    targetRoot: githubTargetRoot,
+    sourceReference: `templates/${templateId}`,
+  });
+
+  const scan = await scanGeneratedTemplateSite(siteDir, {
+    siteId: site.siteId,
+    userId: ownerUserId,
+    siteName: options.siteName || site.siteName || site.answers?.businessName || metadata.name,
+    slug,
+    templateId,
+    framework: metadata.framework || 'vite',
+    packageManager: metadata.packageManager || 'npm',
+    buildCommand: options.buildCommand || metadata.buildCommand || 'npm run build',
+    publishDirectory: options.publishDirectory || metadata.publishDirectory || 'dist',
+    rootDirectory: githubTargetRoot,
+    repoUrl: options.repoUrl || options.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || 'https://github.com/pistion/glondia-generated-sites.git',
+    branch: options.branch || 'main',
   });
 
   const pages = await readPreviewPages(siteDir);
@@ -86,20 +114,24 @@ export async function prepareTemplateGeneratedSource(site, options = {}) {
     templateId,
     templatePath: metadata.templatePath,
     templateMetadata: metadata,
-    files: copied,
+    files: [...copied, ...(scan.manifestFiles || [])],
     pages,
+    scan,
+    githubTargetRoot,
     siteProfile: {
       ...(site.answers || {}),
       siteId: site.siteId,
+      userId: ownerUserId,
       parentTemplateId: templateId,
       siteName: options.siteName || site.siteName || site.answers?.businessName || metadata.name,
       slug,
+      githubTargetRoot,
       generatedAt: new Date().toISOString(),
     },
   };
 }
 
-export async function applyQuestionnaireDataToGeneratedSource(siteDir, answers = {}) {
+export async function applyQuestionnaireDataToGeneratedSource(siteDir, answers = {}, metadata = {}) {
   const files = await listFiles(siteDir);
   const textFiles = files.filter(isTextFile);
   const replacements = buildReplacementMap(answers);
@@ -116,22 +148,22 @@ export async function applyQuestionnaireDataToGeneratedSource(siteDir, answers =
     if (changed) await writeFile(filePath, text, 'utf8');
   }
 
-  const dataPath = join(siteDir, 'glondia-site-data.json');
-  const siteData = {
+  const siteData = buildTemplateCopyData({
     answers,
-    sitemap: answers.sitemap || null,
-    wireframe: answers.wireframe || null,
-    style: answers.style || null,
-    generationProfile: {
-      source: answers.source || 'template-ai',
-      templateId: answers.parentTemplateId || answers.templateId || templateId,
-      templateType: answers.templateType || 'repo-template',
-      siteName: answers.siteName || answers.businessName || '',
-      slug: answers.slug || slug || '',
-    },
-    updatedAt: new Date().toISOString(),
-  };
-  await writeFile(dataPath, JSON.stringify(siteData, null, 2), 'utf8');
+    site: metadata.site || {},
+    template: metadata.template || {},
+    slug: metadata.slug || answers.slug,
+    targetRoot: metadata.targetRoot || buildGeneratedTemplateTargetRoot({
+      userId: metadata.site?.userId || metadata.site?.ownerUserId || answers.userId,
+      siteId: metadata.site?.siteId,
+      slug: answers.slug || answers.siteName || answers.businessName,
+    }),
+    sourceReference: metadata.sourceReference,
+  });
+  siteData.updatedAt = new Date().toISOString();
+
+  await writeFile(join(siteDir, 'glondia-site-data.json'), JSON.stringify(siteData, null, 2), 'utf8');
+  await writeFile(join(siteDir, 'glondia-template-copy.json'), JSON.stringify(siteData, null, 2), 'utf8');
 }
 
 export async function copyPreparedSource(sourceDir, targetDir) {
