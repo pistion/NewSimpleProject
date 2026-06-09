@@ -30,7 +30,8 @@ import BillingPage from './features/billing/BillingPage.jsx';
 import ProfilePage from './features/profile/ProfilePage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
-import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT } from './api/auth.js';
+import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
+import { isLiveMode } from './app/config.js';
 import { isViewComingSoon } from './app/features.js';
 import LoginPage from './features/auth/LoginPage.jsx';
 import SignupPage from './features/auth/SignupPage.jsx';
@@ -121,6 +122,21 @@ export default function App() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, sync);
   }, []);
 
+  // ── Demo-mode auto-login ────────────────────────────────────────────────────
+  // In local dev (non-live mode) skip the login screen entirely.
+  // Any credentials work in demo mode — this just saves the click.
+  useEffectApp(() => {
+    if (!isLiveMode() && !isAuthenticated()) {
+      authLogin('dev@glondia.local', 'devpass').then(() => {
+        setAuthed(true);
+        setRoute({ view: 'builder-gallery' });
+      }).catch(() => {});
+    } else if (!isLiveMode() && isAuthenticated()) {
+      setRoute({ view: 'builder-gallery' });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Apply theme/accent/density to root
   useEffectApp(() => { document.documentElement.dataset.theme = t.theme; }, [t.theme]);
   useEffectApp(() => { document.documentElement.dataset.density = t.density; }, [t.density]);
@@ -198,8 +214,8 @@ export default function App() {
     "analytics","activity","billing","settings","profile","vps-hosting","vps-create","vps-detail","admin",
   ]);
 
-  // Render
-  const isAuthBlocked = DASHBOARD_VIEWS.has(route.view) && !authed;
+  // Render — in demo/dev mode skip auth gate entirely; real JWT check only in live mode
+  const isAuthBlocked = isLiveMode() && DASHBOARD_VIEWS.has(route.view) && !authed;
 
   const renderView = () => {
     if (isAuthBlocked) return <LoginPage navigate={navigate} />;

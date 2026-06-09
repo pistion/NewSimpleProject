@@ -7,7 +7,12 @@ import { requireFeature } from '../../../middleware/featureFlag.js';
 import authMiddleware from '../../../middleware/authMiddleware.js';
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
-import { suggestSitemapForPlan } from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
+import {
+  suggestSitemapForPlan,
+  autofillBrief,
+  suggestSectionsForPage,
+  suggestWireframe,
+} from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
 
 const router = express.Router();
 
@@ -143,10 +148,38 @@ router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, s
 router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
 router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
 
-// AI refinement — requires AI_BUILDER feature flag
-router.post('/plans/:planId/ai/suggest-sitemap', requireAiBuilder, async (req, res, next) => {
+// ── RoxanneAI — site plan AI endpoints ────────────────────────────────────────
+// Gated on TEMPLATE_MARKETPLACE (default: on) so they're available without
+// enabling FEATURE_AI_BUILDER. OPENAI_API_KEY must be set on the server.
+
+// Suggest/refine the full sitemap structure
+router.post('/plans/:planId/ai/suggest-sitemap', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
   try {
     const result = await suggestSitemapForPlan(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Autofill empty optional fields in the client brief
+router.post('/plans/:planId/ai/autofill-brief', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await autofillBrief(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Suggest/enrich sections for a specific page
+router.post('/plans/:planId/ai/suggest-sections/:pageId', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await suggestSectionsForPage(req.params.planId, req.params.pageId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Add content hints + layout notes to every section (wireframe guidance)
+router.post('/plans/:planId/ai/suggest-wireframe', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await suggestWireframe(req.params.planId);
     res.json({ data: result });
   } catch (e) { next(e); }
 });

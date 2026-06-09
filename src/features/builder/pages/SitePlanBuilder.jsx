@@ -92,223 +92,265 @@ function getSectionType(type = '') {
   return 'split';
 }
 
-function WireImgPlaceholder({ className = '' }) {
+// ─── Wireframe building blocks ────────────────────────────────────────────────
+const WF_TYPE_COLORS = {
+  hero: '#3b82f6', services: '#10b981', features: '#10b981', cards: '#10b981',
+  pricing: '#8b5cf6', team: '#8b5cf6', gallery: '#a855f7', form: '#f59e0b',
+  contact: '#f59e0b', faq: '#06b6d4', cta: '#f43f5e', about: '#64748b',
+  process: '#64748b', details: '#64748b', default: '#94a3b8',
+};
+function wfColor(type) { return WF_TYPE_COLORS[type?.toLowerCase()] || WF_TYPE_COLORS.default; }
+
+function WfImg({ label = 'Image / Media', className = '', style = {} }) {
   return (
-    <div className={`spb-wf-img ${className}`}>
-      <svg viewBox="0 0 100 60" preserveAspectRatio="none" className="spb-wf-img-svg" aria-hidden="true">
-        <line x1="0" y1="0" x2="100" y2="60" stroke="#c8d0da" strokeWidth="1.5"/>
-        <line x1="100" y1="0" x2="0" y2="60" stroke="#c8d0da" strokeWidth="1.5"/>
-        <rect x="0" y="0" width="100" height="60" fill="none" stroke="#c8d0da" strokeWidth="1"/>
+    <div className={`spb-wfb-img ${className}`} style={style}>
+      <svg viewBox="0 0 4 3" preserveAspectRatio="none" aria-hidden="true" className="spb-wfb-img-x">
+        <line x1="0" y1="0" x2="4" y2="3" stroke="#b0bec5" strokeWidth="0.12"/>
+        <line x1="4" y1="0" x2="0" y2="3" stroke="#b0bec5" strokeWidth="0.12"/>
       </svg>
+      <span className="spb-wfb-img-label">{label}</span>
     </div>
   );
 }
 
-function WireLines({ widths = [70, 90, 55] }) {
+function WfH1({ children }) { return <div className="spb-wfb-h1">{children}</div>; }
+function WfH2({ children }) { return <div className="spb-wfb-h2">{children}</div>; }
+function WfH3({ children }) { return <div className="spb-wfb-h3">{children}</div>; }
+function WfP({ children = 'Supporting body copy — brief description of value proposition and what visitors need to know.' }) {
+  return <p className="spb-wfb-p">{children}</p>;
+}
+function WfBtn({ label = 'Button', outline = false }) {
+  return <div className={`spb-wfb-btn${outline ? ' spb-wfb-btn--outline' : ''}`}>{label}</div>;
+}
+function WfInputField({ label }) {
   return (
-    <div className="spb-wf-lines">
-      {widths.map((w, i) => <div key={i} className="spb-wf-line" style={{ width: `${w}%` }} />)}
+    <div className="spb-wfb-field">
+      <div className="spb-wfb-field-label">{label}</div>
+      <div className="spb-wfb-field-input" />
     </div>
   );
 }
-
-function WireBtn({ outline = false }) {
-  return <div className={`spb-wf-btn${outline ? ' spb-wf-btn--outline' : ''}`} />;
-}
-
-function WireSectionPill({ type, title }) {
+function WfTextareaField({ label = 'Message' }) {
   return (
-    <div className="spb-wf-pill-row">
-      <span className="spb-wf-type-pill">{type}</span>
-      <span className="spb-wf-section-name">{title}</span>
+    <div className="spb-wfb-field">
+      <div className="spb-wfb-field-label">{label}</div>
+      <div className="spb-wfb-field-textarea" />
     </div>
   );
 }
 
-function WireSection({ section }) {
+// ─── Section layout components ────────────────────────────────────────────────
+function WfLayoutHero() {
+  return (
+    <div className="spb-wfl-hero">
+      <div className="spb-wfl-hero-text">
+        <WfH1>H1 — Main Headline Goes Here</WfH1>
+        <WfH2>H2 — Supporting subheadline</WfH2>
+        <WfP />
+        <div className="spb-wfl-btns">
+          <WfBtn label="Primary CTA" />
+          <WfBtn label="Learn More" outline />
+        </div>
+      </div>
+      <WfImg className="spb-wfl-hero-img" label="Hero Image / Banner" />
+    </div>
+  );
+}
+
+function WfLayoutCards() {
+  return (
+    <>
+      <div className="spb-wfl-intro">
+        <WfH2>Section Heading</WfH2>
+        <WfP>Brief section description — context for what visitors will see in this section.</WfP>
+      </div>
+      <div className="spb-wfl-cards">
+        {['Item One', 'Item Two', 'Item Three'].map((label, i) => (
+          <div key={i} className="spb-wfl-card">
+            <div className="spb-wfl-card-icon">[ Icon ]</div>
+            <WfH3>{label}</WfH3>
+            <WfP>Short description for this card item or service offering.</WfP>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function WfLayoutGallery() {
+  return (
+    <div className="spb-wfl-gallery">
+      {[0,1,2,3,4,5].map(i => <WfImg key={i} className="spb-wfl-gallery-cell" label="Photo" />)}
+    </div>
+  );
+}
+
+function WfLayoutForm() {
+  return (
+    <div className="spb-wfl-form">
+      <div className="spb-wfl-form-2col">
+        <WfInputField label="Full Name" />
+        <WfInputField label="Email Address" />
+      </div>
+      <WfInputField label="Phone Number" />
+      <WfInputField label="Subject" />
+      <WfTextareaField label="Message" />
+      <WfBtn label="Send Message" />
+    </div>
+  );
+}
+
+function WfLayoutFaq() {
+  const items = [
+    'What services do you offer?',
+    'How do I get started with your team?',
+    'What are the pricing options?',
+    'How long does the process take?',
+  ];
+  return (
+    <div className="spb-wfl-faq">
+      {items.map((q, i) => (
+        <div key={i} className="spb-wfl-faq-row">
+          <span className="spb-wfl-faq-q">{q}</span>
+          <span className="spb-wfl-faq-icon">›</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WfLayoutCta() {
+  return (
+    <div className="spb-wfl-cta">
+      <WfH2>Ready to get started?</WfH2>
+      <WfP>Compelling call-to-action text that motivates the visitor to take the next step and get in touch.</WfP>
+      <div className="spb-wfl-btns spb-wfl-btns--center">
+        <WfBtn label="Get in Touch" />
+        <WfBtn label="Learn More" outline />
+      </div>
+    </div>
+  );
+}
+
+function WfLayoutSplit() {
+  return (
+    <div className="spb-wfl-split">
+      <WfImg className="spb-wfl-split-img" label="Image / Photo" />
+      <div className="spb-wfl-split-text">
+        <WfH2>Section Heading</WfH2>
+        <WfP />
+        <WfP>Additional supporting text that provides more detail and context for this section's content.</WfP>
+        <WfBtn label="Learn More" />
+      </div>
+    </div>
+  );
+}
+
+const WF_LAYOUTS = {
+  hero: <WfLayoutHero />,
+  cards: <WfLayoutCards />,
+  gallery: <WfLayoutGallery />,
+  form: <WfLayoutForm />,
+  faq: <WfLayoutFaq />,
+  cta: <WfLayoutCta />,
+  split: <WfLayoutSplit />,
+};
+
+// ─── WireSection ─────────────────────────────────────────────────────────────
+function WireSection({ section, onEdit }) {
   const kind = getSectionType(section.type);
-  const hint = section.contentHints || null;
-
-  if (kind === 'hero') {
-    return (
-      <div className="spb-wf-section spb-wf-section--hero">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-hero-layout">
-          <div className="spb-wf-hero-text">
-            <div className="spb-wf-headline" />
-            <div className="spb-wf-headline spb-wf-headline--sm" />
-            <WireLines widths={[85, 70, 60]} />
-            <div className="spb-wf-btn-row">
-              <WireBtn />
-              <WireBtn outline />
-            </div>
-          </div>
-          <WireImgPlaceholder className="spb-wf-hero-img" />
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  if (kind === 'cards') {
-    return (
-      <div className="spb-wf-section spb-wf-section--cards">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-section-intro">
-          <div className="spb-wf-headline spb-wf-headline--center" />
-          <div className="spb-wf-line spb-wf-line--center" style={{ width: '45%' }} />
-        </div>
-        <div className="spb-wf-cards-row">
-          {[0,1,2].map(i => (
-            <div key={i} className="spb-wf-card">
-              <div className="spb-wf-card-icon" />
-              <div className="spb-wf-card-title" />
-              <WireLines widths={[90, 75, 60]} />
-            </div>
-          ))}
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  if (kind === 'gallery') {
-    return (
-      <div className="spb-wf-section spb-wf-section--gallery">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-gallery-grid">
-          {[0,1,2,3,4,5].map(i => <WireImgPlaceholder key={i} className="spb-wf-gallery-cell" />)}
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  if (kind === 'form') {
-    return (
-      <div className="spb-wf-section spb-wf-section--form">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-form-body">
-          <div className="spb-wf-form-row-2">
-            <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
-            <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
-          </div>
-          <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
-          <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-textarea"/></div>
-          <WireBtn />
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  if (kind === 'faq') {
-    return (
-      <div className="spb-wf-section spb-wf-section--faq">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-faq-list">
-          {[80, 65, 72, 58].map((w, i) => (
-            <div key={i} className="spb-wf-faq-row">
-              <div className="spb-wf-line" style={{ width: `${w}%` }} />
-              <span className="spb-wf-faq-chevron">›</span>
-            </div>
-          ))}
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  if (kind === 'cta') {
-    return (
-      <div className="spb-wf-section spb-wf-section--cta">
-        <WireSectionPill type={section.type} title={section.title} />
-        <div className="spb-wf-cta-body">
-          <div className="spb-wf-headline spb-wf-headline--lg spb-wf-headline--center" />
-          <div className="spb-wf-line spb-wf-line--center" style={{ width: '55%' }} />
-          <div className="spb-wf-line spb-wf-line--center" style={{ width: '40%' }} />
-          <div className="spb-wf-btn-row spb-wf-btn-row--center"><WireBtn /></div>
-        </div>
-        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-      </div>
-    );
-  }
-
-  // split / about / process / details / team / pricing
+  const color = wfColor(section.type);
   return (
-    <div className="spb-wf-section spb-wf-section--split">
-      <WireSectionPill type={section.type} title={section.title} />
-      <div className="spb-wf-split-layout">
-        <WireImgPlaceholder className="spb-wf-split-img" />
-        <div className="spb-wf-split-text">
-          <div className="spb-wf-headline spb-wf-headline--sm" />
-          <WireLines widths={[90, 80, 85, 60]} />
-          <WireBtn />
-        </div>
+    <section className="spb-wfs" style={{ '--wfs-color': color }} data-type={section.type}>
+      <header className="spb-wfs-header">
+        <span className="spb-wfs-badge">{section.type}</span>
+        <strong className="spb-wfs-title">{section.title}</strong>
+        {section.description && <span className="spb-wfs-desc">{section.description}</span>}
+        {onEdit && (
+          <button className="spb-wfs-edit" onClick={() => onEdit(section)}>✎ Edit</button>
+        )}
+      </header>
+      {section.contentHints && (
+        <div className="spb-wfs-ai-hint">✦ {section.contentHints}</div>
+      )}
+      <div className="spb-wfs-body">
+        {WF_LAYOUTS[kind] || WF_LAYOUTS.split}
       </div>
-      {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
-    </div>
+    </section>
   );
 }
 
-function WirePage({ page }) {
+// ─── WirePage ─────────────────────────────────────────────────────────────────
+function WirePage({ page, onEditSection }) {
   return (
-    <div className="spb-wf-page">
+    <div className="spb-wfp">
       {/* Browser chrome */}
-      <div className="spb-wf-chrome">
-        <div className="spb-wf-chrome-dots">
-          <span className="spb-wf-dot spb-wf-dot--r" />
-          <span className="spb-wf-dot spb-wf-dot--y" />
-          <span className="spb-wf-dot spb-wf-dot--g" />
+      <div className="spb-wfp-chrome">
+        <div className="spb-wfp-dots">
+          <span className="spb-wfp-dot" style={{ background: '#ff5f57' }} />
+          <span className="spb-wfp-dot" style={{ background: '#febc2e' }} />
+          <span className="spb-wfp-dot" style={{ background: '#28c840' }} />
         </div>
-        <div className="spb-wf-chrome-bar">
-          <span className="spb-wf-chrome-lock">🔒</span>
-          <span className="spb-wf-chrome-url">{page.path === '/' ? 'yoursite.com' : `yoursite.com${page.path}`}</span>
-        </div>
-        <div className="spb-wf-chrome-actions">
-          <div className="spb-wf-chrome-action-dot" />
-          <div className="spb-wf-chrome-action-dot" />
+        <div className="spb-wfp-urlbar">
+          <span className="spb-wfp-lock">🔒</span>
+          <span className="spb-wfp-url">{page.path === '/' ? 'yoursite.com' : `yoursite.com${page.path}`}</span>
         </div>
       </div>
 
-      {/* Nav bar wireframe */}
-      <div className="spb-wf-nav">
-        <div className="spb-wf-nav-logo" />
-        <div className="spb-wf-nav-links">
-          {[48, 52, 44, 56].map((w, i) => <div key={i} className="spb-wf-nav-link" style={{ width: w }} />)}
+      {/* Nav */}
+      <nav className="spb-wfp-nav">
+        <div className="spb-wfp-nav-logo">[ Logo ]</div>
+        <div className="spb-wfp-nav-links">
+          {['Home', 'Services', 'About', 'Contact'].map(l => (
+            <span key={l} className="spb-wfp-nav-link">{l}</span>
+          ))}
         </div>
-        <div className="spb-wf-nav-cta" />
-      </div>
+        <div className="spb-wfp-nav-cta">[ Get in Touch ]</div>
+      </nav>
 
-      {/* Page title strip */}
-      <div className="spb-wf-page-strip">
-        <span className="spb-wf-page-name">{page.name}</span>
-        <span className="spb-wf-page-path">{page.path}</span>
-        {page.layoutNotes && <span className="spb-wire-layout-notes">✦ {page.layoutNotes}</span>}
+      {/* Page label strip */}
+      <div className="spb-wfp-strip">
+        <span className="spb-wfp-strip-name">{page.name}</span>
+        <code className="spb-wfp-strip-path">{page.path}</code>
+        {page.layoutNotes && <span className="spb-wfp-layout-note">✦ {page.layoutNotes}</span>}
       </div>
 
       {/* Sections */}
-      {(page.sections || []).map(s => <WireSection key={s.id} section={s} />)}
+      {(page.sections || []).length === 0 ? (
+        <div className="spb-wfp-empty">No sections yet — add them in the Sitemap tab.</div>
+      ) : (
+        (page.sections || []).map(s => (
+          <WireSection
+            key={s.id}
+            section={s}
+            onEdit={onEditSection ? sec => onEditSection(page.id, sec) : null}
+          />
+        ))
+      )}
 
-      {/* Footer wireframe */}
-      <div className="spb-wf-footer">
-        <div className="spb-wf-footer-inner">
-          <div className="spb-wf-footer-brand">
-            <div className="spb-wf-footer-logo" />
-            <WireLines widths={[70, 55]} />
+      {/* Footer */}
+      <footer className="spb-wfp-footer">
+        <div className="spb-wfp-footer-top">
+          <div className="spb-wfp-footer-brand">
+            <div className="spb-wfp-footer-logo">[ Company Name ]</div>
+            <div className="spb-wfp-footer-tagline">Your tagline or short description here.</div>
           </div>
-          {[0,1,2].map(i => (
-            <div key={i} className="spb-wf-footer-col">
-              <div className="spb-wf-footer-col-head" />
-              {[50, 45, 55, 40].map((w, j) => <div key={j} className="spb-wf-line" style={{ width: w, marginBottom: 5 }} />)}
+          {[
+            ['Company', ['About Us', 'Services', 'Blog', 'Contact']],
+            ['Services', ['Web Design', 'Development', 'Hosting', 'Support']],
+            ['Connect', ['Facebook', 'Instagram', 'LinkedIn', 'Twitter']],
+          ].map(([heading, links]) => (
+            <div key={heading} className="spb-wfp-footer-col">
+              <div className="spb-wfp-footer-col-head">{heading}</div>
+              {links.map(l => <div key={l} className="spb-wfp-footer-link">{l}</div>)}
             </div>
           ))}
         </div>
-        <div className="spb-wf-footer-bar">
-          <div className="spb-wf-line" style={{ width: 120 }} />
-          <div className="spb-wf-line" style={{ width: 80 }} />
+        <div className="spb-wfp-footer-bar">
+          <span>© 2025 Company Name. All rights reserved.</span>
+          <span>Privacy Policy · Terms of Service</span>
         </div>
-      </div>
+      </footer>
     </div>
   );
 }
@@ -909,6 +951,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             style={sitePlan.style}
             onAiWireframe={handleAiWireframe}
             aiSuggesting={aiSuggestingWireframe}
+            onEditSection={(pageId, section) => setEditingSection({ pageId, section })}
           />
         )}
         {activeTab === 'style' && (
@@ -1517,7 +1560,7 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
 }
 
 // ─── WireframeTab ─────────────────────────────────────────────────────────────
-function WireframeTab({ pages, style, onAiWireframe, aiSuggesting }) {
+function WireframeTab({ pages, style, onAiWireframe, aiSuggesting, onEditSection }) {
   return (
     <div className="spb-panel spb-panel--wire">
       <div className="spb-panel-head">
@@ -1531,13 +1574,13 @@ function WireframeTab({ pages, style, onAiWireframe, aiSuggesting }) {
             {aiSuggesting ? '✦ Generating…' : '✦ RoxanneAI — add content guidance'}
           </button>
         </div>
-        <p className="spb-panel-sub">Page-by-page wireframe from your sitemap. RoxanneAI adds layout hints to each section.</p>
+        <p className="spb-panel-sub">Click any section to edit it. Sections mirror your Sitemap — update there to see changes here.</p>
       </div>
       <div className="spb-wireframe-canvas">
         {pages.length === 0 && (
           <div className="spb-wire-empty">No pages yet. Add pages in the Sitemap tab.</div>
         )}
-        {pages.map(page => <WirePage key={page.id} page={page} />)}
+        {pages.map(page => <WirePage key={page.id} page={page} onEditSection={onEditSection} />)}
       </div>
     </div>
   );
