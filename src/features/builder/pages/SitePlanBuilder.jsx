@@ -9,6 +9,9 @@ import {
   approveTemplateSitePlan,
   handoffTemplateSitePlan,
   aiSuggestSitemapForPlan,
+  aiAutofillOptionalBrief,
+  aiSuggestSectionsForPage,
+  aiSuggestWireframe,
   getTemplateHostingTemplate,
 } from '../../../api/template-ai.js';
 
@@ -89,127 +92,223 @@ function getSectionType(type = '') {
   return 'split';
 }
 
+function WireImgPlaceholder({ className = '' }) {
+  return (
+    <div className={`spb-wf-img ${className}`}>
+      <svg viewBox="0 0 100 60" preserveAspectRatio="none" className="spb-wf-img-svg" aria-hidden="true">
+        <line x1="0" y1="0" x2="100" y2="60" stroke="#c8d0da" strokeWidth="1.5"/>
+        <line x1="100" y1="0" x2="0" y2="60" stroke="#c8d0da" strokeWidth="1.5"/>
+        <rect x="0" y="0" width="100" height="60" fill="none" stroke="#c8d0da" strokeWidth="1"/>
+      </svg>
+    </div>
+  );
+}
+
+function WireLines({ widths = [70, 90, 55] }) {
+  return (
+    <div className="spb-wf-lines">
+      {widths.map((w, i) => <div key={i} className="spb-wf-line" style={{ width: `${w}%` }} />)}
+    </div>
+  );
+}
+
+function WireBtn({ outline = false }) {
+  return <div className={`spb-wf-btn${outline ? ' spb-wf-btn--outline' : ''}`} />;
+}
+
+function WireSectionPill({ type, title }) {
+  return (
+    <div className="spb-wf-pill-row">
+      <span className="spb-wf-type-pill">{type}</span>
+      <span className="spb-wf-section-name">{title}</span>
+    </div>
+  );
+}
+
 function WireSection({ section }) {
   const kind = getSectionType(section.type);
+  const hint = section.contentHints || null;
 
   if (kind === 'hero') {
     return (
-      <div className="spb-wire-section spb-wire-hero">
-        <div className="spb-mock-label">{section.title}</div>
-        <div className="spb-wire-hero-inner">
-          <div className="spb-mock-text-block">
-            <div className="spb-mock-h" />
-            <div className="spb-mock-p" />
-            <div className="spb-mock-p spb-mock-p--short" />
-            <div className="spb-mock-btn" />
+      <div className="spb-wf-section spb-wf-section--hero">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-hero-layout">
+          <div className="spb-wf-hero-text">
+            <div className="spb-wf-headline" />
+            <div className="spb-wf-headline spb-wf-headline--sm" />
+            <WireLines widths={[85, 70, 60]} />
+            <div className="spb-wf-btn-row">
+              <WireBtn />
+              <WireBtn outline />
+            </div>
           </div>
-          <div className="spb-mock-img-block" />
+          <WireImgPlaceholder className="spb-wf-hero-img" />
         </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
   if (kind === 'cards') {
     return (
-      <div className="spb-wire-section spb-wire-cards">
-        <div className="spb-mock-label">{section.title}</div>
-        <div className="spb-wire-cards-inner">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="spb-mock-card">
-              <div className="spb-mock-icon-sq" />
-              <div className="spb-mock-h spb-mock-h--sm" />
-              <div className="spb-mock-p" />
-              <div className="spb-mock-p spb-mock-p--short" />
+      <div className="spb-wf-section spb-wf-section--cards">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-section-intro">
+          <div className="spb-wf-headline spb-wf-headline--center" />
+          <div className="spb-wf-line spb-wf-line--center" style={{ width: '45%' }} />
+        </div>
+        <div className="spb-wf-cards-row">
+          {[0,1,2].map(i => (
+            <div key={i} className="spb-wf-card">
+              <div className="spb-wf-card-icon" />
+              <div className="spb-wf-card-title" />
+              <WireLines widths={[90, 75, 60]} />
             </div>
           ))}
         </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
   if (kind === 'gallery') {
     return (
-      <div className="spb-wire-section spb-wire-gallery">
-        <div className="spb-mock-label">{section.title}</div>
-        <div className="spb-wire-gallery-inner">
-          {[0, 1, 2].map(i => <div key={i} className="spb-mock-gallery-item" />)}
+      <div className="spb-wf-section spb-wf-section--gallery">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-gallery-grid">
+          {[0,1,2,3,4,5].map(i => <WireImgPlaceholder key={i} className="spb-wf-gallery-cell" />)}
         </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
   if (kind === 'form') {
     return (
-      <div className="spb-wire-section spb-wire-form">
-        <div className="spb-mock-label">{section.title}</div>
-        <div className="spb-wire-form-inner">
-          <div className="spb-mock-form-row" />
-          <div className="spb-mock-form-row" />
-          <div className="spb-mock-form-row spb-mock-form-row--tall" />
-          <div className="spb-mock-btn" />
+      <div className="spb-wf-section spb-wf-section--form">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-form-body">
+          <div className="spb-wf-form-row-2">
+            <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
+            <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
+          </div>
+          <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-input"/></div>
+          <div className="spb-wf-form-field"><div className="spb-wf-form-label-line"/><div className="spb-wf-form-textarea"/></div>
+          <WireBtn />
         </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
   if (kind === 'faq') {
     return (
-      <div className="spb-wire-section spb-wire-faq">
-        <div className="spb-mock-label">{section.title}</div>
-        {[0, 1, 2].map(i => (
-          <div key={i} className="spb-mock-faq-row">
-            <div className="spb-mock-h spb-mock-h--sm" />
-            <div className="spb-mock-faq-arrow" />
-          </div>
-        ))}
+      <div className="spb-wf-section spb-wf-section--faq">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-faq-list">
+          {[80, 65, 72, 58].map((w, i) => (
+            <div key={i} className="spb-wf-faq-row">
+              <div className="spb-wf-line" style={{ width: `${w}%` }} />
+              <span className="spb-wf-faq-chevron">›</span>
+            </div>
+          ))}
+        </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
   if (kind === 'cta') {
     return (
-      <div className="spb-wire-section spb-wire-cta">
-        <div className="spb-mock-label">{section.title}</div>
-        <div className="spb-wire-cta-inner">
-          <div className="spb-mock-h" />
-          <div className="spb-mock-p spb-mock-p--short" style={{ margin: '0 auto' }} />
-          <div className="spb-mock-btn" style={{ margin: '10px auto 0' }} />
+      <div className="spb-wf-section spb-wf-section--cta">
+        <WireSectionPill type={section.type} title={section.title} />
+        <div className="spb-wf-cta-body">
+          <div className="spb-wf-headline spb-wf-headline--lg spb-wf-headline--center" />
+          <div className="spb-wf-line spb-wf-line--center" style={{ width: '55%' }} />
+          <div className="spb-wf-line spb-wf-line--center" style={{ width: '40%' }} />
+          <div className="spb-wf-btn-row spb-wf-btn-row--center"><WireBtn /></div>
         </div>
+        {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
       </div>
     );
   }
 
-  // split / about / process / details
+  // split / about / process / details / team / pricing
   return (
-    <div className="spb-wire-section spb-wire-split">
-      <div className="spb-mock-label">{section.title}</div>
-      <div className="spb-wire-split-inner">
-        <div className="spb-mock-img-block spb-mock-img-block--sm" />
-        <div className="spb-mock-text-block">
-          <div className="spb-mock-h spb-mock-h--sm" />
-          <div className="spb-mock-p" />
-          <div className="spb-mock-p" />
-          <div className="spb-mock-p spb-mock-p--short" />
-          {section.description && <div className="spb-mock-desc">{section.description}</div>}
+    <div className="spb-wf-section spb-wf-section--split">
+      <WireSectionPill type={section.type} title={section.title} />
+      <div className="spb-wf-split-layout">
+        <WireImgPlaceholder className="spb-wf-split-img" />
+        <div className="spb-wf-split-text">
+          <div className="spb-wf-headline spb-wf-headline--sm" />
+          <WireLines widths={[90, 80, 85, 60]} />
+          <WireBtn />
         </div>
       </div>
+      {hint && <div className="spb-wire-content-hint">✦ {hint}</div>}
     </div>
   );
 }
 
 function WirePage({ page }) {
   return (
-    <div className="spb-wireframe-page">
-      <div className="spb-wire-browser-chrome">
-        <span className="spb-wire-dot" />
-        <span className="spb-wire-dot" />
-        <span className="spb-wire-dot" />
-        <span className="spb-wire-page-label">{page.name}</span>
-        <span className="spb-wire-path">{page.path}</span>
+    <div className="spb-wf-page">
+      {/* Browser chrome */}
+      <div className="spb-wf-chrome">
+        <div className="spb-wf-chrome-dots">
+          <span className="spb-wf-dot spb-wf-dot--r" />
+          <span className="spb-wf-dot spb-wf-dot--y" />
+          <span className="spb-wf-dot spb-wf-dot--g" />
+        </div>
+        <div className="spb-wf-chrome-bar">
+          <span className="spb-wf-chrome-lock">🔒</span>
+          <span className="spb-wf-chrome-url">{page.path === '/' ? 'yoursite.com' : `yoursite.com${page.path}`}</span>
+        </div>
+        <div className="spb-wf-chrome-actions">
+          <div className="spb-wf-chrome-action-dot" />
+          <div className="spb-wf-chrome-action-dot" />
+        </div>
       </div>
-      <div className="spb-wire-nav" />
+
+      {/* Nav bar wireframe */}
+      <div className="spb-wf-nav">
+        <div className="spb-wf-nav-logo" />
+        <div className="spb-wf-nav-links">
+          {[48, 52, 44, 56].map((w, i) => <div key={i} className="spb-wf-nav-link" style={{ width: w }} />)}
+        </div>
+        <div className="spb-wf-nav-cta" />
+      </div>
+
+      {/* Page title strip */}
+      <div className="spb-wf-page-strip">
+        <span className="spb-wf-page-name">{page.name}</span>
+        <span className="spb-wf-page-path">{page.path}</span>
+        {page.layoutNotes && <span className="spb-wire-layout-notes">✦ {page.layoutNotes}</span>}
+      </div>
+
+      {/* Sections */}
       {(page.sections || []).map(s => <WireSection key={s.id} section={s} />)}
-      <div className="spb-wire-footer" />
+
+      {/* Footer wireframe */}
+      <div className="spb-wf-footer">
+        <div className="spb-wf-footer-inner">
+          <div className="spb-wf-footer-brand">
+            <div className="spb-wf-footer-logo" />
+            <WireLines widths={[70, 55]} />
+          </div>
+          {[0,1,2].map(i => (
+            <div key={i} className="spb-wf-footer-col">
+              <div className="spb-wf-footer-col-head" />
+              {[50, 45, 55, 40].map((w, j) => <div key={j} className="spb-wf-line" style={{ width: w, marginBottom: 5 }} />)}
+            </div>
+          ))}
+        </div>
+        <div className="spb-wf-footer-bar">
+          <div className="spb-wf-line" style={{ width: 120 }} />
+          <div className="spb-wf-line" style={{ width: 80 }} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -314,6 +413,21 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
   // Phase 3 — AI suggest state
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiPreview, setAiPreview] = useState(null); // { summary, sitemap, warnings }
+  // AI brief
+  const [aiSuggestingBrief, setAiSuggestingBrief] = useState(false);
+  const [aiPreviewBrief, setAiPreviewBrief] = useState(null);
+  const [aiAppliedBriefFields, setAiAppliedBriefFields] = useState({});
+  // AI sections (per-page)
+  const [aiSuggestingSection, setAiSuggestingSection] = useState(null); // pageId or null
+  const [aiPreviewSection, setAiPreviewSection] = useState(null);
+  // AI wireframe
+  const [aiSuggestingWireframe, setAiSuggestingWireframe] = useState(false);
+  const [aiPreviewWireframe, setAiPreviewWireframe] = useState(null);
+  // Auto-save
+  const saveTimerRef = useRef(null);
+  const [saveState, setSaveState] = useState('idle'); // 'idle'|'saving'|'saved'
+  // Generate error
+  const [generateError, setGenerateError] = useState(null);
   // Phase 6 — template metadata
   const [templateMeta, setTemplateMeta] = useState(null);
 
@@ -347,6 +461,23 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       })
       .catch(() => {}); // fail silently — metadata is optional
   }, [templateId]);
+
+  // ── Auto-save debounce ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!planId) return;
+    setSaveState('saving');
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await updateTemplateSitePlanPart(planId, 'brief', sitePlan.brief);
+        await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap);
+        await updateTemplateSitePlanPart(planId, 'style', sitePlan.style);
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 2000);
+      } catch { setSaveState('idle'); }
+    }, 1500);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [sitePlan, planId]);
 
   // Phase 3 — AI suggest sitemap handler
   const handleAiSuggest = async () => {
@@ -387,6 +518,101 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     setAiPreview(null);
     showToast('AI suggestion applied. Review and edit as needed.');
     setActiveTab('sitemap');
+  };
+
+  // ── AI brief handler ─────────────────────────────────────────────────────
+  const handleAiBrief = async () => {
+    if (!planId) {
+      try {
+        const result = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
+        const newPlanId = result?.data?.planId || result?.planId;
+        if (newPlanId) { setPlanId(newPlanId); await doAiBrief(newPlanId); }
+      } catch { showToast('Save failed — could not start AI suggestion.'); }
+    } else { await doAiBrief(planId); }
+  };
+  const doAiBrief = async (pid) => {
+    setAiSuggestingBrief(true);
+    try {
+      const result = await aiAutofillOptionalBrief(pid);
+      const data = result?.data || result;
+      setAiPreviewBrief(data);
+      const defaults = {};
+      Object.keys(data.suggestions || {}).forEach(k => { defaults[k] = true; });
+      setAiAppliedBriefFields(defaults);
+    } catch (e) { showToast(e?.message || 'AI brief suggestion failed.'); }
+    finally { setAiSuggestingBrief(false); }
+  };
+  const applyAiBriefSuggestions = () => {
+    if (!aiPreviewBrief?.suggestions) return;
+    Object.entries(aiPreviewBrief.suggestions).forEach(([k, v]) => {
+      if (aiAppliedBriefFields[k] && v) setBriefField(k, v);
+    });
+    setAiPreviewBrief(null);
+    showToast('Brief fields updated by RoxanneAI.');
+  };
+
+  // ── AI sections handler ──────────────────────────────────────────────────
+  const handleAiSections = async (pageId) => {
+    if (!planId) {
+      try {
+        const result = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
+        const newPlanId = result?.data?.planId || result?.planId;
+        if (newPlanId) { setPlanId(newPlanId); await doAiSections(newPlanId, pageId); }
+      } catch { showToast('Save failed — could not start AI suggestion.'); }
+    } else {
+      try { await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap); } catch {}
+      await doAiSections(planId, pageId);
+    }
+  };
+  const doAiSections = async (pid, pageId) => {
+    setAiSuggestingSection(pageId);
+    try {
+      const result = await aiSuggestSectionsForPage(pid, pageId);
+      setAiPreviewSection(result?.data || result);
+    } catch (e) { showToast(e?.message || 'AI section suggestion failed.'); }
+    finally { setAiSuggestingSection(null); }
+  };
+  const applyAiSectionSuggestions = () => {
+    if (!aiPreviewSection?.sections) return;
+    const { pageId, sections } = aiPreviewSection;
+    setSitePlan(p => ({
+      ...p,
+      sitemap: {
+        ...p.sitemap,
+        pages: p.sitemap.pages.map(pg => pg.id === pageId ? { ...pg, sections } : pg),
+      },
+    }));
+    setAiPreviewSection(null);
+    showToast('Page sections updated by RoxanneAI.');
+  };
+
+  // ── AI wireframe handler ─────────────────────────────────────────────────
+  const handleAiWireframe = async () => {
+    if (!planId) {
+      try {
+        const result = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
+        const newPlanId = result?.data?.planId || result?.planId;
+        if (newPlanId) { setPlanId(newPlanId); await doAiWireframe(newPlanId); }
+      } catch { showToast('Save failed — could not start AI suggestion.'); }
+    } else {
+      try { await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap); } catch {}
+      await doAiWireframe(planId);
+    }
+  };
+  const doAiWireframe = async (pid) => {
+    setAiSuggestingWireframe(true);
+    try {
+      const result = await aiSuggestWireframe(pid);
+      setAiPreviewWireframe(result?.data || result);
+    } catch (e) { showToast(e?.message || 'AI wireframe suggestion failed.'); }
+    finally { setAiSuggestingWireframe(false); }
+  };
+  const applyAiWireframeSuggestions = () => {
+    if (!aiPreviewWireframe?.pages) return;
+    setSitePlan(p => ({ ...p, sitemap: { ...p.sitemap, pages: aiPreviewWireframe.pages } }));
+    setAiPreviewWireframe(null);
+    showToast('Wireframe guidance applied by RoxanneAI.');
+    setActiveTab('wireframe');
   };
 
   const [sitePlan, setSitePlan] = useState(() => ({
@@ -596,10 +822,20 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
         navigate({ view: 'hosting-list' });
       }
     } catch (e) {
+      setGenerateError(e?.message || 'Generation failed. Please try again.');
       showToast(e?.message || 'Generation failed. Please try again.');
     } finally {
       setGenerating(false);
     }
+  };
+
+  // ── Tab completion ───────────────────────────────────────────────────────
+  const tabDone = {
+    brief: !!(sitePlan.brief.businessName && sitePlan.brief.industry),
+    sitemap: sitePlan.sitemap.pages.length >= 2 && sitePlan.sitemap.pages.every(p => p.sections.length > 0),
+    wireframe: sitePlan.sitemap.pages.length > 0,
+    style: true,
+    review: false,
   };
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -623,7 +859,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             {aiSuggesting ? '⏳ Thinking…' : '✦ RoxanneAI'}
           </button>
           <button className="spb-btn spb-btn--outline spb-btn--sm" onClick={handleSavePlan}>
-            Save Plan
+            {saveState === 'saving' ? '↻ Saving…' : saveState === 'saved' ? '✓ Saved' : 'Save'}
           </button>
         </div>
       </div>
@@ -633,10 +869,10 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
         {TABS.map(tab => (
           <button
             key={tab.key}
-            className={`spb-tab ${activeTab === tab.key ? 'spb-tab--active' : ''}`}
+            className={`spb-tab ${activeTab === tab.key ? 'spb-tab--active' : ''} ${tabDone[tab.key] ? 'spb-tab--done' : ''}`}
             onClick={() => setActiveTab(tab.key)}
           >
-            <span className="spb-tab-num">{tab.num}</span>
+            <span className="spb-tab-num">{tabDone[tab.key] ? '✓' : tab.num}</span>
             {tab.label}
           </button>
         ))}
@@ -645,7 +881,13 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       {/* Tab content */}
       <div className="spb-tab-content">
         {activeTab === 'brief' && (
-          <BriefTab brief={sitePlan.brief} onChange={setBriefField} onSuggest={handleSuggestSitemap} />
+          <BriefTab
+            brief={sitePlan.brief}
+            onChange={setBriefField}
+            onSuggest={handleSuggestSitemap}
+            onAiBrief={handleAiBrief}
+            aiSuggesting={aiSuggestingBrief}
+          />
         )}
         {activeTab === 'sitemap' && (
           <SitemapTab
@@ -657,13 +899,26 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             onAddSection={addSection}
             onDeleteSection={deleteSection}
             onEditSection={(pageId, section) => setEditingSection({ pageId, section })}
+            onAiSections={handleAiSections}
+            aiSuggestingSection={aiSuggestingSection}
           />
         )}
         {activeTab === 'wireframe' && (
-          <WireframeTab pages={sitePlan.sitemap.pages} />
+          <WireframeTab
+            pages={sitePlan.sitemap.pages}
+            style={sitePlan.style}
+            onAiWireframe={handleAiWireframe}
+            aiSuggesting={aiSuggestingWireframe}
+          />
         )}
         {activeTab === 'style' && (
-          <StyleTab style={sitePlan.style} onPreset={applyPreset} onColor={setStyleColor} onField={setStyleField} />
+          <StyleTab
+            style={sitePlan.style}
+            onPreset={applyPreset}
+            onColor={setStyleColor}
+            onField={setStyleField}
+            brief={sitePlan.brief}
+          />
         )}
         {activeTab === 'review' && (
           <ReviewTab
@@ -672,6 +927,9 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             templateType={templateType}
             onGenerate={handleGenerate}
             generating={generating}
+            generateError={generateError}
+            onClearError={() => setGenerateError(null)}
+            navigate={navigate}
           />
         )}
       </div>
@@ -720,6 +978,95 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
         </div>
       )}
 
+      {/* ── AI Brief preview ── */}
+      {aiPreviewBrief && (
+        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewBrief(null)}>
+          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
+            <div className="spb-ai-preview-head">
+              <span className="spb-ai-badge">✦ RoxanneAI</span>
+              <h3>Optional brief suggestions</h3>
+              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewBrief(null)}>✕</button>
+            </div>
+            <p className="spb-ai-summary">{aiPreviewBrief.summary}</p>
+            {aiPreviewBrief.warnings?.length > 0 && (
+              <div className="spb-ai-warnings">{aiPreviewBrief.warnings.map((w,i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}</div>
+            )}
+            <div className="spb-ai-suggestion-rows">
+              {Object.entries(aiPreviewBrief.suggestions || {}).filter(([,v]) => v).map(([key, val]) => (
+                <label key={key} className="spb-ai-suggestion-row">
+                  <input type="checkbox" checked={!!aiAppliedBriefFields[key]} onChange={e => setAiAppliedBriefFields(prev => ({ ...prev, [key]: e.target.checked }))} />
+                  <div className="spb-ai-suggestion-content">
+                    <span className="spb-ai-suggestion-key">{key}</span>
+                    <span className="spb-ai-suggestion-val">{val}</span>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="spb-ai-actions">
+              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewBrief(null)}>Cancel</button>
+              <button className="spb-btn spb-btn--primary" onClick={applyAiBriefSuggestions}>Apply selected</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Section preview ── */}
+      {aiPreviewSection && (
+        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewSection(null)}>
+          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
+            <div className="spb-ai-preview-head">
+              <span className="spb-ai-badge">✦ RoxanneAI</span>
+              <h3>Section suggestions — {aiPreviewSection.pageName}</h3>
+              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewSection(null)}>✕</button>
+            </div>
+            <p className="spb-ai-summary">{aiPreviewSection.summary}</p>
+            {aiPreviewSection.warnings?.length > 0 && (
+              <div className="spb-ai-warnings">{aiPreviewSection.warnings.map((w,i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}</div>
+            )}
+            <div className="spb-ai-pages">
+              {(aiPreviewSection.sections || []).map(s => (
+                <div key={s.id} className="spb-ai-page">
+                  <div className="spb-ai-page-name"><span className="spb-section-type-badge">{s.type}</span><strong>{s.title}</strong></div>
+                  {s.description && <div className="spb-ai-page-path">{s.description}</div>}
+                </div>
+              ))}
+            </div>
+            <div className="spb-ai-actions">
+              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewSection(null)}>Cancel</button>
+              <button className="spb-btn spb-btn--primary" onClick={applyAiSectionSuggestions}>Apply to page</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Wireframe preview ── */}
+      {aiPreviewWireframe && (
+        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewWireframe(null)}>
+          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
+            <div className="spb-ai-preview-head">
+              <span className="spb-ai-badge">✦ RoxanneAI</span>
+              <h3>Wireframe guidance</h3>
+              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewWireframe(null)}>✕</button>
+            </div>
+            <p className="spb-ai-summary">{aiPreviewWireframe.summary}</p>
+            <div className="spb-ai-pages">
+              {(aiPreviewWireframe.pages || []).map(pg => (
+                <div key={pg.id} className="spb-ai-page">
+                  <div className="spb-ai-page-name">{pg.name}{pg.layoutNotes && <span className="spb-ai-page-path"> — {pg.layoutNotes}</span>}</div>
+                  <ul className="spb-ai-sections">
+                    {(pg.sections || []).map(s => <li key={s.id}><strong>{s.title}</strong>{s.contentHints ? ` — ${s.contentHints}` : ''}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <div className="spb-ai-actions">
+              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewWireframe(null)}>Cancel</button>
+              <button className="spb-btn spb-btn--primary" onClick={applyAiWireframeSuggestions}>Apply guidance</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
@@ -727,20 +1074,25 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
 }
 
 // ─── BriefTab ─────────────────────────────────────────────────────────────────
-function BriefTab({ brief, onChange, onSuggest }) {
+function BriefTab({ brief, onChange, onSuggest, onAiBrief, aiSuggesting }) {
   return (
     <div className="spb-panel">
       <div className="spb-panel-head">
-        <h2 className="spb-panel-title">Client Brief</h2>
-        <p className="spb-panel-sub">Fill in as much as you know — the sitemap will be suggested from this.</p>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <h2 className="spb-panel-title" style={{ margin:0 }}>Client Brief</h2>
+          <button className="spb-btn spb-btn--ai spb-btn--sm" onClick={onAiBrief} disabled={aiSuggesting}>
+            {aiSuggesting ? '✦ Thinking…' : '✦ RoxanneAI — fill optional fields'}
+          </button>
+        </div>
+        <p className="spb-panel-sub">Required fields are marked <span style={{color:'#ef4444'}}>*</span> — AI can suggest the rest.</p>
       </div>
       <div className="spb-brief-grid">
         <div className="spb-field">
-          <label className="spb-field-label">Business name</label>
+          <label className="spb-field-label">Business name <span style={{color:'#ef4444'}}>*</span></label>
           <input className="spb-input" value={brief.businessName} onChange={e => onChange('businessName', e.target.value)} placeholder="e.g. Sunrise Plumbing" />
         </div>
         <div className="spb-field">
-          <label className="spb-field-label">Industry</label>
+          <label className="spb-field-label">Industry <span style={{color:'#ef4444'}}>*</span></label>
           <input className="spb-input" value={brief.industry} onChange={e => onChange('industry', e.target.value)} placeholder="e.g. Construction, Restaurant, Consulting" />
         </div>
         <div className="spb-field">
@@ -748,7 +1100,7 @@ function BriefTab({ brief, onChange, onSuggest }) {
           <input className="spb-input" value={brief.targetAudience} onChange={e => onChange('targetAudience', e.target.value)} placeholder="e.g. Local homeowners in Sydney" />
         </div>
         <div className="spb-field">
-          <label className="spb-field-label">Products / services offered</label>
+          <label className="spb-field-label">Products / services offered <span style={{color:'#ef4444'}}>*</span></label>
           <input className="spb-input" value={brief.offer} onChange={e => onChange('offer', e.target.value)} placeholder="e.g. Plumbing repairs, hot water systems, installations" />
         </div>
         <div className="spb-field spb-field--full">
@@ -964,7 +1316,6 @@ function SitemapCanvasView({ sitemap, onAddPage, onDeletePage, onUpdatePage, onA
 
           {/* Root node */}
           <div className="spb-cv-root">
-            <span className="spb-cv-root-tag">Root</span>
             <span className="spb-cv-root-name">{sitemap.name || 'New Website'}</span>
           </div>
 
@@ -1044,7 +1395,7 @@ function SitemapCanvasView({ sitemap, onAddPage, onDeletePage, onUpdatePage, onA
 }
 
 // ─── SitemapTab ───────────────────────────────────────────────────────────────
-function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection }) {
+function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection, onAiSections, aiSuggestingSection }) {
   const [view, setView] = useState('cards'); // 'cards' | 'canvas'
 
   return (
@@ -1109,9 +1460,15 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
                     placeholder="/path"
                   />
                 </div>
-                <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">
-                  ✕
-                </button>
+                <div style={{ display:'flex', gap:4 }}>
+                  <button
+                    className="spb-btn spb-btn--ai spb-btn--icon"
+                    onClick={() => onAiSections && onAiSections(page.id)}
+                    disabled={aiSuggestingSection === page.id}
+                    title="RoxanneAI — improve sections"
+                  >{aiSuggestingSection === page.id ? '…' : '✦'}</button>
+                  <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">✕</button>
+                </div>
               </div>
               <div className="spb-sections-list">
                 {page.sections.map(section => (
@@ -1160,12 +1517,21 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
 }
 
 // ─── WireframeTab ─────────────────────────────────────────────────────────────
-function WireframeTab({ pages }) {
+function WireframeTab({ pages, style, onAiWireframe, aiSuggesting }) {
   return (
     <div className="spb-panel spb-panel--wire">
       <div className="spb-panel-head">
-        <h2 className="spb-panel-title">Wireframe</h2>
-        <p className="spb-panel-sub">Auto-generated layout preview from your sitemap. Edit sections in the Sitemap tab to update this.</p>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <h2 className="spb-panel-title" style={{ margin:0 }}>Wireframe</h2>
+          <button
+            className="spb-btn spb-btn--ai spb-btn--sm"
+            onClick={onAiWireframe}
+            disabled={aiSuggesting || pages.length === 0}
+          >
+            {aiSuggesting ? '✦ Generating…' : '✦ RoxanneAI — add content guidance'}
+          </button>
+        </div>
+        <p className="spb-panel-sub">Page-by-page wireframe from your sitemap. RoxanneAI adds layout hints to each section.</p>
       </div>
       <div className="spb-wireframe-canvas">
         {pages.length === 0 && (
@@ -1178,7 +1544,7 @@ function WireframeTab({ pages }) {
 }
 
 // ─── StyleTab ─────────────────────────────────────────────────────────────────
-function StyleTab({ style, onPreset, onColor, onField }) {
+function StyleTab({ style, onPreset, onColor, onField, brief }) {
   const COLOR_ROWS = [
     { key: 'background', label: 'Background' },
     { key: 'surface', label: 'Surface' },
@@ -1290,7 +1656,7 @@ function StyleTab({ style, onPreset, onColor, onField }) {
 }
 
 // ─── ReviewTab ────────────────────────────────────────────────────────────────
-function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating }) {
+function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating, generateError, onClearError, navigate }) {
   const { brief, sitemap, style } = sitePlan;
   const totalSections = sitemap.pages.reduce((sum, p) => sum + (p.sections?.length || 0), 0);
   const preset = STYLE_PRESETS.find(p => p.id === style.presetId);
@@ -1350,6 +1716,21 @@ function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating 
           This will prepare a generated source copy from the chosen template, applying your brief, sitemap, and style direction, then hand it to the Hosting Deploy Engine for GitHub + Render deployment.
         </div>
       </div>
+
+      {generateError && (
+        <div className="spb-review-error-panel">
+          <div className="spb-review-error-icon">⚠</div>
+          <div className="spb-review-error-body">
+            <strong>Generation failed</strong>
+            <p>{generateError}</p>
+            <p style={{ fontSize:12, color:'var(--spb-muted)', marginTop:4 }}>
+              Make sure GitHub and Render credentials are set in{' '}
+              <button className="spb-link-btn" onClick={() => navigate({ view:'settings' })}>Settings →</button>
+            </p>
+          </div>
+          <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={onClearError}>✕</button>
+        </div>
+      )}
 
       <div className="spb-review-generate">
         <button

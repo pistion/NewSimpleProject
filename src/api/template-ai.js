@@ -112,6 +112,15 @@ export async function handoffTemplateSitePlan(planId, options = {}) {
 export async function aiSuggestSitemapForPlan(planId) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sitemap`, { method: 'POST' });
 }
+export async function aiAutofillOptionalBrief(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/autofill-brief`, { method: 'POST' });
+}
+export async function aiSuggestSectionsForPage(planId, pageId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sections/${encodeURIComponent(pageId)}`, { method: 'POST' });
+}
+export async function aiSuggestWireframe(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-wireframe`, { method: 'POST' });
+}
 
 /**
  * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
