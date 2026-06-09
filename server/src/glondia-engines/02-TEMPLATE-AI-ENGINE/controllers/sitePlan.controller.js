@@ -28,7 +28,9 @@ export const sitePlanController = {
   updateSitemap: async (req, res, next) => {
     try {
       await assertPlanAccess(req.params.planId, req.user);
-      const plan = await updateSitePlan(req.params.planId, { sitemap: req.body });
+      // Unwrap { sitemap: {...} } or accept flat sitemap object directly
+      const sitemap = req.body?.sitemap ?? req.body;
+      const plan = await updateSitePlan(req.params.planId, { sitemap });
       if (!plan) throw err('Plan not found.', 404);
       res.json({ data: plan });
     } catch (e) { next(e); }
@@ -36,7 +38,8 @@ export const sitePlanController = {
   updateWireframe: async (req, res, next) => {
     try {
       await assertPlanAccess(req.params.planId, req.user);
-      const plan = await updateSitePlan(req.params.planId, { wireframe: req.body });
+      const wireframe = req.body?.wireframe ?? req.body;
+      const plan = await updateSitePlan(req.params.planId, { wireframe });
       if (!plan) throw err('Plan not found.', 404);
       res.json({ data: plan });
     } catch (e) { next(e); }
@@ -44,7 +47,8 @@ export const sitePlanController = {
   updateStyle: async (req, res, next) => {
     try {
       await assertPlanAccess(req.params.planId, req.user);
-      const plan = await updateSitePlan(req.params.planId, { style: req.body });
+      const style = req.body?.style ?? req.body;
+      const plan = await updateSitePlan(req.params.planId, { style });
       if (!plan) throw err('Plan not found.', 404);
       res.json({ data: plan });
     } catch (e) { next(e); }
