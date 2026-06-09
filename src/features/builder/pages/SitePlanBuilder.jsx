@@ -462,23 +462,6 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       .catch(() => {}); // fail silently — metadata is optional
   }, [templateId]);
 
-  // ── Auto-save debounce ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!planId) return;
-    setSaveState('saving');
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      try {
-        await updateTemplateSitePlanPart(planId, 'brief', sitePlan.brief);
-        await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap);
-        await updateTemplateSitePlanPart(planId, 'style', sitePlan.style);
-        setSaveState('saved');
-        setTimeout(() => setSaveState('idle'), 2000);
-      } catch { setSaveState('idle'); }
-    }, 1500);
-    return () => clearTimeout(saveTimerRef.current);
-  }, [sitePlan, planId]);
-
   // Phase 3 — AI suggest sitemap handler
   const handleAiSuggest = async () => {
     if (!planId) {
@@ -653,6 +636,23 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       space: 1,
     },
   }));
+
+  // ── Auto-save debounce (must be after sitePlan is declared) ─────────────
+  useEffect(() => {
+    if (!planId) return;
+    setSaveState('saving');
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await updateTemplateSitePlanPart(planId, 'brief', sitePlan.brief);
+        await updateTemplateSitePlanPart(planId, 'sitemap', sitePlan.sitemap);
+        await updateTemplateSitePlanPart(planId, 'style', sitePlan.style);
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 2000);
+      } catch { setSaveState('idle'); }
+    }, 1500);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [sitePlan, planId]);
 
   // ── Brief helpers ────────────────────────────────────────────────────────
   const setBriefField = (field, value) => {
