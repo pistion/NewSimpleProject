@@ -12,6 +12,7 @@ import { prisma } from './db.js';
 import { markDeploymentPaid } from './deploymentBillingService.js';
 import { deploymentBilling, getBillingTier, defaultTierId } from '../config/deploymentBilling.js';
 import { assertOrderPayable, assertAmountMatchesTier } from './paymentVerificationGuards.js';
+import { pgkToProcessorAmount } from './forexService.js';
 
 /** Resolve the pricing tier (and its processor charge) for an order. */
 function tierForOrder(order) {
@@ -72,11 +73,19 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
     return { alreadyPaid: true, checkoutOrderId: order.id, paypalOrderId: order.providerOrderId };
   }
 
-  // Charge the processor amount for the order's selected tier (promo K50 vs K200).
+  // Charge the live forex-converted + GST amount for this tier (K50 promo or K200 standard).
+  // pgkToProcessorAmount(tier.amount) fetches the current PGK→USD rate (cached 1 h),
+  // multiplies by the PGK face value, then adds PNG's 10% GST.
   const tier = tierForOrder(order);
-  const value = tier.processorAmount;
-  const currency = tier.processorCurrency;
+  const forex = await pgkToProcessorAmount(tier.amount);
+  const value    = forex.value;    // e.g. '55.00'
+  const currency = forex.currency; // always 'USD'
   const token = await getToken();
+
+  console.log(
+    `[paypal:deployment] K${tier.amount} PGK → USD ${value} ` +
+    `(rate ${forex.rate}, GST ${forex.gstPercent}%, source: ${forex.source})`,
+  );
 
   const ppRes = await fetch(`${BASE}/v2/checkout/orders`, {
     method: 'POST',
@@ -85,7 +94,7 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
       intent: 'CAPTURE',
       purchase_units: [{
         reference_id: order.id,
-        description: `Glondia deployment hosting — K${tier.amount} (${order.deploymentId || 'deployment'})`,
+        description: `Glondia hosting — K${tier.amount} PGK ≈ USD ${value} incl. ${forex.gstPercent}% GST`,
         custom_id: order.deploymentId || order.id,
         amount: {
           currency_code: currency, value,
@@ -93,7 +102,7 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
         },
         items: [{
           name: 'Glondia deployment hosting',
-          description: `K${tier.amount} hosting fee (${tier.label})`,
+          description: `K${tier.amount} PGK hosting fee (${tier.label}) incl. ${forex.gstPercent}% GST`,
           quantity: '1',
           unit_amount: { currency_code: currency, value },
           category: 'DIGITAL_GOODS',
@@ -117,6 +126,8 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
   const ppOrder = await ppRes.json();
   const approvalUrl = ppOrder.links?.find((l) => l.rel === 'approve')?.href;
 
+  // Persist the exact amount charged so assertAmountMatchesTier can verify
+  // capture against the stored value (not a static tier config).
   await prisma.checkoutOrder.update({
     where: { id: order.id },
     data: {
@@ -124,7 +135,18 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
       providerOrderId: ppOrder.id,
       metadata: JSON.stringify({
         ...safeJson(order.metadata),
-        paypal: { orderId: ppOrder.id, charged: { value, currency } },
+        paypal: {
+          orderId: ppOrder.id,
+          charged: { value, currency },
+          forex: {
+            pgkAmount:    tier.amount,
+            rate:         forex.rate,
+            gstPercent:   forex.gstPercent,
+            usdBeforeGst: forex.usdBeforeGst,
+            computedAt:   forex.computedAt,
+            source:       forex.source,
+          },
+        },
       }),
     },
   });
@@ -136,6 +158,7 @@ export async function createDeploymentPaypalOrder({ checkoutOrderId, user } = {}
     billingTierId: tier.id,
     display: { amount: tier.amount, currency: tier.currency },
     charged: { value, currency },
+    forex: { rate: forex.rate, gstPercent: forex.gstPercent, usdBeforeGst: forex.usdBeforeGst },
   };
 }
 

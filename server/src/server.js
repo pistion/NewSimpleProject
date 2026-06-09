@@ -41,6 +41,7 @@ import adminRoutes from './routes/admin.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
+import { warmForexCache } from './services/forexService.js';
 import { prisma, ensureUserColumns, ensureNotificationsTable, ensureDeploymentSubscriptionsTable } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import deploymentService from './services/deploymentService.js';
@@ -2053,6 +2054,8 @@ if (process.env.NODE_ENV !== 'test') {
   });
   // Deploy-first tiered billing: enforce the 12-hour grace window every 5 minutes.
   startDeploymentCleanupJob();
+  // Warm the forex cache so the first PayPal order creation doesn't cold-fetch.
+  warmForexCache();
 }
 
 export default app;

@@ -88,12 +88,29 @@ export function getPaidTierFromOrder(order, fallbackTierId = defaultTierId) {
 }
 
 /**
- * Throw unless a captured amount/currency matches the order's tier processor
- * charge. Returns the matched tier on success.
+ * Throw unless a captured amount/currency matches the order's charged amount.
+ *
+ * For dynamically-priced orders (forex + GST), the exact charge is stored in
+ * order.metadata.paypal.charged at order-creation time. We compare against that
+ * stored value first. For older / legacy orders that have no stored charge, we
+ * fall back to the static tier processorAmount so old deployments still verify.
+ *
+ * Returns the matched tier on success.
  */
 export function assertAmountMatchesTier({ order, amount, currency } = {}) {
   const tier = getBillingTier(getPaidTierFromOrder(order));
-  if (String(currency) !== String(tier.processorCurrency) || String(amount) !== String(tier.processorAmount)) {
+
+  // Prefer the stored charged amount — set by createDeploymentPaypalOrder with
+  // the live forex rate. This handles dynamic (forex + GST) pricing correctly.
+  const stored = safeJson(order?.metadata)?.paypal?.charged;
+  const expectedValue    = stored?.value    ?? tier.processorAmount;
+  const expectedCurrency = stored?.currency ?? tier.processorCurrency;
+
+  if (String(currency) !== String(expectedCurrency) || String(amount) !== String(expectedValue)) {
+    console.error(
+      `[paypal:verify] amount mismatch — captured: ${amount} ${currency}, ` +
+      `expected: ${expectedValue} ${expectedCurrency} (order ${order?.id})`,
+    );
     throw httpError('Payment amount mismatch. Contact support.', 400);
   }
   return tier;
