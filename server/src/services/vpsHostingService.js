@@ -8,25 +8,6 @@ const DIRECT_DEPLOY_ENABLED =
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-export function extractActor(req) {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token || token === 'local-demo-token') {
-    return { userId: 'local-user', organizationId: 'local-org' };
-  }
-  try {
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      return {
-        userId:         payload.sub || payload.userId || 'local-user',
-        organizationId: payload.organizationId || payload.org_id || 'local-org',
-      };
-    }
-  } catch { /* fall through */ }
-  return { userId: 'local-user', organizationId: 'local-org' };
-}
-
 export function serializeVps(r) {
   return {
     id:                 r.id,
