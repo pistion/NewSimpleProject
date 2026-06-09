@@ -9,9 +9,6 @@ import {
   approveTemplateSitePlan,
   handoffTemplateSitePlan,
   aiSuggestSitemapForPlan,
-  aiAutofillOptionalBrief,
-  aiSuggestSectionsForPage,
-  aiSuggestWireframe,
   getTemplateHostingTemplate,
 } from '../../../api/template-ai.js';
 
@@ -92,20 +89,13 @@ function getSectionType(type = '') {
   return 'split';
 }
 
-function WireSectionHint({ hint }) {
-  if (!hint) return null;
-  return <div className="spb-wire-content-hint">✦ {hint}</div>;
-}
-
 function WireSection({ section }) {
   const kind = getSectionType(section.type);
-  const hint = section.contentHints || null;
 
   if (kind === 'hero') {
     return (
       <div className="spb-wire-section spb-wire-hero">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         <div className="spb-wire-hero-inner">
           <div className="spb-mock-text-block">
             <div className="spb-mock-h" />
@@ -123,7 +113,6 @@ function WireSection({ section }) {
     return (
       <div className="spb-wire-section spb-wire-cards">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         <div className="spb-wire-cards-inner">
           {[0, 1, 2].map(i => (
             <div key={i} className="spb-mock-card">
@@ -142,7 +131,6 @@ function WireSection({ section }) {
     return (
       <div className="spb-wire-section spb-wire-gallery">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         <div className="spb-wire-gallery-inner">
           {[0, 1, 2].map(i => <div key={i} className="spb-mock-gallery-item" />)}
         </div>
@@ -154,7 +142,6 @@ function WireSection({ section }) {
     return (
       <div className="spb-wire-section spb-wire-form">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         <div className="spb-wire-form-inner">
           <div className="spb-mock-form-row" />
           <div className="spb-mock-form-row" />
@@ -169,7 +156,6 @@ function WireSection({ section }) {
     return (
       <div className="spb-wire-section spb-wire-faq">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         {[0, 1, 2].map(i => (
           <div key={i} className="spb-mock-faq-row">
             <div className="spb-mock-h spb-mock-h--sm" />
@@ -184,7 +170,6 @@ function WireSection({ section }) {
     return (
       <div className="spb-wire-section spb-wire-cta">
         <div className="spb-mock-label">{section.title}</div>
-        <WireSectionHint hint={hint} />
         <div className="spb-wire-cta-inner">
           <div className="spb-mock-h" />
           <div className="spb-mock-p spb-mock-p--short" style={{ margin: '0 auto' }} />
@@ -198,7 +183,6 @@ function WireSection({ section }) {
   return (
     <div className="spb-wire-section spb-wire-split">
       <div className="spb-mock-label">{section.title}</div>
-      <WireSectionHint hint={hint} />
       <div className="spb-wire-split-inner">
         <div className="spb-mock-img-block spb-mock-img-block--sm" />
         <div className="spb-mock-text-block">
@@ -223,7 +207,6 @@ function WirePage({ page }) {
         <span className="spb-wire-page-label">{page.name}</span>
         <span className="spb-wire-path">{page.path}</span>
       </div>
-      {page.layoutNotes && <div className="spb-wire-layout-notes">✦ {page.layoutNotes}</div>}
       <div className="spb-wire-nav" />
       {(page.sections || []).map(s => <WireSection key={s.id} section={s} />)}
       <div className="spb-wire-footer" />
@@ -328,27 +311,9 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
   const [editingSection, setEditingSection] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [planId, setPlanId] = useState(null);
-  // Sitemap AI (suggest-sitemap)
+  // Phase 3 — AI suggest state
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiPreview, setAiPreview] = useState(null); // { summary, sitemap, warnings }
-
-  // Brief AI (autofill-optional-brief)
-  const [aiSuggestingBrief, setAiSuggestingBrief] = useState(false);
-  const [aiPreviewBrief, setAiPreviewBrief] = useState(null); // { summary, suggestions, warnings }
-  const [aiAppliedBriefFields, setAiAppliedBriefFields] = useState({}); // field -> true/false
-
-  // Section AI (suggest-sections per page)
-  const [aiSuggestingSection, setAiSuggestingSection] = useState(null); // pageId or null
-  const [aiPreviewSection, setAiPreviewSection] = useState(null); // { pageId, pageName, sections, summary, warnings }
-
-  // Wireframe AI (suggest-wireframe)
-  const [aiSuggestingWireframe, setAiSuggestingWireframe] = useState(false);
-  const [aiPreviewWireframe, setAiPreviewWireframe] = useState(null); // { summary, pages, warnings }
-
-  // Style AI
-  const [aiSuggestingStyle, setAiSuggestingStyle] = useState(false);
-  const [aiPreviewStyle, setAiPreviewStyle] = useState(null); // { summary, suggestions, warnings }
-
   // Phase 6 — template metadata
   const [templateMeta, setTemplateMeta] = useState(null);
 
@@ -422,168 +387,6 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     setAiPreview(null);
     showToast('AI suggestion applied. Review and edit as needed.');
     setActiveTab('sitemap');
-  };
-
-  // ── Brief AI ─────────────────────────────────────────────────────────────
-  const handleAiBrief = async () => {
-    // Need a plan ID so the backend has context
-    let pid = planId;
-    if (!pid) {
-      try {
-        const r = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
-        pid = r?.data?.planId || r?.planId;
-        if (pid) {
-          setPlanId(pid);
-          await updateTemplateSitePlanPart(pid, 'brief', sitePlan.brief);
-        }
-      } catch { showToast('Could not save plan — try again.'); return; }
-    } else {
-      try { await updateTemplateSitePlanPart(pid, 'brief', sitePlan.brief); } catch {}
-    }
-    if (!pid) { showToast('Could not create plan record.'); return; }
-
-    setAiSuggestingBrief(true);
-    try {
-      const result = await aiAutofillOptionalBrief(pid);
-      const data = result?.data || result;
-      // Pre-select all non-empty suggestions
-      const selected = {};
-      Object.entries(data.suggestions || {}).forEach(([k, v]) => { if (v) selected[k] = true; });
-      setAiAppliedBriefFields(selected);
-      setAiPreviewBrief(data);
-    } catch (e) {
-      showToast(e?.message || 'AI brief suggestion failed.');
-    } finally {
-      setAiSuggestingBrief(false);
-    }
-  };
-
-  const applyAiBriefSuggestions = () => {
-    if (!aiPreviewBrief?.suggestions) return;
-    const sugs = aiPreviewBrief.suggestions;
-    setSitePlan(p => ({
-      ...p,
-      brief: {
-        ...p.brief,
-        ...(aiAppliedBriefFields.targetAudience && sugs.targetAudience ? { targetAudience: sugs.targetAudience } : {}),
-        ...(aiAppliedBriefFields.brandTone && sugs.brandTone ? { brandTone: sugs.brandTone } : {}),
-        ...(aiAppliedBriefFields.colors && sugs.colors ? { colors: sugs.colors } : {}),
-        ...(aiAppliedBriefFields.stylePreferences && sugs.stylePreferences ? { stylePreferences: sugs.stylePreferences } : {}),
-        ...(aiAppliedBriefFields.pages && sugs.pages ? { pages: sugs.pages } : {}),
-        ...(aiAppliedBriefFields.notes && sugs.notes ? { notes: sugs.notes } : {}),
-      },
-    }));
-    setAiPreviewBrief(null);
-    showToast('RoxanneAI suggestions applied to brief.');
-  };
-
-  // ── Section AI ───────────────────────────────────────────────────────────
-  const handleAiSections = async (pageId) => {
-    let pid = planId;
-    if (!pid) {
-      try {
-        const r = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
-        pid = r?.data?.planId || r?.planId;
-        if (pid) {
-          setPlanId(pid);
-          await updateTemplateSitePlanPart(pid, 'sitemap', sitePlan.sitemap);
-          await updateTemplateSitePlanPart(pid, 'brief', sitePlan.brief);
-        }
-      } catch { showToast('Could not save plan — try again.'); return; }
-    } else {
-      try { await updateTemplateSitePlanPart(pid, 'sitemap', sitePlan.sitemap); } catch {}
-    }
-    if (!pid) { showToast('Could not create plan record.'); return; }
-
-    setAiSuggestingSection(pageId);
-    try {
-      const result = await aiSuggestSectionsForPage(pid, pageId);
-      setAiPreviewSection(result?.data || result);
-    } catch (e) {
-      showToast(e?.message || 'AI section suggestion failed.');
-    } finally {
-      setAiSuggestingSection(null);
-    }
-  };
-
-  const applyAiSectionSuggestions = () => {
-    if (!aiPreviewSection?.sections || !aiPreviewSection?.pageId) return;
-    const { pageId, sections } = aiPreviewSection;
-    setSitePlan(p => ({
-      ...p,
-      sitemap: {
-        ...p.sitemap,
-        pages: p.sitemap.pages.map(pg =>
-          pg.id === pageId ? { ...pg, sections } : pg
-        ),
-      },
-    }));
-    setAiPreviewSection(null);
-    showToast('Section suggestions applied. Review and adjust as needed.');
-  };
-
-  // ── Wireframe AI ─────────────────────────────────────────────────────────
-  const handleAiWireframe = async () => {
-    let pid = planId;
-    if (!pid) {
-      try {
-        const r = await createTemplateSitePlan({ ...sitePlan, templateId, templateType });
-        pid = r?.data?.planId || r?.planId;
-        if (pid) {
-          setPlanId(pid);
-          await updateTemplateSitePlanPart(pid, 'sitemap', sitePlan.sitemap);
-          await updateTemplateSitePlanPart(pid, 'style', sitePlan.style);
-        }
-      } catch { showToast('Could not save plan — try again.'); return; }
-    } else {
-      try {
-        await updateTemplateSitePlanPart(pid, 'sitemap', sitePlan.sitemap);
-        await updateTemplateSitePlanPart(pid, 'style', sitePlan.style);
-      } catch {}
-    }
-    if (!pid) { showToast('Could not create plan record.'); return; }
-
-    setAiSuggestingWireframe(true);
-    try {
-      const result = await aiSuggestWireframe(pid);
-      setAiPreviewWireframe(result?.data || result);
-    } catch (e) {
-      showToast(e?.message || 'AI wireframe suggestion failed.');
-    } finally {
-      setAiSuggestingWireframe(false);
-    }
-  };
-
-  const applyAiWireframeSuggestions = () => {
-    if (!aiPreviewWireframe?.pages) return;
-    // Merge AI wireframe hints back into sitemap sections (preserving structure)
-    const aiPages = aiPreviewWireframe.pages;
-    setSitePlan(p => ({
-      ...p,
-      sitemap: {
-        ...p.sitemap,
-        pages: p.sitemap.pages.map(pg => {
-          const aiPage = aiPages.find(ap => ap.id === pg.id);
-          if (!aiPage) return pg;
-          return {
-            ...pg,
-            layoutNotes: aiPage.layoutNotes || pg.layoutNotes,
-            sections: pg.sections.map(s => {
-              const aiSec = (aiPage.sections || []).find(as => as.id === s.id);
-              if (!aiSec) return s;
-              return {
-                ...s,
-                description: aiSec.description || s.description,
-                contentHints: aiSec.contentHints || s.contentHints,
-              };
-            }),
-          };
-        }),
-      },
-      wireframe: { aiEnhanced: true, generatedAt: new Date().toISOString() },
-    }));
-    setAiPreviewWireframe(null);
-    showToast('Wireframe guidance applied. Sections updated with content hints.');
   };
 
   const [sitePlan, setSitePlan] = useState(() => ({
@@ -842,13 +645,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       {/* Tab content */}
       <div className="spb-tab-content">
         {activeTab === 'brief' && (
-          <BriefTab
-            brief={sitePlan.brief}
-            onChange={setBriefField}
-            onSuggest={handleSuggestSitemap}
-            onAiBrief={handleAiBrief}
-            aiSuggesting={aiSuggestingBrief}
-          />
+          <BriefTab brief={sitePlan.brief} onChange={setBriefField} onSuggest={handleSuggestSitemap} />
         )}
         {activeTab === 'sitemap' && (
           <SitemapTab
@@ -860,26 +657,13 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             onAddSection={addSection}
             onDeleteSection={deleteSection}
             onEditSection={(pageId, section) => setEditingSection({ pageId, section })}
-            onAiSections={handleAiSections}
-            aiSuggestingSection={aiSuggestingSection}
           />
         )}
         {activeTab === 'wireframe' && (
-          <WireframeTab
-            pages={sitePlan.sitemap.pages}
-            style={sitePlan.style}
-            onAiWireframe={handleAiWireframe}
-            aiSuggesting={aiSuggestingWireframe}
-          />
+          <WireframeTab pages={sitePlan.sitemap.pages} />
         )}
         {activeTab === 'style' && (
-          <StyleTab
-            style={sitePlan.style}
-            onPreset={applyPreset}
-            onColor={setStyleColor}
-            onField={setStyleField}
-            brief={sitePlan.brief}
-          />
+          <StyleTab style={sitePlan.style} onPreset={applyPreset} onColor={setStyleColor} onField={setStyleField} />
         )}
         {activeTab === 'review' && (
           <ReviewTab
@@ -936,113 +720,6 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
         </div>
       )}
 
-      {/* ── Brief AI preview panel ── */}
-      {aiPreviewBrief && (
-        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewBrief(null)}>
-          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
-            <div className="spb-ai-preview-head">
-              <span className="spb-ai-badge">✦ RoxanneAI</span>
-              <h3>Optional brief suggestions</h3>
-              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewBrief(null)}>✕</button>
-            </div>
-            <p className="spb-ai-summary">{aiPreviewBrief.summary}</p>
-            {aiPreviewBrief.warnings?.length > 0 && (
-              <div className="spb-ai-warnings">
-                {aiPreviewBrief.warnings.map((w, i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}
-              </div>
-            )}
-            <div className="spb-ai-suggestion-rows">
-              {Object.entries(aiPreviewBrief.suggestions || {}).filter(([, v]) => v).map(([key, val]) => (
-                <label key={key} className="spb-ai-suggestion-row">
-                  <input
-                    type="checkbox"
-                    checked={!!aiAppliedBriefFields[key]}
-                    onChange={e => setAiAppliedBriefFields(prev => ({ ...prev, [key]: e.target.checked }))}
-                  />
-                  <div className="spb-ai-suggestion-content">
-                    <span className="spb-ai-suggestion-key">{BRIEF_OPTIONAL_LABELS[key] || key}</span>
-                    <span className="spb-ai-suggestion-val">{val}</span>
-                  </div>
-                </label>
-              ))}
-            </div>
-            <div className="spb-ai-actions">
-              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewBrief(null)}>Cancel</button>
-              <button className="spb-btn spb-btn--primary" onClick={applyAiBriefSuggestions}>Apply selected</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Section AI preview panel ── */}
-      {aiPreviewSection && (
-        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewSection(null)}>
-          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
-            <div className="spb-ai-preview-head">
-              <span className="spb-ai-badge">✦ RoxanneAI</span>
-              <h3>Section suggestions — {aiPreviewSection.pageName}</h3>
-              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewSection(null)}>✕</button>
-            </div>
-            <p className="spb-ai-summary">{aiPreviewSection.summary}</p>
-            {aiPreviewSection.warnings?.length > 0 && (
-              <div className="spb-ai-warnings">
-                {aiPreviewSection.warnings.map((w, i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}
-              </div>
-            )}
-            <div className="spb-ai-pages">
-              {(aiPreviewSection.sections || []).map(s => (
-                <div key={s.id} className="spb-ai-page">
-                  <div className="spb-ai-page-name">
-                    <span className="spb-section-type-badge">{s.type}</span>
-                    <strong>{s.title}</strong>
-                  </div>
-                  <div className="spb-ai-page-path">{s.description}</div>
-                </div>
-              ))}
-            </div>
-            <div className="spb-ai-actions">
-              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewSection(null)}>Cancel</button>
-              <button className="spb-btn spb-btn--primary" onClick={applyAiSectionSuggestions}>Apply to page</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Wireframe AI preview panel ── */}
-      {aiPreviewWireframe && (
-        <div className="spb-ai-preview-backdrop" onClick={() => setAiPreviewWireframe(null)}>
-          <div className="spb-ai-preview-panel" onClick={e => e.stopPropagation()}>
-            <div className="spb-ai-preview-head">
-              <span className="spb-ai-badge">✦ RoxanneAI</span>
-              <h3>Wireframe guidance</h3>
-              <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={() => setAiPreviewWireframe(null)}>✕</button>
-            </div>
-            <p className="spb-ai-summary">{aiPreviewWireframe.summary}</p>
-            {aiPreviewWireframe.warnings?.length > 0 && (
-              <div className="spb-ai-warnings">
-                {aiPreviewWireframe.warnings.map((w, i) => <div key={i} className="spb-ai-warning">⚠ {w}</div>)}
-              </div>
-            )}
-            <div className="spb-ai-pages">
-              {(aiPreviewWireframe.pages || []).map(pg => (
-                <div key={pg.id} className="spb-ai-page">
-                  <div className="spb-ai-page-name">{pg.name} {pg.layoutNotes && <span className="spb-ai-page-path">— {pg.layoutNotes}</span>}</div>
-                  <ul className="spb-ai-sections">
-                    {(pg.sections || []).map(s => (
-                      <li key={s.id}><strong>{s.title}</strong>{s.contentHints ? ` — ${s.contentHints}` : s.description ? ` — ${s.description}` : ''}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-            <div className="spb-ai-actions">
-              <button className="spb-btn spb-btn--ghost" onClick={() => setAiPreviewWireframe(null)}>Cancel</button>
-              <button className="spb-btn spb-btn--primary" onClick={applyAiWireframeSuggestions}>Apply guidance</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
@@ -1050,57 +727,29 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
 }
 
 // ─── BriefTab ─────────────────────────────────────────────────────────────────
-const BRIEF_OPTIONAL_LABELS = {
-  targetAudience: 'Target audience',
-  brandTone: 'Brand tone',
-  colors: 'Preferred colors',
-  stylePreferences: 'Style preferences',
-  pages: 'Pages needed',
-  notes: 'Extra notes',
-};
-
-function BriefTab({ brief, onChange, onSuggest, onAiBrief, aiSuggesting }) {
+function BriefTab({ brief, onChange, onSuggest }) {
   return (
     <div className="spb-panel">
       <div className="spb-panel-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h2 className="spb-panel-title" style={{ margin: 0 }}>Client Brief</h2>
-          <button
-            className="spb-btn spb-btn--ai spb-btn--sm"
-            onClick={onAiBrief}
-            disabled={aiSuggesting}
-            title="Let RoxanneAI suggest optional fields from your business details"
-          >
-            {aiSuggesting ? '✦ Thinking…' : '✦ RoxanneAI — fill optional fields'}
-          </button>
-        </div>
-        <p className="spb-panel-sub">Fill in the required fields below — RoxanneAI can suggest the optional ones.</p>
+        <h2 className="spb-panel-title">Client Brief</h2>
+        <p className="spb-panel-sub">Fill in as much as you know — the sitemap will be suggested from this.</p>
       </div>
       <div className="spb-brief-grid">
-        {/* ── Required fields ── */}
-        <div className="spb-brief-section-label spb-field--full">
-          <span className="spb-brief-required-badge">Required</span> Core details
-        </div>
         <div className="spb-field">
-          <label className="spb-field-label">Business name <span className="spb-required-star">*</span></label>
+          <label className="spb-field-label">Business name</label>
           <input className="spb-input" value={brief.businessName} onChange={e => onChange('businessName', e.target.value)} placeholder="e.g. Sunrise Plumbing" />
         </div>
         <div className="spb-field">
-          <label className="spb-field-label">Industry <span className="spb-required-star">*</span></label>
+          <label className="spb-field-label">Industry</label>
           <input className="spb-input" value={brief.industry} onChange={e => onChange('industry', e.target.value)} placeholder="e.g. Construction, Restaurant, Consulting" />
-        </div>
-        <div className="spb-field spb-field--full">
-          <label className="spb-field-label">Products / services offered <span className="spb-required-star">*</span></label>
-          <input className="spb-input" value={brief.offer} onChange={e => onChange('offer', e.target.value)} placeholder="e.g. Plumbing repairs, hot water systems, installations" />
-        </div>
-
-        {/* ── Optional fields (AI-suggestable) ── */}
-        <div className="spb-brief-section-label spb-field--full" style={{ marginTop: 8 }}>
-          <span className="spb-brief-optional-badge">Optional</span> AI can suggest these
         </div>
         <div className="spb-field">
           <label className="spb-field-label">Target audience</label>
           <input className="spb-input" value={brief.targetAudience} onChange={e => onChange('targetAudience', e.target.value)} placeholder="e.g. Local homeowners in Sydney" />
+        </div>
+        <div className="spb-field">
+          <label className="spb-field-label">Products / services offered</label>
+          <input className="spb-input" value={brief.offer} onChange={e => onChange('offer', e.target.value)} placeholder="e.g. Plumbing repairs, hot water systems, installations" />
         </div>
         <div className="spb-field spb-field--full">
           <label className="spb-field-label">Brand tone</label>
@@ -1315,6 +964,7 @@ function SitemapCanvasView({ sitemap, onAddPage, onDeletePage, onUpdatePage, onA
 
           {/* Root node */}
           <div className="spb-cv-root">
+            <span className="spb-cv-root-tag">Root</span>
             <span className="spb-cv-root-name">{sitemap.name || 'New Website'}</span>
           </div>
 
@@ -1394,7 +1044,7 @@ function SitemapCanvasView({ sitemap, onAddPage, onDeletePage, onUpdatePage, onA
 }
 
 // ─── SitemapTab ───────────────────────────────────────────────────────────────
-function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection, onAiSections, aiSuggestingSection }) {
+function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePage, onAddSection, onDeleteSection, onEditSection }) {
   const [view, setView] = useState('cards'); // 'cards' | 'canvas'
 
   return (
@@ -1459,19 +1109,9 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
                     placeholder="/path"
                   />
                 </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <button
-                    className="spb-btn spb-btn--ai spb-btn--icon"
-                    onClick={() => onAiSections && onAiSections(page.id)}
-                    disabled={aiSuggestingSection === page.id}
-                    title="RoxanneAI — improve sections for this page"
-                  >
-                    {aiSuggestingSection === page.id ? '…' : '✦'}
-                  </button>
-                  <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">
-                    ✕
-                  </button>
-                </div>
+                <button className="spb-btn spb-btn--ghost spb-btn--icon spb-delete-btn" onClick={() => onDeletePage(page.id)} title="Delete page">
+                  ✕
+                </button>
               </div>
               <div className="spb-sections-list">
                 {page.sections.map(section => (
@@ -1520,22 +1160,12 @@ function SitemapTab({ sitemap, onNameChange, onAddPage, onDeletePage, onUpdatePa
 }
 
 // ─── WireframeTab ─────────────────────────────────────────────────────────────
-function WireframeTab({ pages, style, onAiWireframe, aiSuggesting }) {
+function WireframeTab({ pages }) {
   return (
     <div className="spb-panel spb-panel--wire">
       <div className="spb-panel-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h2 className="spb-panel-title" style={{ margin: 0 }}>Wireframe</h2>
-          <button
-            className="spb-btn spb-btn--ai spb-btn--sm"
-            onClick={onAiWireframe}
-            disabled={aiSuggesting || pages.length === 0}
-            title="RoxanneAI — generate layout guidance and content hints for each section"
-          >
-            {aiSuggesting ? '✦ Generating…' : '✦ RoxanneAI — add content guidance'}
-          </button>
-        </div>
-        <p className="spb-panel-sub">Auto-generated layout preview from your sitemap. RoxanneAI can add content hints to each section.</p>
+        <h2 className="spb-panel-title">Wireframe</h2>
+        <p className="spb-panel-sub">Auto-generated layout preview from your sitemap. Edit sections in the Sitemap tab to update this.</p>
       </div>
       <div className="spb-wireframe-canvas">
         {pages.length === 0 && (
@@ -1548,7 +1178,7 @@ function WireframeTab({ pages, style, onAiWireframe, aiSuggesting }) {
 }
 
 // ─── StyleTab ─────────────────────────────────────────────────────────────────
-function StyleTab({ style, onPreset, onColor, onField, brief }) {
+function StyleTab({ style, onPreset, onColor, onField }) {
   const COLOR_ROWS = [
     { key: 'background', label: 'Background' },
     { key: 'surface', label: 'Surface' },
@@ -1561,12 +1191,7 @@ function StyleTab({ style, onPreset, onColor, onField, brief }) {
   return (
     <div className="spb-panel">
       <div className="spb-panel-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h2 className="spb-panel-title" style={{ margin: 0 }}>Style Direction</h2>
-          <span className="spb-ai-badge spb-ai-badge--muted" title="Fill the Brief tab first, then RoxanneAI can suggest colors and style direction from your industry and brand tone.">
-            ✦ RoxanneAI — style suggestions coming soon
-          </span>
-        </div>
+        <h2 className="spb-panel-title">Style Direction</h2>
         <p className="spb-panel-sub">Choose a visual style preset, then fine-tune colors, fonts, and spacing.</p>
       </div>
       <div className="spb-style-body">

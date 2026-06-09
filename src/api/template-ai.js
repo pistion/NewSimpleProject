@@ -108,23 +108,9 @@ export async function handoffTemplateSitePlan(planId, options = {}) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/handoff`, { method: 'POST', body: options });
 }
 
-// ── AI plan helpers (all require AI_BUILDER feature flag) ────────────────────
-
-// Refine the full sitemap
+// Phase 3 — AI refinement (requires AI_BUILDER feature)
 export async function aiSuggestSitemapForPlan(planId) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sitemap`, { method: 'POST' });
-}
-// Suggest optional brief fields (never touches businessName, industry, offer)
-export async function aiAutofillOptionalBrief(planId) {
-  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/autofill-optional-brief`, { method: 'POST' });
-}
-// Suggest improved sections for one specific page
-export async function aiSuggestSectionsForPage(planId, pageId) {
-  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sections`, { method: 'POST', body: { pageId } });
-}
-// Generate wireframe layout guidance from sitemap + style
-export async function aiSuggestWireframe(planId) {
-  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-wireframe`, { method: 'POST' });
 }
 
 /**
