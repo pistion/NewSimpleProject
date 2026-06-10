@@ -83,12 +83,97 @@ export function HostingList({ navigate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState('apps');
+  const [prefillConfig, setPrefillConfig] = useState(null);
+
+  // Read ?prefill= query param set by template-configurator after AI generation
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('prefill');
+      if (raw) {
+        const parsed = JSON.parse(decodeURIComponent(raw));
+        setPrefillConfig(parsed);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch { /* ignore malformed prefill */ }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     listHostingDeployments().then((items) => { if (!cancelled) setApps(items || []); }).catch((err) => { if (!cancelled) setError(err.message || 'Hosting apps could not be loaded.'); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  return <><div className="page-head"><div><div className="page-eyebrow">Hosting</div><h1>Glondia Hosting</h1><p className="sub">Deploy and manage apps created from GitHub, ZIP imports, or RoxanneAI Site Builder templates.</p></div><div className="actions">{tab === 'apps' && <><button className="btn btn-outline" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button><button className="btn btn-primary" onClick={() => navigate({ view: 'builder-import', params: { mode: 'github' } })}><ICN.Git size={14} /> Deploy from GitHub</button></>}</div></div><Tabs value={tab} onChange={setTab} options={[{ value: 'apps', label: 'My apps' }, { value: 'settings', label: 'Settings' }]} />{tab === 'apps' ? <>{error && <div className="card" style={{ padding: '10px 14px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>}{loading ? <div className="card" style={{ padding: '42px 24px' }}><Empty icon="Server" title="Loading hosting apps..." /></div> : apps.length === 0 ? <div className="card" style={{ padding: '48px 24px' }}><Empty icon="Server" title="No hosted apps yet" body="Build with the Site Builder or deploy from GitHub to create your first hosting app." action={<button className="btn btn-primary" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button>} /></div> : <div className="grid-2">{apps.map((app) => <HostingAppCard key={app.deploymentId || app.id} app={app} navigate={navigate} />)}</div>}</> : <HostingSettings />}</>;
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <div className="page-eyebrow">Hosting</div>
+          <h1>Glondia Hosting</h1>
+          <p className="sub">Deploy and manage apps created from GitHub, ZIP imports, or RoxanneAI Site Builder templates.</p>
+        </div>
+        <div className="actions">
+          {tab === 'apps' && (
+            <>
+              <button className="btn btn-outline" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button>
+              <button className="btn btn-primary" onClick={() => navigate({ view: 'builder-import', params: { mode: 'github' } })}><ICN.Git size={14} /> Deploy from GitHub</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {prefillConfig && (
+        <div className="card prefill-banner" style={{ padding: '18px 20px', marginBottom: 20, borderColor: 'var(--accent)', background: 'var(--accent-soft)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <ICN.Sparkles size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-ink)' }}>✓ Site generated — ready to deploy</div>
+              <div style={{ fontSize: 13, marginTop: 2, color: 'var(--accent-ink)', opacity: 0.8 }}>
+                <strong>{prefillConfig.name}</strong> was pushed to GitHub. Review the config below and click Deploy.
+              </div>
+            </div>
+            <button className="btn btn-sm btn-ghost" style={{ color: 'var(--accent-ink)' }} onClick={() => setPrefillConfig(null)}>✕</button>
+          </div>
+
+          <div className="kv" style={{ marginTop: 14, gridTemplateColumns: '130px 1fr', gap: '6px 14px', fontSize: 13 }}>
+            <dt>Site name</dt><dd className="mono">{prefillConfig.name}</dd>
+            <dt>GitHub repo</dt><dd><a href={prefillConfig.repoUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-ink)' }}>{prefillConfig.repoUrl}</a></dd>
+            <dt>Branch</dt><dd className="mono">{prefillConfig.branch}</dd>
+            <dt>Root directory</dt><dd className="mono">{prefillConfig.rootDir}</dd>
+            <dt>Build command</dt><dd className="mono">{prefillConfig.buildCommand}</dd>
+            <dt>Publish dir</dt><dd className="mono">{prefillConfig.publishDir}</dd>
+            <dt>Type</dt><dd className="mono">{prefillConfig.serviceType}</dd>
+            <dt>Plan</dt><dd className="mono">{prefillConfig.plan}</dd>
+          </div>
+
+          <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => navigate({ view: 'builder-import', params: { mode: 'github', prefill: prefillConfig } })}
+            >
+              <ICN.Server size={14} /> Deploy to Render
+            </button>
+            <a href={prefillConfig.repoUrl} target="_blank" rel="noreferrer" className="btn btn-outline">
+              <ICN.Git size={14} /> View on GitHub
+            </a>
+          </div>
+        </div>
+      )}
+
+      <Tabs value={tab} onChange={setTab} options={[{ value: 'apps', label: 'My apps' }, { value: 'settings', label: 'Settings' }]} />
+      {tab === 'apps' ? (
+        <>
+          {error && <div className="card" style={{ padding: '10px 14px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+          {loading
+            ? <div className="card" style={{ padding: '42px 24px' }}><Empty icon="Server" title="Loading hosting apps..." /></div>
+            : apps.length === 0
+              ? <div className="card" style={{ padding: '48px 24px' }}><Empty icon="Server" title="No hosted apps yet" body="Build with the Site Builder or deploy from GitHub to create your first hosting app." action={<button className="btn btn-primary" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button>} /></div>
+              : <div className="grid-2">{apps.map((app) => <HostingAppCard key={app.deploymentId || app.id} app={app} navigate={navigate} />)}</div>
+          }
+        </>
+      ) : <HostingSettings />}
+    </>
+  );
 }
 
 function HostingAppCard({ app, navigate }) {

@@ -29,6 +29,7 @@ import { AdminPage } from './features/admin/AdminPage.jsx';
 import BillingPage from './features/billing/BillingPage.jsx';
 import ProfilePage from './features/profile/ProfilePage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
+import { TemplateConfigurator } from './features/template-configurator/TemplateConfigurator.jsx';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
 import { isLiveMode } from './app/config.js';
@@ -249,6 +250,12 @@ export default function App() {
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
       case "vps-create":        return <VpsCreateWizard navigate={navigate} initialPlan={route.params?.plan || ''} initialPlanType={route.params?.planType || ''} />;
       case "vps-detail":        return <VpsDetail id={route.params?.id} navigate={navigate} />;
+      case "template-configurator": return (
+        <TemplateConfigurator
+          templateId={route.params?.templateId || 'forge'}
+          onClose={() => navigate({ view: 'builder-templates' })}
+        />
+      );
       default:
         window.location.href = "/";
         return null;
@@ -263,6 +270,7 @@ export default function App() {
     if (route.view === "domains-buy") return "buy";
     if (route.view === "dns") return "dns";
     if (route.view.startsWith("builder")) return "builder";
+    if (route.view === "template-configurator") return "template-configurator";
     return route.view;
   })();
 
@@ -282,6 +290,7 @@ export default function App() {
       case "builder-roxanne": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "RoxanneAI" }];
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
+      case "template-configurator": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Configure template" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
       case "profile":         return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Profile" }];
       case "admin":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Admin" }];

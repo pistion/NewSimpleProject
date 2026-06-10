@@ -18,6 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import './wizard.css';
 import { AiInputField } from './AiInputField.jsx';
 import { useAiAssist }  from './useAiAssist.js';
 

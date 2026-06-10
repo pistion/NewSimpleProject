@@ -29,7 +29,7 @@ function TemplateCardPreview({ tpl }) {
   );
 }
 
-function TemplatePreviewModal({ template, onClose, onHost }) {
+function TemplatePreviewModal({ template, onClose, onHost, onConfigure }) {
   const pages = Array.isArray(template?.contentJson?.pages) ? template.contentJson.pages : [];
   const [activePage, setActivePage] = useStateB(pages[0] || null);
 
@@ -57,8 +57,11 @@ function TemplatePreviewModal({ template, onClose, onHost }) {
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <button className="btn btn-primary" onClick={() => onHost(template)}>
+        <button className="btn btn-outline" onClick={() => onHost(template)}>
           <ICN.Sparkles size={14} /> Plan with this template
+        </button>
+        <button className="btn btn-primary" onClick={() => onConfigure && onConfigure(template)}>
+          <ICN.Wand2 size={14} /> Configure with AI
         </button>
       </div>
       <div className="tpl-preview-modal-body" onClick={(e) => e.stopPropagation()}>
@@ -100,6 +103,11 @@ export function BuilderTemplates({ navigate }) {
   const handleHostTemplate = (t) => {
     setPreviewTpl(null);
     navigate({ view: 'builder-site-plan', params: { templateId: t.id, templateType: t.contentJson?._source === 'template-library-repo' ? 'repo-template' : 'html' } });
+  };
+
+  const handleConfigureTemplate = (t) => {
+    setPreviewTpl(null);
+    navigate({ view: 'template-configurator', params: { templateId: t.id } });
   };
 
   return (
@@ -182,7 +190,7 @@ export function BuilderTemplates({ navigate }) {
         )}
       </div>
 
-      {previewTpl && <TemplatePreviewModal template={previewTpl} onClose={() => setPreviewTpl(null)} onHost={handleHostTemplate} />}
+      {previewTpl && <TemplatePreviewModal template={previewTpl} onClose={() => setPreviewTpl(null)} onHost={handleHostTemplate} onConfigure={handleConfigureTemplate} />}
     </>
   );
 }
