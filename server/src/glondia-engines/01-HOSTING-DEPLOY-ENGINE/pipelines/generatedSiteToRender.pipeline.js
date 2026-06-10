@@ -154,9 +154,13 @@ export async function run(input = {}, context = {}) {
 
     return updateDeploymentRecord(deployment.deploymentId, {
       ...basePatch,
+      platformDeployed: true,
       status: 'building',
       buildStatus: 'queued',
       currentStep: 'Queued for deploy',
+      paymentStatus: 'billing_pending',
+      subscriptionStatus: 'trial_pending',
+      billingAttachStatus: 'queued',
       renderServiceId: renderResult.serviceId,
       renderDeployId: renderResult.deployId,
       providerStatus: renderResult.providerStatus,
@@ -173,9 +177,13 @@ export async function run(input = {}, context = {}) {
     await addDeploymentLog(deployment.deploymentId, error.message || 'Deploy handoff failed.', 'warn', error.details || null);
     return updateDeploymentRecord(deployment.deploymentId, {
       ...basePatch,
+      platformDeployed: false,
       status: 'deployed_unverified',
       buildStatus: 'generated',
       currentStep: 'Generated and published; deploy handoff failed',
+      paymentStatus: 'not_billable_yet',
+      subscriptionStatus: 'not_started',
+      billingAttachStatus: 'not_started',
       providerStatus: 'handoff_failed',
       liveUrl: `https://${normalized.slug}.onrender.com`,
       render: {
@@ -224,9 +232,13 @@ async function ready(deploymentId, step, message, patch = {}) {
   await addDeploymentLog(deploymentId, message, 'warn');
   return updateDeploymentRecord(deploymentId, {
     ...patch,
+    platformDeployed: false,
     status: 'ready',
     buildStatus: 'configuration_required',
     currentStep: step,
+    paymentStatus: 'not_billable_yet',
+    subscriptionStatus: 'not_started',
+    billingAttachStatus: 'not_started',
     providerStatus: 'handoff_blocked',
     errorMessage: message,
     render: {
