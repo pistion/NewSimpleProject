@@ -134,7 +134,6 @@ export const DASH_NAV = [
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },
       { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true, feature: "domains" },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
-      { key: "template-configurator", label: "Configure template", icon: "Wand2",  route: { view: "template-configurator" }, indent: true, feature: "ai_builder" },
     ],
   },
   {

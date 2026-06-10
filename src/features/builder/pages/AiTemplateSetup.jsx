@@ -1,8 +1,8 @@
 // AiTemplateSetup.jsx — RoxanneAI guided customization before Hosting handoff.
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ICN } from '../../../icons';
 import { GD } from '../../../data';
-import { aiEditTemplateHostingSite, createSiteFromTailoredTemplate, generateTailoredTemplate, prepareTemplateHostingSite } from '../../../api/template-ai.js';
+import { aiEditTemplateHostingSite, createSiteFromTailoredTemplate, generateTailoredTemplate, prepareTemplateHostingSite, suggestIntakeAnswer } from '../../../api/template-ai.js';
 import './AiTemplateSetup.css';
 
 const QUESTIONS = [
@@ -75,6 +75,9 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
   const [answers, setAnswers] = useState({});
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState(null);
+  const [suggestion, setSuggestion] = useState(null);   // { text }
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState(null);
 
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -89,6 +92,22 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
   useEffect(() => {
     if (!complete && !generating) inputRef.current?.focus();
   }, [step, complete, generating]);
+
+  const handleAiSuggest = useCallback(async () => {
+    const currentQ = QUESTIONS[step];
+    if (!currentQ || suggesting || generating) return;
+    setSuggesting(true);
+    setSuggestError(null);
+    setSuggestion(null);
+    try {
+      const result = await suggestIntakeAnswer(currentQ.key, answers);
+      setSuggestion({ text: result?.suggestion || '' });
+    } catch (err) {
+      setSuggestError(err.message || 'AI could not suggest an answer. Try typing your own.');
+    } finally {
+      setSuggesting(false);
+    }
+  }, [step, answers, suggesting, generating]);
 
   const sendAnswer = (text) => {
     const currentQ = QUESTIONS[step];
@@ -113,6 +132,8 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
     ]);
     setStep(nextStep);
     setInput('');
+    setSuggestion(null);
+    setSuggestError(null);
   };
 
   const handleSubmit = (e) => {
@@ -283,11 +304,27 @@ export function BuilderAiIntake({ templateId, templateType, navigate }) {
           </div>
 
           {!complete ? (
-            <form className="ai-intake-input-row" onSubmit={handleSubmit}>
-              <input ref={inputRef} className="input" value={input} onChange={e => setInput(e.target.value)} placeholder={QUESTIONS[step]?.question || 'Type your answer…'} />
-              <button type="submit" className="btn btn-primary"><ICN.ArrowRight size={14} /></button>
-              <button type="button" className="btn btn-ghost" onClick={() => sendAnswer('')} title="Skip this question">Skip</button>
-            </form>
+            <div className="ai-intake-input-area">
+              {suggestion && (
+                <div className="ai-intake-suggestion">
+                  <span className="ai-intake-suggestion-label">✨ AI suggestion</span>
+                  <p className="ai-intake-suggestion-text">{suggestion.text}</p>
+                  <div className="ai-intake-suggestion-actions">
+                    <button className="btn btn-sm btn-primary" onClick={() => { setInput(suggestion.text); setSuggestion(null); inputRef.current?.focus(); }}>Use this</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setSuggestion(null)}>Dismiss</button>
+                  </div>
+                </div>
+              )}
+              {suggestError && <div className="ai-intake-suggest-error">{suggestError}</div>}
+              <form className="ai-intake-input-row" onSubmit={handleSubmit}>
+                <button type="button" className={`btn btn-outline ai-intake-suggest-btn${suggesting ? ' loading' : ''}`} onClick={handleAiSuggest} disabled={suggesting} title="Let RoxanneAI suggest an answer">
+                  {suggesting ? '…' : '✨'} AI
+                </button>
+                <input ref={inputRef} className="input" value={input} onChange={e => setInput(e.target.value)} placeholder={QUESTIONS[step]?.question || 'Type your answer…'} />
+                <button type="submit" className="btn btn-primary"><ICN.ArrowRight size={14} /></button>
+                <button type="button" className="btn btn-ghost" onClick={() => sendAnswer('')} title="Skip this question">Skip</button>
+              </form>
+            </div>
           ) : (
             <div className="ai-intake-complete-bar">
               <span className="faint" style={{ fontSize: 13 }}>All questions answered. Generate the copied site to continue to Hosting handoff.</span>

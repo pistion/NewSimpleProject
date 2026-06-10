@@ -107,7 +107,7 @@ export function BuilderTemplates({ navigate }) {
 
   const handleConfigureTemplate = (t) => {
     setPreviewTpl(null);
-    navigate({ view: 'template-configurator', params: { templateId: t.id } });
+    navigate({ view: 'builder-ai-intake', params: { templateId: t.id, templateType: t.contentJson?._source === 'template-library-repo' ? 'repo-template' : 'html' } });
   };
 
   return (

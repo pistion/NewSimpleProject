@@ -61,6 +61,49 @@ function handleMulterError(err, _req, res, next) {
 router.get('/settings', requireAiBuilder, templateAiController.getSettings);
 router.post('/intake/start', requireAiBuilder, templateAiController.startIntake);
 router.post('/intake/message', requireAiBuilder, templateAiController.sendMessage);
+
+// Per-question AI suggestion while user is filling in the intake chat.
+router.post('/intake/suggest-answer', requireAiBuilder, async (req, res, next) => {
+  try {
+    const { questionKey, previousAnswers = {} } = req.body || {};
+    if (!questionKey || typeof questionKey !== 'string') {
+      return res.status(400).json({ error: 'questionKey is required.' });
+    }
+    const openai = await import('openai').then(m => new m.default({ apiKey: process.env.OPENAI_API_KEY }));
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const context = Object.entries(previousAnswers)
+      .filter(([, v]) => v && String(v).trim())
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+    const FIELD_HINTS = {
+      businessName: 'Suggest a professional business name based on any context provided. If no context, give a single realistic example name.',
+      industry: 'Suggest a specific industry sector.',
+      audience: 'Describe the ideal target audience in one sentence.',
+      offer: 'Describe the main products or services offered in 1-2 sentences.',
+      tone: 'Suggest a brand tone that fits the industry and audience. One or two adjectives.',
+      colors: 'Suggest brand colours that fit the business. Describe them or give hex codes.',
+      stylePreferences: 'Suggest visual style preferences that match the brand.',
+      pages: 'List the website pages needed, comma separated.',
+      contact: 'Suggest placeholder contact details appropriate for this type of business.',
+      domain: 'Suggest a short, memorable domain name.',
+    };
+    const hint = FIELD_HINTS[questionKey] || `Suggest a good answer for the "${questionKey}" field.`;
+    const prompt = context
+      ? `Business context:\n${context}\n\n${hint}\nReply with ONLY the suggested text, no explanation.`
+      : `${hint}\nReply with ONLY the suggested text, no explanation.`;
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: 'You are RoxanneAI, an assistant that helps clients fill in website configuration fields. Give short, direct suggestions.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 120,
+      temperature: 0.7,
+    });
+    const suggestion = (completion.choices[0]?.message?.content || '').trim();
+    res.json({ suggestion });
+  } catch (err) { next(err); }
+});
 router.post('/generate', requireAiBuilder, templateAiController.generateTailored);
 router.get('/templates', requireTemplateMarketplace, templateAiController.listTemplates);
 router.get('/templates/:templateId', requireTemplateMarketplace, templateAiController.getTemplate);

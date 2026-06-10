@@ -122,6 +122,14 @@ export async function aiSuggestWireframe(planId) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-wireframe`, { method: 'POST' });
 }
 
+// Per-question AI suggestion during RoxanneAI intake chat.
+export async function suggestIntakeAnswer(questionKey, previousAnswers = {}) {
+  return liveApiRequest('/template-ai/intake/suggest-answer', {
+    method: 'POST',
+    body: { questionKey, previousAnswers },
+  });
+}
+
 /**
  * Legacy compatibility only. New code should use src/api/hosting-deploy.js.
  *
