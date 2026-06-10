@@ -37,12 +37,12 @@ import authMiddleware from '../../../middleware/authMiddleware.js';
 const router = express.Router();
 
 const requireAiBuilder = requireFeature('AI_BUILDER');
-const requireTemplateMarketplace = requireFeature('TEMPLATE_MARKETPLACE');
+// Site builder routes (plan/answer-sheet/templates) are gated on SITE_BUILDER,
+// not TEMPLATE_MARKETPLACE. TEMPLATE_MARKETPLACE is a future store feature.
+const requireSiteBuilder = requireFeature('SITE_BUILDER');
 
-// ── Handoff — must be registered BEFORE step routes (step07 previously had a
-//    duplicate that would shadow this one). The sitePlanHandoffController includes
-//    the answer-sheet validation layer. ─────────────────────────────────────────
-router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
+// ── Handoff — must be registered BEFORE step routes ───────────────────────────
+router.post('/plans/:planId/handoff', requireSiteBuilder, authMiddleware, sitePlanHandoffController.handoffPlan);
 
 // ── Step routes (01–07) ───────────────────────────────────────────────────────
 router.use('/', step01);
@@ -54,32 +54,32 @@ router.use('/', step06);
 router.use('/', step07);
 
 // ── Site plan CRUD ────────────────────────────────────────────────────────────
-router.post('/plans', requireTemplateMarketplace, authMiddleware, sitePlanController.createPlan);
-router.get('/plans/:planId', requireTemplateMarketplace, authMiddleware, sitePlanController.getPlan);
-router.put('/plans/:planId/brief', requireTemplateMarketplace, authMiddleware, sitePlanController.updateBrief);
-router.put('/plans/:planId/sitemap', requireTemplateMarketplace, authMiddleware, sitePlanController.updateSitemap);
-router.put('/plans/:planId/wireframe', requireTemplateMarketplace, authMiddleware, sitePlanController.updateWireframe);
-router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, sitePlanController.updateStyle);
-router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
+router.post('/plans', requireSiteBuilder, authMiddleware, sitePlanController.createPlan);
+router.get('/plans/:planId', requireSiteBuilder, authMiddleware, sitePlanController.getPlan);
+router.put('/plans/:planId/brief', requireSiteBuilder, authMiddleware, sitePlanController.updateBrief);
+router.put('/plans/:planId/sitemap', requireSiteBuilder, authMiddleware, sitePlanController.updateSitemap);
+router.put('/plans/:planId/wireframe', requireSiteBuilder, authMiddleware, sitePlanController.updateWireframe);
+router.put('/plans/:planId/style', requireSiteBuilder, authMiddleware, sitePlanController.updateStyle);
+router.post('/plans/:planId/approve', requireSiteBuilder, authMiddleware, sitePlanController.approvePlan);
 
 // ── Answer sheet routes ───────────────────────────────────────────────────────
-router.get('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.getAnswerSheet);
-router.post('/plans/:planId/answer-sheet/build', requireTemplateMarketplace, authMiddleware, answerSheetController.buildAnswerSheet);
-router.post('/plans/:planId/answer-sheet/generate', requireTemplateMarketplace, authMiddleware, answerSheetController.completeAnswerSheet);
-router.put('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.updateAnswerSheet);
-router.post('/plans/:planId/answer-sheet/approve', requireTemplateMarketplace, authMiddleware, answerSheetController.approveAnswerSheet);
+router.get('/plans/:planId/answer-sheet', requireSiteBuilder, authMiddleware, answerSheetController.getAnswerSheet);
+router.post('/plans/:planId/answer-sheet/build', requireSiteBuilder, authMiddleware, answerSheetController.buildAnswerSheet);
+router.post('/plans/:planId/answer-sheet/generate', requireSiteBuilder, authMiddleware, answerSheetController.completeAnswerSheet);
+router.put('/plans/:planId/answer-sheet', requireSiteBuilder, authMiddleware, answerSheetController.updateAnswerSheet);
+router.post('/plans/:planId/answer-sheet/approve', requireSiteBuilder, authMiddleware, answerSheetController.approveAnswerSheet);
 
-// ── Site plan AI endpoints ────────────────────────────────────────────────────
-router.post('/plans/:planId/ai/suggest-sitemap', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+// ── Site plan AI endpoints (require AI_BUILDER for advanced AI suggestions) ───
+router.post('/plans/:planId/ai/suggest-sitemap', requireSiteBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestSitemapForPlan(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/autofill-brief', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/autofill-brief', requireSiteBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await autofillBrief(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-sections/:pageId', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-sections/:pageId', requireSiteBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestSectionsForPage(req.params.planId, req.params.pageId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-wireframe', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-wireframe', requireSiteBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestWireframe(req.params.planId) }); } catch (e) { next(e); }
 });
 

@@ -1,7 +1,7 @@
 import { requireFeature } from '../../../../middleware/featureFlag.js';
 
 export const requireAiBuilder = requireFeature('AI_BUILDER');
-export const requireTemplateMarketplace = requireFeature('TEMPLATE_MARKETPLACE');
+export const requireTemplateMarketplace = requireFeature('SITE_BUILDER');
 
 export function validateGenerate(req, res, next) {
   const { templateId, templateHtml, answers } = req.body || {};
