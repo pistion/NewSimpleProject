@@ -98,4 +98,5 @@ export const ICN = {
   Play: I(<><polygon points="5 3 19 12 5 21 5 3" /></>),
   Square: I(<><rect x="3" y="3" width="18" height="18" rx="2" /></>),
   Trash2: I(<><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></>),
+  Wand2: I(<><path d="m15 4-1 1M4 15l-1 1M19 9l1-1M9 19l1-1M14.5 9.5 5 19l1 1 9.5-9.5m3-4.5-1-1-9.5 9.5 1 1" /><path d="M9.5 14.5 5 19M14.5 9.5l1-1" /></>),
 };
