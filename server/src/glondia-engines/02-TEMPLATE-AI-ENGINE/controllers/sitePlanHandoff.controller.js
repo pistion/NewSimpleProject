@@ -2,6 +2,7 @@
 import { getSitePlan, updateSitePlan } from '../store/sitePlanStore.js';
 import { buildGeneratedTemplateTargetRoot } from '../02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
 import { buildAnswerSheetFromPlan } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetBuilder.service.js';
+import { completeAnswerSheetWithAi } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetAi.service.js';
 import { validateAnswerSheet } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetValidator.service.js';
 import { mapAnswerSheetToTemplateAnswers } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetMerge.service.js';
 
@@ -61,8 +62,15 @@ export const sitePlanHandoffController = {
       if (!canAccessPlan(req.user, plan)) throw err('You do not have access to this site plan.', 403);
 
       // ── Answer sheet layer ────────────────────────────────────────────────
-      const answerSheet = await getOrCreateUsableAnswerSheet(plan);
-      const validation = validateAnswerSheet(answerSheet);
+      const {
+        answerSheet,
+        validation,
+        status: answerSheetStatus,
+        aiAttempted,
+        aiError,
+      } = await getOrCreateUsableAnswerSheet(plan, {
+        allowAiCompletion: req.body?.allowAiCompletion !== false,
+      });
 
       if (!validation.valid) {
         return res.status(422).json({
@@ -70,6 +78,10 @@ export const sitePlanHandoffController = {
           code: 'ANSWER_SHEET_INCOMPLETE',
           missing: validation.missing,
           warnings: validation.warnings,
+          answerSheet,
+          answerSheetStatus,
+          aiAttempted,
+          aiError: aiError ? aiError.message : null,
           planId,
         });
       }
@@ -153,20 +165,66 @@ export const sitePlanHandoffController = {
         buildStatus: deployment?.buildStatus,
         liveUrl: deployment?.liveUrl,
         currentStep: deployment?.currentStep,
+        answerSheetStatus,
+        answerSheetWarnings: validation.warnings || [],
+        aiAttempted,
       });
     } catch (e) { next(e); }
   },
 };
 
-async function getOrCreateUsableAnswerSheet(plan) {
-  if (plan.answerSheet) return plan.answerSheet;
-  const sheet = buildAnswerSheetFromPlan(plan);
+async function getOrCreateUsableAnswerSheet(plan, options = {}) {
+  const now = new Date().toISOString();
+
+  let answerSheet = plan.answerSheet || buildAnswerSheetFromPlan(plan);
+  let validation = validateAnswerSheet(answerSheet);
+  let status = plan.answerSheet ? (plan.answerSheetStatus || 'draft') : 'built';
+  let aiAttempted = false;
+  let aiError = null;
+
+  // If incomplete, try AI completion once — unless explicitly disabled.
+  if (!validation.valid && options.allowAiCompletion !== false) {
+    aiAttempted = true;
+    try {
+      answerSheet = await completeAnswerSheetWithAi(answerSheet, {
+        reason: 'handoff_auto_completion',
+        planId: plan.planId,
+      });
+      validation = validateAnswerSheet(answerSheet);
+      status = validation.valid
+        ? (validation.warnings?.length ? 'needs_review' : 'ready')
+        : 'incomplete';
+    } catch (error) {
+      aiError = error;
+      const warnings = Array.isArray(answerSheet.meta?.warnings) ? answerSheet.meta.warnings : [];
+      answerSheet = {
+        ...answerSheet,
+        meta: {
+          ...(answerSheet.meta || {}),
+          warnings: [...warnings, `AI handoff completion failed: ${error.message}`],
+          updatedAt: now,
+        },
+      };
+      validation = validateAnswerSheet(answerSheet);
+      status = validation.valid
+        ? (validation.warnings?.length ? 'needs_review' : 'ready')
+        : 'incomplete';
+    }
+  } else {
+    status = validation.valid
+      ? (validation.warnings?.length ? 'needs_review' : 'ready')
+      : 'incomplete';
+  }
+
   await updateSitePlan(plan.planId, {
-    answerSheet: sheet,
-    answerSheetStatus: 'built',
-    answerSheetUpdatedAt: new Date().toISOString(),
+    answerSheet,
+    answerSheetStatus: status,
+    answerSheetUpdatedAt: now,
+    answerSheetAutoCompletedAt: aiAttempted ? now : (plan.answerSheetAutoCompletedAt || null),
+    answerSheetAiError: aiError ? aiError.message : null,
   });
-  return sheet;
+
+  return { answerSheet, validation, status, aiAttempted, aiError };
 }
 
 function canAccessPlan(user, plan) {

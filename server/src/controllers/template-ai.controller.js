@@ -217,13 +217,12 @@ async function aiEditSite(req, res, next) {
 
     // Default: use applyQuestionnaireDataToGeneratedSource (safer, answer-sheet aware).
     // Raw HTML tailoring only runs when explicitly requested.
-    let tailored = null;
     const original = await readFile(indexPath, 'utf8');
+    let editedHtml = original;
     if (req.body?.allowRawHtmlAiEdit === true) {
-      tailored = await tailorHtmlTemplate(original, answers);
-      await writeFile(indexPath, tailored, 'utf8');
+      editedHtml = await tailorHtmlTemplate(original, answers);
+      await writeFile(indexPath, editedHtml, 'utf8');
     }
-    await writeFile(indexPath, tailored, 'utf8');
     await applyQuestionnaireDataToGeneratedSource(site.generatedSite.siteDir, answers, {
       site,
       template: site.templateMetadata || site.generatedSite.templateMetadata || {},
@@ -245,7 +244,7 @@ async function aiEditSite(req, res, next) {
       branch: req.body?.branch || 'main',
     });
 
-    const editedHtml = tailored || original;
+    // editedHtml is already set above (original, or AI-tailored when allowRawHtmlAiEdit===true)
     const updated = await updateTemplateSite(siteId, {
       answers,
       status: 'ai_edited',
