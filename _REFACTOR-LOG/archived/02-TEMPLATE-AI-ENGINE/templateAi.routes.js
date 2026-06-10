@@ -1,0 +1,230 @@
+import express from 'express';
+import multer from 'multer';
+import { templateAiController } from '../controllers/templateAi.controller.js';
+import { validateZipSite, getZipDeployConfigStatus } from '../../01-HOSTING-DEPLOY-ENGINE/pipelines/base64ZipToRender.pipeline.js';
+import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templateAiZipRoute.adapter.js';
+import { requireFeature } from '../../../middleware/featureFlag.js';
+import authMiddleware from '../../../middleware/authMiddleware.js';
+import { sitePlanController } from '../controllers/sitePlan.controller.js';
+import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
+import {
+  suggestSitemapForPlan,
+  autofillBrief,
+  suggestSectionsForPage,
+  suggestWireframe,
+} from '../03-SITE-PLAN-MOUNTAIN/sitePlanAi.stage.js';
+
+const router = express.Router();
+
+// RoxanneAI build + Template Choose are gated behind feature flags. The ZIP
+// upload routes below stay open — they are part of the live hosting deploy flow.
+const requireAiBuilder = requireFeature('AI_BUILDER');
+const requireTemplateMarketplace = requireFeature('TEMPLATE_MARKETPLACE');
+const MAX_ZIP_BYTES = Number(process.env.ZIP_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ZIP_BYTES },
+  fileFilter(_req, file, cb) {
+    const mime = String(file.mimetype || '').toLowerCase();
+    const name = String(file.originalname || '').toLowerCase();
+    const isZip = mime.includes('zip') || mime === 'application/octet-stream' || name.endsWith('.zip');
+    if (!isZip) {
+      const err = new Error('Only .zip files are accepted.');
+      err.status = 400;
+      err.code = 'ZIP_INVALID_TYPE';
+      err.expose = true;
+      return cb(err, false);
+    }
+    cb(null, true);
+  },
+});
+
+function handleMulterError(err, _req, res, next) {
+  if (!err) return next();
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      error: `ZIP is too large. Max size is ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB.`,
+      code: 'ZIP_TOO_LARGE',
+    });
+  }
+  if (err.code === 'ZIP_INVALID_TYPE') {
+    return res.status(400).json({ error: err.message, code: err.code });
+  }
+  return res.status(400).json({
+    error: err.message || 'File upload failed.',
+    code: err.code || 'UPLOAD_ERROR',
+  });
+}
+
+// RoxanneAI guided build flow — disabled until AI_BUILDER launches.
+router.get('/settings', requireAiBuilder, templateAiController.getSettings);
+router.post('/intake/start', requireAiBuilder, templateAiController.startIntake);
+router.post('/intake/message', requireAiBuilder, templateAiController.sendMessage);
+
+// Per-question AI suggestion while user is filling in the intake chat.
+router.post('/intake/suggest-answer', requireAiBuilder, async (req, res, next) => {
+  try {
+    const { questionKey, previousAnswers = {} } = req.body || {};
+    if (!questionKey || typeof questionKey !== 'string') {
+      return res.status(400).json({ error: 'questionKey is required.' });
+    }
+    const openai = await import('openai').then(m => new m.default({ apiKey: process.env.OPENAI_API_KEY }));
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const context = Object.entries(previousAnswers)
+      .filter(([, v]) => v && String(v).trim())
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+    const FIELD_HINTS = {
+      businessName: 'Suggest a professional business name based on any context provided. If no context, give a single realistic example name.',
+      industry: 'Suggest a specific industry sector.',
+      audience: 'Describe the ideal target audience in one sentence.',
+      offer: 'Describe the main products or services offered in 1-2 sentences.',
+      tone: 'Suggest a brand tone that fits the industry and audience. One or two adjectives.',
+      colors: 'Suggest brand colours that fit the business. Describe them or give hex codes.',
+      stylePreferences: 'Suggest visual style preferences that match the brand.',
+      pages: 'List the website pages needed, comma separated.',
+      contact: 'Suggest placeholder contact details appropriate for this type of business.',
+      domain: 'Suggest a short, memorable domain name.',
+    };
+    const hint = FIELD_HINTS[questionKey] || `Suggest a good answer for the "${questionKey}" field.`;
+    const prompt = context
+      ? `Business context:\n${context}\n\n${hint}\nReply with ONLY the suggested text, no explanation.`
+      : `${hint}\nReply with ONLY the suggested text, no explanation.`;
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: 'You are RoxanneAI, an assistant that helps clients fill in website configuration fields. Give short, direct suggestions.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 120,
+      temperature: 0.7,
+    });
+    const suggestion = (completion.choices[0]?.message?.content || '').trim();
+    res.json({ suggestion });
+  } catch (err) { next(err); }
+});
+router.post('/generate', requireAiBuilder, templateAiController.generateTailored);
+router.get('/templates', requireTemplateMarketplace, templateAiController.listTemplates);
+router.get('/templates/:templateId', requireTemplateMarketplace, templateAiController.getTemplate);
+router.post('/sites', requireTemplateMarketplace, authMiddleware, templateAiController.createSite);
+router.get('/sites/:siteId', requireTemplateMarketplace, authMiddleware, templateAiController.getSite);
+router.get('/sites/:siteId/preview', requireTemplateMarketplace, templateAiController.previewSite);
+router.post('/sites/:siteId/prepare', requireTemplateMarketplace, authMiddleware, templateAiController.prepareSite);
+router.post('/sites/:siteId/ai-edit', requireAiBuilder, authMiddleware, templateAiController.aiEditSite);
+router.post('/sites/:siteId/package', requireTemplateMarketplace, authMiddleware, templateAiController.packageSite);
+router.post('/sites/:siteId/deploy', requireTemplateMarketplace, authMiddleware, templateAiController.deploySite);
+
+// Legacy compatibility route. New callers must use GET /api/deployments/settings.
+router.get('/zip/settings', (_req, res) => {
+  try {
+    res.json(getZipDeployConfigStatus());
+  } catch {
+    res.status(500).json({ error: 'Failed to read ZIP deploy config.', code: 'ZIP_SETTINGS_ERROR' });
+  }
+});
+
+// Legacy compatibility route. New callers must use POST /api/deployments/zip.
+router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'siteZip file is required.', code: 'ZIP_MISSING_FILE' });
+    }
+    console.log(`[zip-route] ZIP deploy request: ${req.file.originalname} (${req.file.size} bytes)`);
+    await handleZipDeploy(req, res);
+  } catch (err) {
+    const status = err.status || 500;
+    const code = err.code || 'ZIP_DEPLOY_ERROR';
+    const message = err.expose !== false
+      ? (err.message || 'ZIP deploy failed.')
+      : 'An unexpected error occurred during ZIP deployment.';
+    const stage = err.stage || codeToStage(code);
+    console.error(`[zip-route] Error [${stage}]: ${message}`);
+    res.status(status).json({ success: false, error: message, code, stage, details: err.details || null });
+  }
+});
+
+function codeToStage(code = '') {
+  const c = String(code).toLowerCase();
+  if (c.startsWith('zip_no') || c === 'zip_empty' || c === 'zip_too_large' || c === 'zip_missing_file') return 'zip_upload';
+  if (c.startsWith('zip_path') || c.startsWith('zip_entry') || c === 'zip_no_files' || c === 'zip_no_deployable_entry' || c === 'zip_too_many_deployable_files') return 'zip_validation';
+  if (c.startsWith('zip_extract') || c === 'zip_invalid_type' || c === 'zip_bad_request') return 'zip_extract';
+  if (c.includes('github') && c.includes('push')) return 'github_push';
+  if (c.includes('github') && c.includes('repo')) return 'github_repo_create';
+  if (c.includes('render') && (c.includes('service') || c.includes('create'))) return 'render_service_create';
+  if (c.includes('render') && c.includes('deploy')) return 'render_deploy_trigger';
+  return 'zip_deploy';
+}
+
+// Legacy compatibility route. New callers must use POST /api/deployments/zip/validate.
+router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'siteZip file is required.', code: 'ZIP_MISSING_FILE' });
+    }
+    console.log(`[zip-route] ZIP validate request: ${req.file.originalname} (${req.file.size} bytes)`);
+    const result = await validateZipSite({
+      fileName: req.file.originalname,
+      fileBase64: req.file.buffer.toString('base64'),
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    const code = err.code || 'ZIP_VALIDATE_ERROR';
+    const message = err.expose !== false
+      ? (err.message || 'ZIP validation failed.')
+      : 'An unexpected error occurred during ZIP validation.';
+    res.status(status).json({ error: message, code });
+  }
+});
+
+// Template Choose preview — disabled until TEMPLATE_MARKETPLACE launches.
+router.get('/templates/:templateId/preview', requireTemplateMarketplace, templateAiController.getTemplatePreview);
+
+// Hybrid site plan routes
+router.post('/plans', requireTemplateMarketplace, authMiddleware, sitePlanController.createPlan);
+router.get('/plans/:planId', requireTemplateMarketplace, authMiddleware, sitePlanController.getPlan);
+router.put('/plans/:planId/brief', requireTemplateMarketplace, authMiddleware, sitePlanController.updateBrief);
+router.put('/plans/:planId/sitemap', requireTemplateMarketplace, authMiddleware, sitePlanController.updateSitemap);
+router.put('/plans/:planId/wireframe', requireTemplateMarketplace, authMiddleware, sitePlanController.updateWireframe);
+router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, sitePlanController.updateStyle);
+router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
+router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
+
+// ── RoxanneAI — site plan AI endpoints ────────────────────────────────────────
+// Gated on TEMPLATE_MARKETPLACE (default: on) so they're available without
+// enabling FEATURE_AI_BUILDER. OPENAI_API_KEY must be set on the server.
+
+// Suggest/refine the full sitemap structure
+router.post('/plans/:planId/ai/suggest-sitemap', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await suggestSitemapForPlan(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Autofill empty optional fields in the client brief
+router.post('/plans/:planId/ai/autofill-brief', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await autofillBrief(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Suggest/enrich sections for a specific page
+router.post('/plans/:planId/ai/suggest-sections/:pageId', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await suggestSectionsForPage(req.params.planId, req.params.pageId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+// Add content hints + layout notes to every section (wireframe guidance)
+router.post('/plans/:planId/ai/suggest-wireframe', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {
+  try {
+    const result = await suggestWireframe(req.params.planId);
+    res.json({ data: result });
+  } catch (e) { next(e); }
+});
+
+export default router;
