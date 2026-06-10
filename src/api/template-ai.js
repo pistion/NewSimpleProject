@@ -108,6 +108,25 @@ export async function handoffTemplateSitePlan(planId, options = {}) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/handoff`, { method: 'POST', body: options });
 }
 
+// Settings (includes aiConfigured, aiModel)
+export async function getTemplateAiSettings() {
+  return liveApiRequest('/template-ai/settings', { method: 'GET' });
+}
+
+// Answer sheet CRUD for plans
+export async function buildAnswerSheetForPlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/answer-sheet/build`, { method: 'POST' });
+}
+export async function generateAnswerSheetForPlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/answer-sheet/generate`, { method: 'POST' });
+}
+export async function getAnswerSheetForPlan(planId) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/answer-sheet`, { method: 'GET' });
+}
+export async function updateAnswerSheetForPlan(planId, answerSheet) {
+  return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/answer-sheet`, { method: 'PUT', body: answerSheet });
+}
+
 // Phase 3 — AI refinement (requires AI_BUILDER feature)
 export async function aiSuggestSitemapForPlan(planId) {
   return liveApiRequest(`/template-ai/plans/${encodeURIComponent(planId)}/ai/suggest-sitemap`, { method: 'POST' });
