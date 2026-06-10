@@ -57,6 +57,9 @@ function TemplatePreviewModal({ template, onClose, onHost, onConfigure }) {
           </div>
         )}
         <div style={{ flex: 1 }} />
+        <button className="btn btn-outline" onClick={() => onHost && onHost(template)}>
+          Plan with this template
+        </button>
         <button className="btn btn-primary" onClick={() => onConfigure && onConfigure(template)}>
           <ICN.Wand2 size={14} /> Configure with AI
         </button>
@@ -187,7 +190,7 @@ export function BuilderTemplates({ navigate }) {
         )}
       </div>
 
-      {previewTpl && <TemplatePreviewModal template={previewTpl} onClose={() => setPreviewTpl(null)} onConfigure={handleConfigureTemplate} />}
+      {previewTpl && <TemplatePreviewModal template={previewTpl} onClose={() => setPreviewTpl(null)} onHost={handleHostTemplate} onConfigure={handleConfigureTemplate} />}
     </>
   );
 }
