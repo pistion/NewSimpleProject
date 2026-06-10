@@ -1,6 +1,9 @@
 // sitePlanHandoff.controller.js — Handoff controller for hybrid site plans
 import { getSitePlan, updateSitePlan } from '../store/sitePlanStore.js';
 import { buildGeneratedTemplateTargetRoot } from '../02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
+import { buildAnswerSheetFromPlan } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetBuilder.service.js';
+import { validateAnswerSheet } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetValidator.service.js';
+import { mapAnswerSheetToTemplateAnswers } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetMerge.service.js';
 
 function err(msg, status = 400) { return Object.assign(new Error(msg), { status, expose: true }); }
 function slugify(name) { return String(name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'site'; }
@@ -57,8 +60,22 @@ export const sitePlanHandoffController = {
       if (!plan) throw err('Plan not found.', 404);
       if (!canAccessPlan(req.user, plan)) throw err('You do not have access to this site plan.', 403);
 
-      const answers = buildAnswersFromPlan(plan);
-      const siteName = answers.businessName || plan.sitemap?.name || plan.templateId || 'glondia-site';
+      // ── Answer sheet layer ────────────────────────────────────────────────
+      const answerSheet = await getOrCreateUsableAnswerSheet(plan);
+      const validation = validateAnswerSheet(answerSheet);
+
+      if (!validation.valid) {
+        return res.status(422).json({
+          error: 'Answer sheet is incomplete. Review required before handoff.',
+          code: 'ANSWER_SHEET_INCOMPLETE',
+          missing: validation.missing,
+          warnings: validation.warnings,
+          planId,
+        });
+      }
+
+      const answers = mapAnswerSheetToTemplateAnswers(answerSheet);
+      const siteName = answers.businessName || answerSheet.business?.name || plan.sitemap?.name || plan.templateId || 'glondia-site';
       const slug = slugify(siteName);
       const ownerUserId = plan.userId || plan.ownerUserId || req.user?.id || 'anonymous';
 
@@ -140,6 +157,17 @@ export const sitePlanHandoffController = {
     } catch (e) { next(e); }
   },
 };
+
+async function getOrCreateUsableAnswerSheet(plan) {
+  if (plan.answerSheet) return plan.answerSheet;
+  const sheet = buildAnswerSheetFromPlan(plan);
+  await updateSitePlan(plan.planId, {
+    answerSheet: sheet,
+    answerSheetStatus: 'built',
+    answerSheetUpdatedAt: new Date().toISOString(),
+  });
+  return sheet;
+}
 
 function canAccessPlan(user, plan) {
   if (user?.role === 'admin') return true;

@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { badRequest } from '../../00-SHARED/stageErrors.js';
+import { flattenAnswerSheet } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheetMerge.service.js';
 import {
   getTemplateDetails,
   getTemplateRepositoryFiles,
@@ -219,16 +220,42 @@ async function listFiles(dir) {
 
 function buildReplacementMap(answers = {}) {
   const rows = [];
+
+  // 1. Standard flat keys — existing behavior preserved
   for (const [key, raw] of Object.entries(answers || {})) {
     if (raw === undefined || raw === null) continue;
+    if (typeof raw === 'object' && !Array.isArray(raw)) continue; // skip nested objects
     const value = Array.isArray(raw) ? raw.join(', ') : String(raw);
     const upper = key.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
     rows.push([`{{${key}}}`, value], [`{{ ${key} }}`, value], [`[[${key}]]`, value], [`__${upper}__`, value]);
   }
+
+  // 2. Legacy business name aliases — existing behavior preserved
   if (answers.businessName || answers.siteName) {
     const value = String(answers.businessName || answers.siteName);
     rows.push(['[Business Name]', value], ['Your Business Name', value], ['My Business', value]);
   }
+
+  // 3. Nested answer-sheet placeholders — new support
+  if (answers.answerSheet && typeof answers.answerSheet === 'object') {
+    const flat = flattenAnswerSheet(answers.answerSheet);
+    for (const [dotPath, value] of Object.entries(flat)) {
+      if (!value) continue;
+      const upper = dotPath.replace(/\./g, '_').replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
+      rows.push(
+        [`{{${dotPath}}}`, value],
+        [`{{ ${dotPath} }}`, value],
+        [`[[${dotPath}]]`, value],
+        [`__${upper}__`, value],
+      );
+      // Alias: business.name → businessName, brand.tone → brandTone, etc.
+      const camelKey = dotPath.replace(/\.([a-z])/g, (_, c) => c.toUpperCase());
+      if (camelKey !== dotPath) {
+        rows.push([`{{${camelKey}}}`, value], [`{{ ${camelKey} }}`, value]);
+      }
+    }
+  }
+
   return rows;
 }
 

@@ -8,6 +8,7 @@ import { makeId } from '../services/hostingStore.js';
 import { createTemplateSite, getTemplateSite, updateTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/store/templateSiteStore.js';
 import { getTemplateDetails, listTemplateCatalog } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/01-TEMPLATE-LIBRARY-MOUNTAIN/templateSelection.stage.js';
 import { applyQuestionnaireDataToGeneratedSource, prepareTemplateGeneratedSource } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/02-TEMPLATE-SOURCE-MOUNTAIN/templateSource.stage.js';
+import { mapAnswerSheetToTemplateAnswers, mergeAnswerSheetIntoAnswers } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/05-ANSWER-SHEET-MOUNTAIN/answerSheetMerge.service.js';
 import { buildGeneratedTemplateTargetRoot } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/02-TEMPLATE-SOURCE-MOUNTAIN/templateGeneratedCopy.stage.js';
 import { generateViteStaticSiteFromTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/finalSourcePackager.stage.js';
 import { scanGeneratedTemplateSite } from '../glondia-engines/02-TEMPLATE-AI-ENGINE/07-HANDOFF-TO-HOSTING-MOUNTAIN/generatedTemplateSiteScanner.stage.js';
@@ -206,9 +207,22 @@ async function aiEditSite(req, res, next) {
       return res.status(409).json({ error: 'AI edit currently requires an index.html file in the prepared template copy.', code: 'TEMPLATE_AI_INDEX_REQUIRED' });
     }
 
-    const answers = { ...(site.answers || {}), ...(req.body?.answers || {}) };
+    // Merge answer sheets — answer-sheet fields take precedence over weak flat values
+    let answers = { ...(site.answers || {}), ...(req.body?.answers || {}) };
+    if (req.body?.answerSheet && typeof req.body.answerSheet === 'object') {
+      answers = mergeAnswerSheetIntoAnswers(answers, req.body.answerSheet);
+    } else if (answers.answerSheet && typeof answers.answerSheet === 'object') {
+      answers = mergeAnswerSheetIntoAnswers(answers, answers.answerSheet);
+    }
+
+    // Default: use applyQuestionnaireDataToGeneratedSource (safer, answer-sheet aware).
+    // Raw HTML tailoring only runs when explicitly requested.
+    let tailored = null;
     const original = await readFile(indexPath, 'utf8');
-    const tailored = await tailorHtmlTemplate(original, answers);
+    if (req.body?.allowRawHtmlAiEdit === true) {
+      tailored = await tailorHtmlTemplate(original, answers);
+      await writeFile(indexPath, tailored, 'utf8');
+    }
     await writeFile(indexPath, tailored, 'utf8');
     await applyQuestionnaireDataToGeneratedSource(site.generatedSite.siteDir, answers, {
       site,
@@ -231,13 +245,14 @@ async function aiEditSite(req, res, next) {
       branch: req.body?.branch || 'main',
     });
 
+    const editedHtml = tailored || original;
     const updated = await updateTemplateSite(siteId, {
       answers,
       status: 'ai_edited',
-      pages: [{ title: 'Home', path: '/', html: tailored }],
+      pages: [{ title: 'Home', path: '/', html: editedHtml }],
       generatedSite: {
         ...site.generatedSite,
-        pages: [{ title: 'Home', path: '/', html: tailored }],
+        pages: [{ title: 'Home', path: '/', html: editedHtml }],
         scan,
         files: Array.from(new Set([...(site.generatedSite.files || []), ...(scan.manifestFiles || [])])),
         aiEdit: {

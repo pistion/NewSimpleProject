@@ -7,6 +7,7 @@ import { requireFeature } from '../../../middleware/featureFlag.js';
 import authMiddleware from '../../../middleware/authMiddleware.js';
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
+import { answerSheetController } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheet.controller.js';
 import {
   suggestSitemapForPlan,
   autofillBrief,
@@ -190,6 +191,13 @@ router.put('/plans/:planId/wireframe', requireTemplateMarketplace, authMiddlewar
 router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, sitePlanController.updateStyle);
 router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
 router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
+
+// ── Answer sheet routes ───────────────────────────────────────────────────────
+router.get('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.getAnswerSheet);
+router.post('/plans/:planId/answer-sheet/build', requireTemplateMarketplace, authMiddleware, answerSheetController.buildAnswerSheet);
+router.post('/plans/:planId/answer-sheet/generate', requireTemplateMarketplace, authMiddleware, answerSheetController.completeAnswerSheet);
+router.put('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.updateAnswerSheet);
+router.post('/plans/:planId/answer-sheet/approve', requireTemplateMarketplace, authMiddleware, answerSheetController.approveAnswerSheet);
 
 // ── RoxanneAI — site plan AI endpoints ────────────────────────────────────────
 // Gated on TEMPLATE_MARKETPLACE (default: on) so they're available without
