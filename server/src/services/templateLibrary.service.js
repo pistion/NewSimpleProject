@@ -7,7 +7,9 @@ import { badRequest } from '../glondia-engines/00-SHARED/stageErrors.js';
 import { cleanGithubToken } from '../glondia-engines/00-SHARED/runtimeConfig.js';
 import { parseGitHubRepoUrl } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSitesRepoPublisher.stage.js';
 
-const DEFAULT_TEMPLATE_REPO = 'https://github.com/pistion/glondia-generated-sites.git';
+// Templates live in the main Glondia repo under /templates — not in glondia-generated-sites.
+// glondia-generated-sites is only used for storing DEPLOYED customer copies.
+const DEFAULT_TEMPLATE_REPO = 'https://github.com/pistion/Glondiasites.git';
 const DEFAULT_TEMPLATE_ROOT = 'templates';
 const DEFAULT_BRANCH = 'main';
 

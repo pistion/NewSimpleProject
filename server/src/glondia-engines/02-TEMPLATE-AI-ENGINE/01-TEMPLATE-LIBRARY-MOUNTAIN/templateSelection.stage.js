@@ -9,7 +9,7 @@ import { badRequest } from '../../00-SHARED/stageErrors.js';
 import { cleanGithubToken } from '../../00-SHARED/runtimeConfig.js';
 import { parseGitHubRepoUrl } from '../../01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSitesRepoPublisher.stage.js';
 
-const DEFAULT_TEMPLATE_REPO = 'https://github.com/pistion/glondia-generated-sites.git';
+const DEFAULT_TEMPLATE_REPO = 'https://github.com/pistion/Glondiasites.git';
 const DEFAULT_TEMPLATE_ROOT = 'templates';
 const DEFAULT_BRANCH = 'main';
 
