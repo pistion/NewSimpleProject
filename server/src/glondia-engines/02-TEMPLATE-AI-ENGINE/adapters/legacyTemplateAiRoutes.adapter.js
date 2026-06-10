@@ -20,6 +20,7 @@ import step07 from '../steps/07-HANDOFF-DEPLOY/route.js';
 // Plan CRUD + AI refinement
 import { sitePlanController } from '../controllers/sitePlan.controller.js';
 import { sitePlanHandoffController } from '../controllers/sitePlanHandoff.controller.js';
+import { answerSheetController } from '../05-ANSWER-SHEET-MOUNTAIN/answerSheet.controller.js';
 import {
   suggestSitemapForPlan,
   autofillBrief,
@@ -38,6 +39,11 @@ const router = express.Router();
 const requireAiBuilder = requireFeature('AI_BUILDER');
 const requireTemplateMarketplace = requireFeature('TEMPLATE_MARKETPLACE');
 
+// ── Handoff — must be registered BEFORE step routes (step07 previously had a
+//    duplicate that would shadow this one). The sitePlanHandoffController includes
+//    the answer-sheet validation layer. ─────────────────────────────────────────
+router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, sitePlanHandoffController.handoffPlan);
+
 // ── Step routes (01–07) ───────────────────────────────────────────────────────
 router.use('/', step01);
 router.use('/', step02);
@@ -55,6 +61,13 @@ router.put('/plans/:planId/sitemap', requireTemplateMarketplace, authMiddleware,
 router.put('/plans/:planId/wireframe', requireTemplateMarketplace, authMiddleware, sitePlanController.updateWireframe);
 router.put('/plans/:planId/style', requireTemplateMarketplace, authMiddleware, sitePlanController.updateStyle);
 router.post('/plans/:planId/approve', requireTemplateMarketplace, authMiddleware, sitePlanController.approvePlan);
+
+// ── Answer sheet routes ───────────────────────────────────────────────────────
+router.get('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.getAnswerSheet);
+router.post('/plans/:planId/answer-sheet/build', requireTemplateMarketplace, authMiddleware, answerSheetController.buildAnswerSheet);
+router.post('/plans/:planId/answer-sheet/generate', requireTemplateMarketplace, authMiddleware, answerSheetController.completeAnswerSheet);
+router.put('/plans/:planId/answer-sheet', requireTemplateMarketplace, authMiddleware, answerSheetController.updateAnswerSheet);
+router.post('/plans/:planId/answer-sheet/approve', requireTemplateMarketplace, authMiddleware, answerSheetController.approveAnswerSheet);
 
 // ── Site plan AI endpoints ────────────────────────────────────────────────────
 router.post('/plans/:planId/ai/suggest-sitemap', requireTemplateMarketplace, authMiddleware, async (req, res, next) => {

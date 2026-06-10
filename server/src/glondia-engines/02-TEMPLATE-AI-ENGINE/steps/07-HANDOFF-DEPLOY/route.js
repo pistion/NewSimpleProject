@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.post('/sites/:siteId/package', requireTemplateMarketplace, authMiddleware, handoffDeployController.packageSite);
 router.post('/sites/:siteId/deploy', requireTemplateMarketplace, authMiddleware, handoffDeployController.deploySite);
-router.post('/plans/:planId/handoff', requireTemplateMarketplace, authMiddleware, handoffDeployController.handoffPlan);
+// NOTE: /plans/:planId/handoff is handled by sitePlanHandoffController in the legacy adapter
+// (registered before step routes) — that controller includes the answer-sheet validation layer.
 
 export default router;
