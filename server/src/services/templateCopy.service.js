@@ -210,14 +210,24 @@ function buildReplacementMap(answers = {}) {
   }
 
   // 4. Common aliases so old flat templates still work
+  // dotted → flat aliases
   if (flat['business.name'] && !flat.businessName) flat.businessName = flat['business.name'];
   if (flat['business.industry'] && !flat.industry) flat.industry = flat['business.industry'];
   if (flat['business.description'] && !flat.description) flat.description = flat['business.description'];
+  if (flat['business.offer'] && !flat.offer) flat.offer = flat['business.offer'];
   if (flat['brand.tone'] && !flat.brandTone) flat.brandTone = flat['brand.tone'];
   if (flat['brand.colors'] && !flat.colors) flat.colors = flat['brand.colors'];
   if (flat['contact.primaryAction'] && !flat.contact) flat.contact = flat['contact.primaryAction'];
   if (flat['seo.title'] && !flat.seoTitle) flat.seoTitle = flat['seo.title'];
   if (flat['seo.description'] && !flat.seoDescription) flat.seoDescription = flat['seo.description'];
+  // flat → dotted reverse aliases (so {{brand.tone}} works when only brandTone is set)
+  if (flat.businessName && !flat['business.name']) flat['business.name'] = flat.businessName;
+  if (flat.industry && !flat['business.industry']) flat['business.industry'] = flat.industry;
+  if (flat.description && !flat['business.description']) flat['business.description'] = flat.description;
+  if (flat.offer && !flat['business.offer']) flat['business.offer'] = flat.offer;
+  if (flat.brandTone && !flat['brand.tone']) flat['brand.tone'] = flat.brandTone;
+  if (flat.colors && !flat['brand.colors']) flat['brand.colors'] = flat.colors;
+  if (flat.contact && !flat['contact.primaryAction']) flat['contact.primaryAction'] = flat.contact;
 
   // 5. Build replacement rows for every key in the flat map
   for (const [key, value] of Object.entries(flat)) {
