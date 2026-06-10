@@ -188,17 +188,85 @@ async function listFiles(dir) {
 
 function buildReplacementMap(answers = {}) {
   const rows = [];
+  const flat = {};
+
+  // 1. Flat scalar answers
   for (const [key, raw] of Object.entries(answers || {})) {
     if (raw === undefined || raw === null) continue;
-    const value = Array.isArray(raw) ? raw.join(', ') : String(raw);
-    const upper = key.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
-    rows.push([`{{${key}}}`, value], [`{{ ${key} }}`, value], [`[[${key}]]`, value], [`__${upper}__`, value]);
+    if (typeof raw === 'object' && !Array.isArray(raw)) continue; // skip nested objects
+    flat[key] = stringifyValue(raw);
   }
-  if (answers.businessName || answers.siteName) {
-    const value = String(answers.businessName || answers.siteName);
+
+  // 2. Nested answerSheet object (answers.answerSheet)
+  if (answers.answerSheet && typeof answers.answerSheet === 'object' && !Array.isArray(answers.answerSheet)) {
+    Object.assign(flat, flattenObject(answers.answerSheet));
+  }
+
+  // 3. Top-level group objects (business, brand, contact, seo, hero)
+  for (const group of ['business', 'brand', 'contact', 'seo', 'hero']) {
+    if (answers[group] && typeof answers[group] === 'object' && !Array.isArray(answers[group])) {
+      Object.assign(flat, flattenObject({ [group]: answers[group] }));
+    }
+  }
+
+  // 4. Common aliases so old flat templates still work
+  if (flat['business.name'] && !flat.businessName) flat.businessName = flat['business.name'];
+  if (flat['business.industry'] && !flat.industry) flat.industry = flat['business.industry'];
+  if (flat['business.description'] && !flat.description) flat.description = flat['business.description'];
+  if (flat['brand.tone'] && !flat.brandTone) flat.brandTone = flat['brand.tone'];
+  if (flat['brand.colors'] && !flat.colors) flat.colors = flat['brand.colors'];
+  if (flat['contact.primaryAction'] && !flat.contact) flat.contact = flat['contact.primaryAction'];
+  if (flat['seo.title'] && !flat.seoTitle) flat.seoTitle = flat['seo.title'];
+  if (flat['seo.description'] && !flat.seoDescription) flat.seoDescription = flat['seo.description'];
+
+  // 5. Build replacement rows for every key in the flat map
+  for (const [key, value] of Object.entries(flat)) {
+    if (value === undefined || value === null || value === '') continue;
+    const upper = key
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/\./g, '_')
+      .replace(/[^a-z0-9_]+/gi, '_')
+      .toUpperCase();
+
+    rows.push(
+      [`{{${key}}}`, value],
+      [`{{ ${key} }}`, value],
+      [`[[${key}]]`, value],
+      [`__${upper}__`, value],
+    );
+  }
+
+  // 6. Human-readable business name aliases
+  if (flat.businessName || flat.siteName || flat['business.name']) {
+    const value = String(flat.businessName || flat.siteName || flat['business.name']);
     rows.push(['[Business Name]', value], ['Your Business Name', value], ['My Business', value]);
   }
+
   return rows;
+}
+
+function flattenObject(input = {}, prefix = '', out = {}) {
+  for (const [key, raw] of Object.entries(input || {})) {
+    if (raw === undefined || raw === null) continue;
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+
+    if (Array.isArray(raw)) {
+      out[nextKey] = raw.map((item) => {
+        if (item && typeof item === 'object') return Object.values(item).filter(Boolean).join(' - ');
+        return String(item);
+      }).filter(Boolean).join(', ');
+    } else if (typeof raw === 'object') {
+      flattenObject(raw, nextKey, out);
+    } else {
+      out[nextKey] = stringifyValue(raw);
+    }
+  }
+  return out;
+}
+
+function stringifyValue(value) {
+  if (Array.isArray(value)) return value.map(String).join(', ');
+  return String(value);
 }
 
 function isTextFile(filePath) {

@@ -1,0 +1,23 @@
+{
+  "templateId": "business-v1",
+  "name": "Business Website",
+  "category": "Business",
+  "description": "A clean business website template for SMEs, consultants, service providers, and local companies.",
+  "framework": "vite",
+  "packageManager": "npm",
+  "buildCommand": "npm run build",
+  "publishDirectory": "dist",
+  "previewImage": "",
+  "previewUrl": "",
+  "questionnaireProfile": "business",
+  "supportedPages": ["Home", "About", "Services", "Contact"],
+  "supportedSections": ["hero", "about", "services", "contact", "footer"],
+  "placeholderHints": {
+    "business.name": "Business name",
+    "business.industry": "Industry",
+    "business.description": "Short business description",
+    "hero.title": "Hero headline",
+    "hero.ctaText": "Main CTA button",
+    "contact.primaryAction": "Primary contact action"
+  }
+}

@@ -188,9 +188,6 @@ app.use('/api/spaceship', requireFeature('DOMAINS'), spaceshipRoutes);
 // ── Provider payment routes (PayPal client, domain+hosting checkout) ──────────
 app.use('/api/payments', paymentsProviderRoutes);
 
-// ── Live deploy log stream (SSE) ──────────────────────────────────────────────
-app.use('/api/deployments', deploymentStreamRoutes);
-
 // Sandbox preview routes (must come before SPA fallback)
 app.use('/sandbox', sandboxRoutes);
 

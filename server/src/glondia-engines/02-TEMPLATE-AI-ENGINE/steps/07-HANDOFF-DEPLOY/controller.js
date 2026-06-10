@@ -1,9 +1,9 @@
 import { getTemplateSite, updateTemplateSite } from '../../store/templateSiteStore.js';
-import { runDeployStage } from './deploy.stage.js';
-import { getSitePlan, updateSitePlan } from '../../store/sitePlanStore.js';
+// getSitePlan not needed here — handoffPlan delegates to sitePlanHandoffController
 import { packageSite } from '../../../../services/sitePackager.service.js';
 import { run as runGeneratedSiteToRender } from '../../../01-HOSTING-DEPLOY-ENGINE/pipelines/generatedSiteToRender.pipeline.js';
 import { buildGeneratedTemplateTargetRoot } from '../../../../services/templateCopy.service.js';
+import { sitePlanHandoffController } from '../../controllers/sitePlanHandoff.controller.js';
 
 function slugify(value) {
   return String(value || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'site';
@@ -56,41 +56,32 @@ async function deploySite(req, res, next) {
       generatedSite = await packageSite(site, { ...options, siteName: finalSiteName, slug: finalSlug });
     }
 
-    // Stage: pre-flight checks + GitHub push + Render handoff
-    const stageResult = await runDeployStage({
-      siteDir: generatedSite.siteDir,
-      siteId,
-      userId: ownerUserId,
-      siteName: finalSiteName,
-      slug: finalSlug,
-      templateId: site.templateId,
-      framework: generatedSite.framework,
-      packageManager: generatedSite.packageManager,
-      buildCommand: generatedSite.buildCommand || options.buildCommand || 'npm run build',
-      publishDirectory: generatedSite.publishDirectory || options.publishDirectory || 'dist',
-      rootDirectory: githubTargetRoot,
-      repoUrl: options.repoUrl || options.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL,
-      branch: options.branch || 'main',
-    });
-
-    // Hand off to existing 01-HOSTING-DEPLOY-ENGINE
+    // 01-HOSTING-DEPLOY-ENGINE owns GitHub publish + Render handoff (no pre-publish here).
     const deployment = await runGeneratedSiteToRender({
       ...options,
-      generatedSite: { ...generatedSite, ...stageResult },
+      siteId,
+      templateId: site.templateId,
+      generatedSite,
       siteName: finalSiteName,
       slug: finalSlug,
       source: 'template',
       sourceReference: `templates/${site.templateId}`,
+      rootDirectory: generatedSite.githubTargetRoot || githubTargetRoot,
+      buildCommand: generatedSite.buildCommand || options.buildCommand || 'npm run build',
+      publishDirectory: generatedSite.publishDirectory || options.publishDirectory || 'dist',
+      framework: generatedSite.framework,
+      repoUrl: options.repoUrl || options.repositoryUrl || process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL,
+      branch: options.branch || 'main',
     }, { userId: ownerUserId });
 
     await updateTemplateSite(siteId, {
       status: deployment?.status || 'ready_for_hosting',
       deploymentId: deployment?.deploymentId || deployment?.id || null,
-      generatedSite: { ...generatedSite, ...stageResult },
+      generatedSite: deployment?.generatedSite || generatedSite,
       render: deployment?.render || null,
       deploymentSettings: {
         repoUrl: deployment?.repoUrl || options.repoUrl || null,
-        rootDirectory: githubTargetRoot,
+        rootDirectory: deployment?.environmentConfiguration?.rootDirectory || generatedSite.githubTargetRoot || githubTargetRoot,
         buildCommand: generatedSite.buildCommand || options.buildCommand || 'npm run build',
         publishDirectory: generatedSite.publishDirectory || options.publishDirectory || 'dist',
         branch: options.branch || 'main',
@@ -101,55 +92,18 @@ async function deploySite(req, res, next) {
       ...(deployment || {}),
       siteId,
       templateId: site.templateId,
-      stageResult,
       message: deployment?.render?.attempted
-        ? 'Generated site staged, pushed to GitHub, and Render deployment started.'
-        : 'Generated site staged and pushed to GitHub. Check Hosting logs for Render configuration.',
+        ? 'Generated site published to GitHub and Render deployment started.'
+        : 'Generated site ready. Check Hosting logs for Render configuration.',
     });
   } catch (err) { next(err); }
 }
 
+// Delegate to the central answer-sheet handoff controller.
+// That controller runs: plan → answer sheet → AI completion → validation →
+// template source → generatedSite.siteDir → runGeneratedSiteToRender.
 async function handoffPlan(req, res, next) {
-  try {
-    const { planId } = req.params;
-    const plan = await getSitePlan(planId);
-    if (!plan) return res.status(404).json({ error: 'Plan not found.' });
-
-    const userId = req.user?.id || plan.userId || null;
-    const ownerUserId = userId || 'anonymous';
-    const finalSiteName = plan.brief?.businessName || plan.sitemap?.name || planId;
-    const finalSlug = slugify(plan.brief?.businessName || planId);
-
-    // Hand off to existing 01-HOSTING-DEPLOY-ENGINE
-    const deployment = await runGeneratedSiteToRender({
-      ...(req.body || {}),
-      siteName: finalSiteName,
-      slug: finalSlug,
-      source: 'site-plan',
-      sourceReference: `plans/${planId}`,
-      planId,
-      brief: plan.brief,
-      sitemap: plan.sitemap,
-      templateId: plan.templateId,
-    }, { userId: ownerUserId });
-
-    await updateSitePlan(planId, {
-      status: 'handed_off',
-      deploymentId: deployment?.deploymentId || deployment?.id || null,
-      siteId: deployment?.siteId || null,
-      handedOffAt: new Date().toISOString(),
-    });
-
-    res.json({
-      ...(deployment || {}),
-      planId,
-      message: 'Site plan handed off to deployment engine.',
-      deploymentSettings: {
-        repoUrl: deployment?.repoUrl || null,
-        readOnly: true,
-      },
-    });
-  } catch (err) { next(err); }
+  return sitePlanHandoffController.handoffPlan(req, res, next);
 }
 
 export const handoffDeployController = { packageSite: packageSiteHandler, deploySite, handoffPlan };
