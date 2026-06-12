@@ -155,7 +155,19 @@ export async function liveApiRequest(path, options = {}) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result?.error?.message || result?.message || `API request failed with ${response.status}.`);
+    // Backends return errors as { error: { message } }, { error: 'string' },
+    // or { message }. Preserve status/code/body so callers can branch on them
+    // (e.g. ANSWER_SHEET_INCOMPLETE carries a `missing` field list).
+    const message =
+      result?.error?.message ||
+      (typeof result?.error === 'string' ? result.error : null) ||
+      result?.message ||
+      `API request failed with ${response.status}.`;
+    const err = new Error(message);
+    err.status = response.status;
+    err.code = result?.code || result?.error?.code || undefined;
+    err.body = result;
+    throw err;
   }
   return result?.data ?? result;
 }

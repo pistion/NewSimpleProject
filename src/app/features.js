@@ -14,7 +14,7 @@ const DEFAULTS = {
   domains: false,
   vps: false,
   aiBuilder: false,
-  templateMarketplace: true,
+  templateMarketplace: false,
   analytics: false,
   settings: false,
   activity: false,
@@ -61,7 +61,9 @@ export const VIEW_FEATURE = {
   'vps-create': 'vps',
   'vps-detail': 'vps',
   'builder-roxanne': 'aiBuilder',
-  'builder-templates': 'templateMarketplace',
+  // Template picker belongs to the Site Builder surface; templateMarketplace
+  // is reserved for the future paid template store.
+  'builder-templates': 'siteBuilder',
   analytics: 'analytics',
   activity: 'activity',
   settings: 'settings',

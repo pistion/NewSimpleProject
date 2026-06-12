@@ -15,6 +15,13 @@ import {
   getTemplateHostingTemplate,
 } from '../../../api/template-ai.js';
 
+// ─── isAiDisabledError ───────────────────────────────────────────────────────
+// Detects when the server has AI_BUILDER disabled (feature flag gate)
+function isAiDisabledError(e) {
+  const msg = String(e?.message || e?.code || '').toUpperCase();
+  return msg.includes('FEATURE_COMING_SOON') || msg.includes('AI_BUILDER') || e?.status === 403;
+}
+
 // ─── uid ────────────────────────────────────────────────────────────────────
 function uid() {
   return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -82,7 +89,7 @@ const TABS = [
 
 // ─── Wireframe section renderer ───────────────────────────────────────────────
 function getSectionType(type = '') {
-  const t = type.toLowerCase();
+  const t = String(type || '').toLowerCase();
   if (t === 'hero') return 'hero';
   if (['services', 'features', 'cards', 'pricing', 'team'].includes(t)) return 'cards';
   if (t === 'gallery') return 'gallery';
@@ -470,6 +477,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
   const [saveState, setSaveState] = useState('idle'); // 'idle'|'saving'|'saved'
   // Generate error
   const [generateError, setGenerateError] = useState(null);
+  const [missingFields, setMissingFields] = useState(null); // 422 ANSWER_SHEET_INCOMPLETE payload
   // Phase 6 — template metadata
   const [templateMeta, setTemplateMeta] = useState(null);
 
@@ -488,12 +496,16 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
           setSitePlan(p => {
             // Only seed if user hasn't changed from defaults (first 2 pages)
             if (p.sitemap.pages.length <= 2) {
-              const seeded = meta.supportedPages.map((pageName, i) => {
-                const path = i === 0 ? '/' : `/${pageName.toLowerCase().replace(/\s+/g, '-')}`;
+              const seeded = meta.supportedPages.map((page, i) => {
+                // supportedPages can be strings ("Home") or objects ({ title, path })
+                const pageName = typeof page === 'string' ? page : (page?.title || page?.name || `Page ${i + 1}`);
+                const pagePath = typeof page === 'object' && page?.path
+                  ? page.path
+                  : (i === 0 ? '/' : `/${pageName.toLowerCase().replace(/\s+/g, '-')}`);
                 const defaultSections = meta.supportedSections?.slice(0, 2).map(type => ({
                   id: uid(), title: type.charAt(0).toUpperCase() + type.slice(1), type, description: '',
                 })) || [{ id: uid(), title: 'Section', type: 'hero', description: '' }];
-                return { id: uid(), name: pageName, path, sections: defaultSections };
+                return { id: uid(), name: pageName, path: pagePath, sections: defaultSections };
               });
               return { ...p, sitemap: { ...p.sitemap, pages: seeded } };
             }
@@ -531,7 +543,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       const result = await aiSuggestSitemapForPlan(pid);
       setAiPreview(result?.data || result);
     } catch (e) {
-      showToast(e?.message || 'AI suggestion failed. Check that AI_BUILDER is enabled.');
+      showToast(isAiDisabledError(e) ? 'RoxanneAI is not enabled on this server. You can continue manually.' : (e?.message || 'AI suggestion failed.'));
     } finally {
       setAiSuggesting(false);
     }
@@ -594,7 +606,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     try {
       const result = await aiSuggestSectionsForPage(pid, pageId);
       setAiPreviewSection(result?.data || result);
-    } catch (e) { showToast(e?.message || 'AI section suggestion failed.'); }
+    } catch (e) { showToast(isAiDisabledError(e) ? 'RoxanneAI is not enabled on this server. You can continue manually.' : (e?.message || 'AI section suggestion failed.')); }
     finally { setAiSuggestingSection(null); }
   };
   const applyAiSectionSuggestions = () => {
@@ -629,7 +641,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     try {
       const result = await aiSuggestWireframe(pid);
       setAiPreviewWireframe(result?.data || result);
-    } catch (e) { showToast(e?.message || 'AI wireframe suggestion failed.'); }
+    } catch (e) { showToast(isAiDisabledError(e) ? 'RoxanneAI is not enabled on this server. You can continue manually.' : (e?.message || 'AI wireframe suggestion failed.')); }
     finally { setAiSuggestingWireframe(false); }
   };
   const applyAiWireframeSuggestions = () => {
@@ -646,7 +658,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
     templateType,
     status: 'draft',
     brief: {
-      businessName: '', industry: '', targetAudience: '', offer: '',
+      businessName: '', industry: '', description: '', targetAudience: '', offer: '',
       brandTone: '', colors: '', stylePreferences: '', pages: '', contact: '',
       domainPreference: '', notes: '',
     },
@@ -822,6 +834,8 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
   // ── Generate (Phase 5 — full handoff flow) ──────────────────────────────
   const handleGenerate = async () => {
     setGenerating(true);
+    setMissingFields(null);
+    setGenerateError(null);
     try {
       let activePlanId = planId;
 
@@ -841,18 +855,31 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
       // Step 2: approve
       await approveTemplateSitePlan(activePlanId);
 
-      // Step 3: handoff to Hosting Deploy Engine
+      // Step 3: handoff to Hosting Deploy Engine.
+      // allowAiCompletion:false — this is the manual path; AI is never required here.
       let deploymentId, siteId;
       try {
-        const handoff = await handoffTemplateSitePlan(activePlanId);
+        const handoff = await handoffTemplateSitePlan(activePlanId, { allowAiCompletion: false });
         deploymentId = handoff?.deploymentId || handoff?.data?.deploymentId;
         siteId = handoff?.siteId || handoff?.data?.siteId;
       } catch (handoffErr) {
-        // Handoff unavailable (GitHub/Render not configured) — fall back to prepare flow
-        console.warn('[SitePlanBuilder] Handoff failed, falling back to createSite:', handoffErr.message);
-        const answers = { source: 'hybrid-site-plan', ...sitePlan.brief, sitemap: sitePlan.sitemap, style: sitePlan.style };
-        const fallback = await createSiteFromTailoredTemplate(templateId, answers, []);
-        siteId = fallback?.siteId || fallback?.data?.siteId;
+        // 422 — the answer sheet failed validation. Show the missing fields so
+        // the user can fix them; do NOT silently fall back to the legacy flow.
+        if (handoffErr?.code === 'ANSWER_SHEET_INCOMPLETE' || handoffErr?.status === 422) {
+          setMissingFields(handoffErr?.body?.missing || [{ message: handoffErr.message }]);
+          setGenerateError('Some required details are missing. Fill them in below, then generate again.');
+          return;
+        }
+        // 503 — handoff stage genuinely unavailable on the server. Fall back to
+        // the prepare flow so the user can still configure deployment manually.
+        if (handoffErr?.status === 503) {
+          console.warn('[SitePlanBuilder] Handoff unavailable, falling back to createSite:', handoffErr.message);
+          const answers = { source: 'hybrid-site-plan', ...sitePlan.brief, sitemap: sitePlan.sitemap, style: sitePlan.style };
+          const fallback = await createSiteFromTailoredTemplate(templateId, answers, []);
+          siteId = fallback?.siteId || fallback?.data?.siteId;
+        } else {
+          throw handoffErr;
+        }
       }
 
       // Step 4: navigate to deployment settings or hosting detail
@@ -873,7 +900,7 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
 
   // ── Tab completion ───────────────────────────────────────────────────────
   const tabDone = {
-    brief: !!(sitePlan.brief.businessName && sitePlan.brief.industry),
+    brief: !!(sitePlan.brief.businessName && sitePlan.brief.industry && sitePlan.brief.description),
     sitemap: sitePlan.sitemap.pages.length >= 2 && sitePlan.sitemap.pages.every(p => p.sections.length > 0),
     wireframe: sitePlan.sitemap.pages.length > 0,
     style: true,
@@ -971,7 +998,9 @@ export function BuilderSitePlan({ templateId, templateType, navigate }) {
             onGenerate={handleGenerate}
             generating={generating}
             generateError={generateError}
-            onClearError={() => setGenerateError(null)}
+            missingFields={missingFields}
+            onClearError={() => { setGenerateError(null); setMissingFields(null); }}
+            onGoToBrief={() => setActiveTab('brief')}
             navigate={navigate}
           />
         )}
@@ -1137,6 +1166,10 @@ function BriefTab({ brief, onChange, onSuggest, onAiBrief, aiSuggesting }) {
         <div className="spb-field">
           <label className="spb-field-label">Industry <span style={{color:'#ef4444'}}>*</span></label>
           <input className="spb-input" value={brief.industry} onChange={e => onChange('industry', e.target.value)} placeholder="e.g. Construction, Restaurant, Consulting" />
+        </div>
+        <div className="spb-field spb-field--full">
+          <label className="spb-field-label">Business description <span style={{color:'#ef4444'}}>*</span></label>
+          <textarea className="spb-input spb-textarea" rows={3} value={brief.description || ''} onChange={e => onChange('description', e.target.value)} placeholder="e.g. Family-run plumbing company serving Sydney's north shore for 15 years, specialising in fast residential repairs" />
         </div>
         <div className="spb-field">
           <label className="spb-field-label">Target audience</label>
@@ -1699,7 +1732,7 @@ function StyleTab({ style, onPreset, onColor, onField, brief }) {
 }
 
 // ─── ReviewTab ────────────────────────────────────────────────────────────────
-function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating, generateError, onClearError, navigate }) {
+function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating, generateError, missingFields, onClearError, onGoToBrief, navigate }) {
   const { brief, sitemap, style } = sitePlan;
   const totalSections = sitemap.pages.reduce((sum, p) => sum + (p.sections?.length || 0), 0);
   const preset = STYLE_PRESETS.find(p => p.id === style.presetId);
@@ -1721,6 +1754,7 @@ function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating,
         <div className="spb-review-rows">
           {brief.businessName && <div><strong>Business:</strong> {brief.businessName}</div>}
           {brief.industry && <div><strong>Industry:</strong> {brief.industry}</div>}
+          {brief.description && <div><strong>Description:</strong> {brief.description}</div>}
           {brief.targetAudience && <div><strong>Audience:</strong> {brief.targetAudience}</div>}
           {brief.offer && <div><strong>Services:</strong> {brief.offer}</div>}
           {brief.brandTone && <div><strong>Tone:</strong> {brief.brandTone}</div>}
@@ -1764,12 +1798,25 @@ function ReviewTab({ sitePlan, templateId, templateType, onGenerate, generating,
         <div className="spb-review-error-panel">
           <div className="spb-review-error-icon">⚠</div>
           <div className="spb-review-error-body">
-            <strong>Generation failed</strong>
+            <strong>{missingFields?.length ? 'A few details are still needed' : 'Generation failed'}</strong>
             <p>{generateError}</p>
-            <p style={{ fontSize:12, color:'var(--spb-muted)', marginTop:4 }}>
-              Make sure GitHub and Render credentials are set in{' '}
-              <button className="spb-link-btn" onClick={() => navigate({ view:'settings' })}>Settings →</button>
-            </p>
+            {missingFields?.length > 0 ? (
+              <>
+                <ul style={{ margin:'8px 0 0', paddingLeft:18, fontSize:13 }}>
+                  {missingFields.map((m, i) => (
+                    <li key={m.path || i}>{m.message || m.path}</li>
+                  ))}
+                </ul>
+                <p style={{ fontSize:12, color:'var(--spb-muted)', marginTop:8 }}>
+                  <button className="spb-link-btn" onClick={onGoToBrief}>Go to Brief →</button>
+                </p>
+              </>
+            ) : (
+              <p style={{ fontSize:12, color:'var(--spb-muted)', marginTop:4 }}>
+                Make sure GitHub and Render credentials are set in{' '}
+                <button className="spb-link-btn" onClick={() => navigate({ view:'settings' })}>Settings →</button>
+              </p>
+            )}
           </div>
           <button className="spb-btn spb-btn--ghost spb-btn--sm" onClick={onClearError}>✕</button>
         </div>

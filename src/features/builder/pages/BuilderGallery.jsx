@@ -54,7 +54,8 @@ function ChoiceCard({ icon: Icon, eyebrow, title, body, points = [], action, onC
 
 export function BuilderGallery({ navigate }) {
   const showAi = isFeatureEnabled('aiBuilder');
-  const showTemplates = isFeatureEnabled('templateMarketplace');
+  // Template picker is part of the core Site Builder surface.
+  const showTemplates = isFeatureEnabled('siteBuilder');
   const visibleCount = 1 + (showAi ? 1 : 0) + (showTemplates ? 1 : 0);
 
   return (

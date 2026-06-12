@@ -76,9 +76,13 @@ function RoxanneGeneratingLoader({ templateName }) {
 function AnswerSheetReview({ answerSheet, planId, onConfirm, onEdit, onBack, confirming }) {
   const business = answerSheet?.business || {};
   const brand = answerSheet?.brand || {};
-  const hero = answerSheet?.hero || {};
   const contact = answerSheet?.contact || {};
   const seo = answerSheet?.seo || {};
+  // Hero content lives inside pages[].sections[] — find the first hero-type
+  // section (including template variants like technical-hero).
+  const pages = Array.isArray(answerSheet?.pages) ? answerSheet.pages : [];
+  const allSections = pages.flatMap(p => (Array.isArray(p.sections) ? p.sections : []));
+  const hero = allSections.find(s => /(^|-)hero(-|$)/.test(String(s?.type || '').toLowerCase())) || {};
 
   return (
     <div className="card" style={{ maxWidth: 680, margin: '0 auto', padding: 28 }}>
