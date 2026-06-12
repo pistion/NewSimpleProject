@@ -197,7 +197,9 @@ app.use('/sandbox', sandboxRoutes);
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/public/sites', publicSalesRoutes);
 app.use('/api/v1/domains', requireFeature('DOMAINS'), domainPublicRoutes);
-app.use('/api/v1/templates', requireFeature('TEMPLATE_MARKETPLACE'), templateRoutes);
+// Template catalog is part of the Site Builder surface. TEMPLATE_MARKETPLACE
+// remains reserved for the future paid template store.
+app.use('/api/v1/templates', requireFeature('SITE_BUILDER'), templateRoutes);
 app.use('/api/template-ai', templateAiRoutes);
 app.use('/api/v1/events', eventsRoutes);
 

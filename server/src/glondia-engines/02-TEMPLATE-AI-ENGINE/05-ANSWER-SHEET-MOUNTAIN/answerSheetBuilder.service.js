@@ -5,13 +5,15 @@
  * No AI — pure data transformation from plan.brief, plan.sitemap, plan.wireframe.
  */
 
-import { DEFAULT_ANSWER_SHEET, ANSWER_SHEET_VERSION, SECTION_TYPES } from './answerSheet.schema.js';
+import { DEFAULT_ANSWER_SHEET, ANSWER_SHEET_VERSION, isKnownSectionType } from './answerSheet.schema.js';
 
 export function buildAnswerSheetFromPlan(plan = {}) {
   const now = new Date().toISOString();
   const brief = plan.brief || {};
   const sitemap = plan.sitemap || {};
   const wireframe = plan.wireframe || {};
+  // Template sections hint (from plan.templateManifest if available)
+  const templateSections = plan.templateManifest?.supportedSections || plan.supportedSections || [];
 
   return {
     ...structuredClone(DEFAULT_ANSWER_SHEET),
@@ -22,7 +24,7 @@ export function buildAnswerSheetFromPlan(plan = {}) {
       name: brief.businessName || sitemap.name || '',
       industry: brief.industry || '',
       location: brief.location || '',
-      description: brief.description || '',
+      description: brief.description || brief.about || '',
       targetAudience: brief.targetAudience || brief.audience || '',
       offer: brief.offer || '',
       uniqueSellingPoint: brief.uniqueSellingPoint || brief.usp || '',
@@ -33,12 +35,13 @@ export function buildAnswerSheetFromPlan(plan = {}) {
       colors: brief.colors || '',
       stylePreferences: brief.stylePreferences || '',
     },
-    pages: buildPagesFromSitemapAndWireframe(sitemap, wireframe),
+    pages: buildPagesFromSitemapAndWireframe(sitemap, wireframe, brief, templateSections),
     contact: {
       phone: brief.phone || brief.contactPhone || '',
-      email: brief.email || brief.contactEmail || '',
+      // brief.contact may hold an email address or general contact string
+      email: brief.email || brief.contactEmail || (isEmail(brief.contact) ? brief.contact : ''),
       whatsapp: brief.whatsapp || '',
-      address: brief.address || brief.contact || '',
+      address: brief.address || (!isEmail(brief.contact) ? brief.contact : '') || '',
       socialLinks: normalizeSocialLinks(brief.socialLinks || brief.socials),
       primaryAction: brief.primaryAction || brief.bookingMethod || brief.contact || '',
     },
@@ -60,11 +63,22 @@ export function buildAnswerSheetFromPlan(plan = {}) {
 
 // ── Page/section builders ─────────────────────────────────────────────────────
 
-function buildPagesFromSitemapAndWireframe(sitemap = {}, wireframe = {}) {
+function buildPagesFromSitemapAndWireframe(sitemap = {}, wireframe = {}, brief = {}, templateSections = []) {
   const sitemapPages = Array.isArray(sitemap.pages) ? sitemap.pages : [];
   const wireframePages = Array.isArray(wireframe.pages) ? wireframe.pages : [];
 
   if (!sitemapPages.length && !wireframePages.length) {
+    // Parse brief.pages string ("Home, Shop, Product, Lookbook, Studio, Contact")
+    const briefPageNames = parseBriefPages(brief.pages);
+    if (briefPageNames.length) {
+      return briefPageNames.map(name => ({
+        id: uid('page'),
+        name,
+        path: name.toLowerCase() === 'home' ? '/' : `/${slugify(name)}`,
+        purpose: '',
+        sections: defaultSectionsForPage(name, templateSections),
+      }));
+    }
     return [defaultHomePage()];
   }
 
@@ -78,7 +92,7 @@ function buildPagesFromSitemapAndWireframe(sitemap = {}, wireframe = {}) {
           const wfSection = wfSections.find((ws) => ws.id === section.id || ws.type === section.type) || wfSections[i] || {};
           return {
             id: section.id || uid('section'),
-            type: normalizeSectionType(section.type || wfSection.type || 'details'),
+            type: normalizeSectionType(section.type || wfSection.type || 'details', templateSections),
             title: section.title || wfSection.title || '',
             content: section.description || section.content || wfSection.contentHint || wfSection.description || '',
             ctaText: section.ctaText || wfSection.ctaText || '',
@@ -88,7 +102,7 @@ function buildPagesFromSitemapAndWireframe(sitemap = {}, wireframe = {}) {
         })
       : wfSections.map((wfSection) => ({
           id: wfSection.id || uid('section'),
-          type: normalizeSectionType(wfSection.type || 'details'),
+          type: normalizeSectionType(wfSection.type || 'details', templateSections),
           title: wfSection.title || '',
           content: wfSection.contentHint || wfSection.description || '',
           ctaText: wfSection.ctaText || '',
@@ -101,7 +115,7 @@ function buildPagesFromSitemapAndWireframe(sitemap = {}, wireframe = {}) {
       name: page.name || '',
       path: page.path || `/${slugify(page.name || '')}`,
       purpose: page.purpose || page.description || '',
-      sections: sections.length ? sections : defaultSectionsForPage(page.name),
+      sections: sections.length ? sections : defaultSectionsForPage(page.name, templateSections),
     };
   });
 }
@@ -121,8 +135,20 @@ function defaultHomePage() {
   };
 }
 
-function defaultSectionsForPage(pageName = '') {
+function defaultSectionsForPage(pageName = '', templateSections = []) {
   const lc = String(pageName || '').toLowerCase();
+
+  // If we have template manifest sections, pick the most relevant ones per page
+  if (templateSections.length) {
+    const picked = pickTemplateSectionsForPage(lc, templateSections);
+    if (picked.length) {
+      return picked.map(type => ({
+        id: uid('section'), type, title: '', content: '', ctaText: '', imageHint: '', source: 'system',
+      }));
+    }
+  }
+
+  // Generic fallback
   if (lc.includes('home') || lc === '') {
     return [
       { id: uid('section'), type: 'hero', title: '', content: '', ctaText: '', imageHint: '', source: 'system' },
@@ -130,16 +156,45 @@ function defaultSectionsForPage(pageName = '') {
     ];
   }
   if (lc.includes('about')) return [{ id: uid('section'), type: 'about', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('shop') || lc.includes('store')) return [{ id: uid('section'), type: 'featured-products', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('product')) return [{ id: uid('section'), type: 'product', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('look') || lc.includes('gallery')) return [{ id: uid('section'), type: 'lookbook', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('studio') || lc.includes('about')) return [{ id: uid('section'), type: 'studio-story', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
   if (lc.includes('service')) return [{ id: uid('section'), type: 'services', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
-  if (lc.includes('contact')) return [{ id: uid('section'), type: 'contact', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('contact')) return [{ id: uid('section'), type: 'contact-form', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+  if (lc.includes('repair') || lc.includes('support')) return [{ id: uid('section'), type: 'repair-intake', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
   return [{ id: uid('section'), type: 'details', title: '', content: '', ctaText: '', imageHint: '', source: 'system' }];
+}
+
+function pickTemplateSectionsForPage(pageLc = '', templateSections = []) {
+  // Map page name patterns to preferred section types from the template manifest
+  const PAGE_SECTION_MAP = {
+    home: ['hero', 'featured-products', 'drop-ticker', 'lookbook', 'newsletter'],
+    shop: ['featured-products', 'product-grid'],
+    product: ['product', 'spec-sheet'],
+    lookbook: ['lookbook'],
+    studio: ['studio-story'],
+    about: ['studio-story', 'about'],
+    contact: ['contact-form', 'contact'],
+    repair: ['repair-intake'],
+    support: ['support', 'repair-intake'],
+    'field-notes': ['field-notes'],
+  };
+
+  // Find matching key
+  const matchKey = Object.keys(PAGE_SECTION_MAP).find(k => pageLc.includes(k));
+  if (!matchKey) return [];
+
+  const preferred = PAGE_SECTION_MAP[matchKey];
+  // Only return types that actually exist in this template
+  return preferred.filter(type => templateSections.includes(type));
 }
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
-function normalizeSectionType(value) {
+function normalizeSectionType(value, templateSections = []) {
   const type = String(value || '').toLowerCase().trim();
-  return SECTION_TYPES.includes(type) ? type : 'details';
+  return isKnownSectionType(type, templateSections) ? type : 'details';
 }
 
 export function normalizeSocialLinks(value) {
@@ -162,4 +217,15 @@ function uid(prefix = 'id') {
 
 function slugify(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'page';
+}
+
+function isEmail(value) {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+// Parse "Home, Shop, Product, Lookbook, Studio, Contact" → ['Home','Shop',...]
+function parseBriefPages(pages) {
+  if (!pages) return [];
+  if (Array.isArray(pages)) return pages.map(p => String(p).trim()).filter(Boolean);
+  return String(pages).split(/[,\n;|]+/).map(p => p.trim()).filter(Boolean);
 }

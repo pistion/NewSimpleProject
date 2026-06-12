@@ -103,16 +103,10 @@ async function updateAnswerSheet(req, res, next) {
     if (!incoming || typeof incoming !== 'object') throw httpErr('answerSheet body is required.', 400);
 
     const base = plan.answerSheet || buildAnswerSheetFromPlan(plan);
-    const answerSheet = {
-      ...base,
-      ...incoming,
-      meta: {
-        ...(base.meta || {}),
-        ...(incoming.meta || {}),
-        updatedAt: nowIso(),
-        approvedAt: base.meta?.approvedAt || null, // preserve existing approval
-      },
-    };
+    // Deep-merge so partial updates (e.g. { hero: { title: "..." } } or
+    // { business: { name: "..." } }) correctly patch the nested structure
+    // without clobbering unrelated fields.
+    const answerSheet = deepMergeAnswerSheet(base, incoming);
 
     const validation = validateAnswerSheet(answerSheet);
     const status = resolveStatus(validation, plan.answerSheetStatus || 'built');
@@ -163,6 +157,49 @@ async function approveAnswerSheet(req, res, next) {
 
     res.json({ answerSheet: approved, validation, status: 'approved', planId: plan.planId });
   } catch (e) { next(e); }
+}
+
+// ── Deep merge helper (for PUT answer-sheet) ──────────────────────────────────
+
+function deepMergeAnswerSheet(base = {}, incoming = {}) {
+  const now = nowIso();
+  function mergeVal(orig, next) {
+    if (next === undefined) return orig;
+    if (next === null || next === '') return next; // allow clearing a field
+    if (Array.isArray(orig) && Array.isArray(next)) {
+      // Pages / sections: merge by id or name
+      if (orig.length && orig[0] && typeof orig[0] === 'object' && (orig[0].id || orig[0].name)) {
+        const merged = orig.map(item => {
+          const match = next.find(n => (item.id && n.id === item.id) || (item.name && n.name === item.name));
+          return match ? mergeObj(item, match) : item;
+        });
+        // Append any new items from next that weren't in orig
+        next.forEach(n => {
+          if (!merged.find(m => (n.id && m.id === n.id) || (n.name && m.name === n.name))) merged.push(n);
+        });
+        return merged;
+      }
+      return next; // replace primitive arrays
+    }
+    if (typeof orig === 'object' && !Array.isArray(orig) && typeof next === 'object' && !Array.isArray(next)) {
+      return mergeObj(orig, next);
+    }
+    return next; // scalar: incoming wins
+  }
+  function mergeObj(o = {}, n = {}) {
+    const result = { ...o };
+    for (const k of Object.keys(n)) result[k] = mergeVal(o[k], n[k]);
+    return result;
+  }
+  const merged = mergeObj(base, incoming);
+  // Always preserve/update meta correctly
+  merged.meta = {
+    ...(base.meta || {}),
+    ...(incoming.meta || {}),
+    updatedAt: now,
+    approvedAt: base.meta?.approvedAt || null,
+  };
+  return merged;
 }
 
 // ── Status helper ─────────────────────────────────────────────────────────────

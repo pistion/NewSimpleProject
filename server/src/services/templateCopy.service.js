@@ -228,6 +228,13 @@ function buildReplacementMap(answers = {}) {
   if (flat.brandTone && !flat['brand.tone']) flat['brand.tone'] = flat.brandTone;
   if (flat.colors && !flat['brand.colors']) flat['brand.colors'] = flat.colors;
   if (flat.contact && !flat['contact.primaryAction']) flat['contact.primaryAction'] = flat.contact;
+  // audience aliases — {{audience}} and {{business.targetAudience}} both work
+  const audience = flat['business.targetAudience'] || flat.targetAudience || flat.audience || '';
+  if (audience) {
+    if (!flat.audience) flat.audience = audience;
+    if (!flat.targetAudience) flat.targetAudience = audience;
+    if (!flat['business.targetAudience']) flat['business.targetAudience'] = audience;
+  }
 
   // 5. Build replacement rows for every key in the flat map
   for (const [key, value] of Object.entries(flat)) {

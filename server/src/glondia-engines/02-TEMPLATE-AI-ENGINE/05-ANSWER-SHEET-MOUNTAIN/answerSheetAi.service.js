@@ -64,7 +64,22 @@ function mergeAiAnswerSheet(original = {}, ai = {}) {
 
   function mergeValue(orig, generated) {
     if (orig === null || orig === undefined || orig === '') return generated ?? orig;
-    if (Array.isArray(orig)) return orig.length > 0 ? orig : (Array.isArray(generated) ? generated : orig);
+    if (Array.isArray(orig)) {
+      if (!Array.isArray(generated)) return orig;
+      if (!orig.length) return generated;
+      // Deep-merge arrays of objects by id or name (pages, sections, keywords, warnings)
+      const firstOrig = orig[0];
+      if (firstOrig && typeof firstOrig === 'object' && (firstOrig.id || firstOrig.name)) {
+        return orig.map(item => {
+          const match = generated.find(g =>
+            (item.id && g.id === item.id) || (item.name && g.name === item.name)
+          );
+          return match ? mergeObjects(item, match) : item;
+        });
+      }
+      // Primitive arrays — preserve original
+      return orig;
+    }
     if (typeof orig === 'object') return mergeObjects(orig, generated);
     return orig;
   }

@@ -182,6 +182,23 @@ async function getOrCreateUsableAnswerSheet(plan, options = {}) {
   let aiAttempted = false;
   let aiError = null;
 
+  // Self-heal: a stored sheet from before a schema/normalizer change can fail
+  // validation even though the plan itself is complete. If a fresh build from
+  // the plan validates, prefer it over the stale stored sheet.
+  if (!validation.valid && plan.answerSheet) {
+    const rebuilt = buildAnswerSheetFromPlan(plan);
+    const rebuiltValidation = validateAnswerSheet(rebuilt);
+    if (rebuiltValidation.missing.length < validation.missing.length) {
+      rebuilt.meta = {
+        ...(rebuilt.meta || {}),
+        warnings: [...(rebuilt.meta?.warnings || []), 'Answer sheet was rebuilt from the site plan during handoff.'],
+      };
+      answerSheet = rebuilt;
+      validation = rebuiltValidation;
+      status = 'built';
+    }
+  }
+
   // If incomplete, try AI completion once — unless explicitly disabled.
   if (!validation.valid && options.allowAiCompletion !== false) {
     aiAttempted = true;

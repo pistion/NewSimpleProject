@@ -1,7 +1,15 @@
 # Glondia — Platform Architecture
 
+> ⚠️ **OUTDATED — describes the legacy NestJS backend, which is NOT the active deployment.**
+> The live stack is the Express server at `server/src/server.js` + Vite React SPA.
+> For current architecture see [README.md](README.md), [PROJECT_MAP.md](PROJECT_MAP.md),
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and
+> [docs/SITE_BUILDER_HOSTING_BOUNDARY.md](docs/SITE_BUILDER_HOSTING_BOUNDARY.md).
+> The `backend/` NestJS app described below is kept for reference only — do not run
+> it alongside `server/`.
+
 > **Owner:** Glondia Analysts & Consultancy · John Wesly Tawa  
-> **Stack:** React (Vite) frontend · NestJS backend · SQLite (Render persistent disk)  
+> **Stack (legacy doc):** React (Vite) frontend · NestJS backend · SQLite (Render persistent disk)  
 > **Deployed on:** Render.com
 
 ---

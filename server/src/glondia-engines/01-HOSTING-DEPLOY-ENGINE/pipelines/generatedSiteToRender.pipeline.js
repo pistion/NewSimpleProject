@@ -12,6 +12,8 @@ import { buildRenderPayload } from '../04-RENDER-PAYLOAD-MOUNTAIN/renderPayloadB
 import { createAndTriggerRenderDeploy } from '../05-RENDER-DEPLOY-MOUNTAIN/renderDeploy.stage.js';
 import { publishGeneratedSiteToGitHub, resolveGitHubPublisherToken } from '../03-GITHUB-SOURCE-MOUNTAIN/generatedSitesRepoPublisher.stage.js';
 import { publishDirectoryToTemporaryRepo, shouldUseTemporaryRepo } from '../03-GITHUB-SOURCE-MOUNTAIN/temporaryRepoManager.stage.js';
+import { startPostDeployPolling } from '../../../services/deploymentPostDeployPoller.js';
+import { shouldAttachDeploymentBilling, queueDeploymentBillingAttach } from '../00-SHARED/deploymentBillingAttach.service.js';
 
 const DEFAULT_GENERATED_SITES_REPO_URL = 'https://github.com/pistion/glondia-generated-sites.git';
 
@@ -152,7 +154,7 @@ export async function run(input = {}, context = {}) {
       renderServiceId: renderResult.serviceId,
     });
 
-    return updateDeploymentRecord(deployment.deploymentId, {
+    const updated = await updateDeploymentRecord(deployment.deploymentId, {
       ...basePatch,
       platformDeployed: true,
       status: 'building',
@@ -173,6 +175,19 @@ export async function run(input = {}, context = {}) {
       },
       errorMessage: null,
     });
+
+    // Billing attach (non-blocking, same as ZIP/GitHub-link pipelines)
+    queueDeploymentBillingAttach({
+      deployment: updated,
+      user: { id: normalized.userId },
+      kind: normalized.source || 'generated-template',
+      billingTierId: input.billingTierId || input.tierId || null,
+    });
+
+    // Post-deploy poller (non-blocking, same as ZIP/GitHub-link pipelines)
+    startPostDeployPolling(deployment.deploymentId);
+
+    return updated;
   } catch (error) {
     await addDeploymentLog(deployment.deploymentId, error.message || 'Deploy handoff failed.', 'warn', error.details || null);
     return updateDeploymentRecord(deployment.deploymentId, {

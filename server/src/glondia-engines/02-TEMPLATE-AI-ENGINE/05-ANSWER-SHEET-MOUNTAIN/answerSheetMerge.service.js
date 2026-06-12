@@ -7,6 +7,13 @@
  * Also produces dotted-path flat keys for use by buildReplacementMap().
  */
 
+import {
+  isHeroSectionType,
+  isAboutSectionType,
+  isServicesSectionType,
+  isContactSectionType,
+} from './answerSheet.schema.js';
+
 /**
  * Convert a structured answer sheet to the flat `answers` object expected
  * by prepareTemplateGeneratedSource / applyQuestionnaireDataToGeneratedSource.
@@ -18,12 +25,13 @@ export function mapAnswerSheetToTemplateAnswers(answerSheet = {}) {
   const seo = answerSheet.seo || {};
   const pages = Array.isArray(answerSheet.pages) ? answerSheet.pages : [];
 
-  // Extract hero section content from the first hero found
+  // Extract slot content from the first matching section — template-specific
+  // types (technical-hero, studio-story, contact-form, …) fill the same slots.
   const allSections = pages.flatMap((p) => Array.isArray(p.sections) ? p.sections : []);
-  const hero = allSections.find((s) => s.type === 'hero') || {};
-  const about = allSections.find((s) => s.type === 'about') || {};
-  const services = allSections.find((s) => s.type === 'services') || {};
-  const contactSection = allSections.find((s) => s.type === 'contact') || {};
+  const hero = allSections.find((s) => isHeroSectionType(s.type)) || {};
+  const about = allSections.find((s) => isAboutSectionType(s.type)) || {};
+  const services = allSections.find((s) => isServicesSectionType(s.type)) || {};
+  const contactSection = allSections.find((s) => isContactSectionType(s.type)) || {};
 
   return {
     // Core business fields
@@ -107,8 +115,8 @@ export function flattenAnswerSheet(answerSheet = {}) {
   // Also add convenient first-section aliases
   const pages = Array.isArray(answerSheet.pages) ? answerSheet.pages : [];
   const allSections = pages.flatMap((p) => Array.isArray(p.sections) ? p.sections : []);
-  const hero = allSections.find((s) => s.type === 'hero') || {};
-  const about = allSections.find((s) => s.type === 'about') || {};
+  const hero = allSections.find((s) => isHeroSectionType(s.type)) || {};
+  const about = allSections.find((s) => isAboutSectionType(s.type)) || {};
 
   result['hero.title'] = hero.title || '';
   result['hero.content'] = hero.content || '';

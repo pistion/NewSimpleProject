@@ -13,6 +13,20 @@ const DEFAULT_TEMPLATE_REPO = 'https://github.com/pistion/Glondiasites.git';
 const DEFAULT_TEMPLATE_ROOT = 'templates';
 const DEFAULT_BRANCH = 'main';
 
+// ── In-memory cache for GitHub API responses (TTL: 5 minutes) ─────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const _cache = new Map(); // key → { data, expiresAt }
+
+function cacheGet(key) {
+  const entry = _cache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) { _cache.delete(key); return undefined; }
+  return entry.data;
+}
+function cacheSet(key, data) {
+  _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
 export function getTemplateLibraryConfig() {
   return {
     repoUrl: process.env.TEMPLATE_LIBRARY_REPO_URL || process.env.RENDER_GENERATED_SITES_REPO_URL || DEFAULT_TEMPLATE_REPO,
@@ -38,6 +52,10 @@ export function templatePathForId(templateId) {
 
 export async function listTemplates() {
   const config = getTemplateLibraryConfig();
+  const cacheKey = `list:${config.repoUrl}:${config.root}:${config.branch}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const rows = await getGithubContents(config.root, config);
   const dirs = Array.isArray(rows) ? rows.filter((entry) => entry?.type === 'dir') : [];
   const templates = [];
@@ -48,32 +66,40 @@ export async function listTemplates() {
     templates.push(lightweightTemplateMetadata(metadata));
   }
 
-  return {
-    repoUrl: config.repoUrl,
-    root: config.root,
-    branch: config.branch,
-    templates,
-  };
+  const result = { repoUrl: config.repoUrl, root: config.root, branch: config.branch, templates };
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 export async function getTemplate(templateId) {
   const id = normalizeTemplateId(templateId);
+  const config = getTemplateLibraryConfig();
+  const cacheKey = `template:${config.repoUrl}:${id}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
   const metadata = await readTemplateMetadata(id);
-  return lightweightTemplateMetadata(metadata);
+  const result = lightweightTemplateMetadata(metadata);
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 export async function readTemplateMetadata(templateId) {
   const id = normalizeTemplateId(templateId);
   const templatePath = templatePathForId(id);
   const config = getTemplateLibraryConfig();
+  const cacheKey = `meta:${config.repoUrl}:${id}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
   const file = await getGithubFile(`${templatePath}/template.json`, config);
   const metadata = JSON.parse(file.content.toString('utf8'));
-  return {
+  const result = {
     ...defaultTemplateMetadata(id, templatePath),
     ...metadata,
     templateId: metadata.templateId || id,
     templatePath,
   };
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 export async function getTemplateFiles(templateId) {

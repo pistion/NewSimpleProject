@@ -9,6 +9,10 @@ async function getSettings(req, res, next) {
     const sourceRepoConfigured = Boolean((process.env.RENDER_GENERATED_SITES_REPO_URL || process.env.GENERATED_SITES_REPO_URL || '').trim());
 
     res.json({
+      // Canonical AI config fields (used by frontend to gate AI features)
+      aiConfigured: openAiConfigured,
+      aiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      // Legacy alias kept for backward compatibility
       openAiConfigured,
       renderConfigured,
       sourceRepoConfigured,

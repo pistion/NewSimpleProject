@@ -269,8 +269,18 @@ export async function suggestWireframe(planId) {
   const plan = await getSitePlan(planId);
   if (!plan) throw httpError('Plan not found.', 404);
 
-  const pages = plan.sitemap?.pages || [];
-  if (pages.length === 0) throw httpError('No pages in this plan yet.', 400);
+  let pages = plan.sitemap?.pages || [];
+  // If sitemap is not set yet, auto-build pages from brief so wireframe can still run
+  if (pages.length === 0) {
+    const briefPages = parseBriefPagesFromPlan(plan);
+    if (briefPages.length === 0) {
+      throw httpError(
+        'No pages in this plan yet. Set a sitemap first using POST /ai/suggest-sitemap, or include a "pages" field in your brief.',
+        400
+      );
+    }
+    pages = briefPages;
+  }
 
   const client = getClient();
 
@@ -352,4 +362,22 @@ Return strict JSON only:
     pages: enrichedPages,
     summary: String(parsed.summary || 'Wireframe guidance added by RoxanneAI.'),
   };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function parseBriefPagesFromPlan(plan = {}) {
+  const brief = plan.brief || {};
+  const raw = brief.pages;
+  if (!raw) return [];
+  const names = Array.isArray(raw)
+    ? raw.map(p => String(p).trim()).filter(Boolean)
+    : String(raw).split(/[,\n;|]+/).map(p => p.trim()).filter(Boolean);
+  return names.map(name => ({
+    id: `page_${Math.random().toString(36).slice(2, 9)}`,
+    name,
+    path: name.toLowerCase() === 'home' ? '/' : `/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    purpose: '',
+    sections: [],
+  }));
 }

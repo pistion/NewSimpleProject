@@ -8,6 +8,13 @@
  * Deployment is blocked only when missing.length > 0.
  */
 
+import {
+  isHeroSectionType,
+  isAboutSectionType,
+  isServicesSectionType,
+  isContactSectionType,
+} from './answerSheet.schema.js';
+
 export function validateAnswerSheet(answerSheet = {}) {
   const missing = [];
   const warnings = [];
@@ -31,7 +38,8 @@ export function validateAnswerSheet(answerSheet = {}) {
   }
 
   const allSections = pages.flatMap((p) => Array.isArray(p.sections) ? p.sections : []);
-  const hasHero = allSections.some((s) => s.type === 'hero');
+  // Template-specific hero variants (technical-hero, hero-banner, …) count.
+  const hasHero = allSections.some((s) => isHeroSectionType(s.type));
   if (pages.length > 0 && !hasHero) {
     missing.push({ path: 'pages[].sections[].type', message: 'At least one hero section is required.' });
   }
@@ -54,12 +62,12 @@ export function validateAnswerSheet(answerSheet = {}) {
     warnings.push({ path: 'seo.description', message: 'SEO description is missing.' });
   }
 
-  const hasServiceOrAbout = allSections.some((s) => s.type === 'services' || s.type === 'about');
+  const hasServiceOrAbout = allSections.some((s) => isServicesSectionType(s.type) || isAboutSectionType(s.type));
   if (pages.length > 0 && !hasServiceOrAbout) {
     warnings.push({ path: 'pages[].sections', message: 'No services or about section found — consider adding one.' });
   }
 
-  const hasContactSection = allSections.some((s) => s.type === 'contact');
+  const hasContactSection = allSections.some((s) => isContactSectionType(s.type));
   if (pages.length > 0 && !hasContactSection) {
     warnings.push({ path: 'pages[].sections', message: 'No contact section found on any page.' });
   }

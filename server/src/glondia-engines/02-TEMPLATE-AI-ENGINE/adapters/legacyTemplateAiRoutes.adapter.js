@@ -69,17 +69,17 @@ router.post('/plans/:planId/answer-sheet/generate', requireSiteBuilder, authMidd
 router.put('/plans/:planId/answer-sheet', requireSiteBuilder, authMiddleware, answerSheetController.updateAnswerSheet);
 router.post('/plans/:planId/answer-sheet/approve', requireSiteBuilder, authMiddleware, answerSheetController.approveAnswerSheet);
 
-// ── Site plan AI endpoints (require AI_BUILDER for advanced AI suggestions) ───
-router.post('/plans/:planId/ai/suggest-sitemap', requireSiteBuilder, authMiddleware, async (req, res, next) => {
+// ── Site plan AI endpoints (require BOTH SITE_BUILDER + AI_BUILDER) ──────────
+router.post('/plans/:planId/ai/suggest-sitemap', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestSitemapForPlan(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/autofill-brief', requireSiteBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/autofill-brief', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await autofillBrief(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-sections/:pageId', requireSiteBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-sections/:pageId', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestSectionsForPage(req.params.planId, req.params.pageId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-wireframe', requireSiteBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-wireframe', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
   try { res.json({ data: await suggestWireframe(req.params.planId) }); } catch (e) { next(e); }
 });
 
