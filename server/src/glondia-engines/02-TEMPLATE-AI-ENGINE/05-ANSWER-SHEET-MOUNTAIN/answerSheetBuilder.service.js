@@ -5,7 +5,7 @@
  * No AI — pure data transformation from plan.brief, plan.sitemap, plan.wireframe.
  */
 
-import { DEFAULT_ANSWER_SHEET, ANSWER_SHEET_VERSION, isKnownSectionType } from './answerSheet.schema.js';
+import { DEFAULT_ANSWER_SHEET, ANSWER_SHEET_VERSION, isKnownSectionType, isHeroSectionType } from './answerSheet.schema.js';
 
 export function buildAnswerSheetFromPlan(plan = {}) {
   const now = new Date().toISOString();
@@ -186,8 +186,18 @@ function pickTemplateSectionsForPage(pageLc = '', templateSections = []) {
   if (!matchKey) return [];
 
   const preferred = PAGE_SECTION_MAP[matchKey];
-  // Only return types that actually exist in this template
-  return preferred.filter(type => templateSections.includes(type));
+  // Resolve each preferred type against the template's actual sections.
+  // 'hero' matches any hero variant the template declares (e.g. technical-hero),
+  // so the brief-only path picks the same section the seeded path would.
+  const resolved = [];
+  for (const type of preferred) {
+    if (templateSections.includes(type)) { resolved.push(type); continue; }
+    if (type === 'hero') {
+      const variant = templateSections.find((t) => isHeroSectionType(t));
+      if (variant) resolved.push(variant);
+    }
+  }
+  return resolved;
 }
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
