@@ -1,22 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
+// Frontend is served by Express on one port (see server/src/server.js).
+// Leave VITE_API_BASE_URL empty so the browser calls same-origin /api/*
 export default defineConfig({
   plugins: [react()],
-
-  server: {
-    // In dev, proxy /api to the local NestJS backend so CORS is never an issue.
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-    },
-  },
-
   build: {
-    // Raise the warning threshold slightly — Bootstrap alone is ~150 kB.
     chunkSizeWarningLimit: 600,
   },
 })

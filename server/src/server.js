@@ -41,6 +41,7 @@ import adminRoutes from './routes/admin.routes.js';
 import { customerTicketRouter } from './routes/tickets.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import emailRoutes from './routes/email.routes.js';
+import glondiaMailRoutes from './routes/glondia-mail.routes.js';
 import providerRenderRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/providerRender.routes.js';
 import sandboxRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/sandbox.routes.js';
 import deploymentStreamRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/deploymentStream.routes.js';
@@ -60,7 +61,8 @@ dotenv.config();
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
-// Render injects PORT automatically. Local dev defaults to 3001 (matches vite proxy).
+// One process, one port: API + frontend always share this PORT.
+// Render injects PORT in production. Local default is 3001.
 const PORT = Number(process.env.PORT || (isProd ? 10000 : 3001));
 
 // ── Static file serving ─────────────────────────────────────────────────────
@@ -246,8 +248,10 @@ app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/v1/tickets', customerTicketRouter);
-// Business Email — client mailbox list + setup requests (MVP foundation).
+// Dashboard Business Email — setup, DNS, mailbox requests (not webmail reading).
 app.use('/api/v1/email', requireFeature('EMAIL'), emailRoutes);
+// GlondiaMail — separate webmail (login / folders / messages / send).
+app.use('/api/v1/glondia-mail', requireFeature('GLONDIA_MAIL'), glondiaMailRoutes);
 // User-facing notifications (Bell dropdown) — mounted on both API prefixes.
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
@@ -269,27 +273,55 @@ if (existsSync(adminDashDir)) {
   });
 }
 
-// ── SPA fallback — serve Vite dist for everything else ──────────────────────
-app.use((req, res) => serveStatic(req, res));
+// ── Frontend (same process + same port as the API) ───────────────────────────
+// Production / start: serve prebuilt dist/
+// Local npm run dev: optional Vite middleware for HMR (still ONE server, ONE port)
+let frontendMode = 'dist';
+
+async function attachFrontend() {
+  const wantViteDev =
+    !isProd
+    && process.env.NODE_ENV !== 'test'
+    && String(process.env.GLONDIA_VITE_MIDDLEWARE || 'true').toLowerCase() !== 'false';
+
+  if (wantViteDev) {
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        configFile: join(rootDir, 'vite.config.js'),
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      frontendMode = 'vite-middleware';
+      return;
+    } catch (err) {
+      console.warn('[glondia] Vite middleware unavailable; using dist/.', err.message);
+    }
+  }
+
+  app.use((req, res) => serveStatic(req, res));
+  frontendMode = 'dist';
+}
 
 // Payment business logic → server/src/services/payments-provider.service.js
 // SSE stream logic → server/src/glondia-engines/01-HOSTING-DEPLOY-ENGINE/services/deploymentStream.service.js
 
-
-app.use((err, req, res, next) => {
-  const status = err.status || err.statusCode || 500;
-  const message = isProd && !err.expose ? 'An unexpected error occurred.' : (err.message || String(err));
-  console.error(`[error] ${req.method} ${req.url} →`, err.message || err);
-  const body = {
-    success: false,
-    error: { code: err.code || 'INTERNAL_ERROR', message },
-    requestId: req.id,
-  };
-  // Include stage field when present — used by deployment error responses
-  if (err.stage) body.stage = err.stage;
-  if (err.details && err.expose) body.details = err.details;
-  res.status(status).json(body);
-});
+function attachErrorHandler() {
+  app.use((err, req, res, next) => {
+    const status = err.status || err.statusCode || 500;
+    const message = isProd && !err.expose ? 'An unexpected error occurred.' : (err.message || String(err));
+    console.error(`[error] ${req.method} ${req.url} →`, err.message || err);
+    const body = {
+      success: false,
+      error: { code: err.code || 'INTERNAL_ERROR', message },
+      requestId: req.id,
+    };
+    if (err.stage) body.stage = err.stage;
+    if (err.details && err.expose) body.details = err.details;
+    res.status(status).json(body);
+  });
+}
 
 // ── Payment enforcement job ───────────────────────────────────────────────────
 // Runs every 30 minutes. Only acts on deployments that were made through the
@@ -342,26 +374,38 @@ function startPaymentEnforcementJob() {
   return setInterval(runEnforcement, INTERVAL_MS);
 }
 
-if (process.env.NODE_ENV !== 'test') {
+async function boot() {
+  await attachFrontend();
+  attachErrorHandler();
+
+  if (process.env.NODE_ENV === 'test') return;
+
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[glondia] API + static server listening on port ${PORT}`);
-    console.log(`[glondia] Serving Vite app from ${distDir}`);
+    console.log(`[glondia] Single server listening on http://localhost:${PORT}`);
+    if (frontendMode === 'vite-middleware') {
+      console.log('[glondia] Frontend: Vite middleware (HMR) on the SAME port as the API');
+    } else {
+      console.log(`[glondia] Frontend: static dist from ${distDir}`);
+    }
+    console.log(`[glondia] Open: http://localhost:${PORT}`);
+    console.log(`[glondia] Mailboxes: http://localhost:${PORT}/mailboxes`);
     console.log(`[glondia] DATABASE_URL: ${(process.env.DATABASE_URL || '(not set)').replace(/:[^:@]+@/, ':***@')}`);
 
-    // Verify DB is reachable on startup — logs clearly if the file can't be opened.
     prisma.$connect()
       .then(() => console.log('[glondia] Database connection established.'))
-      // Self-heal additive User columns + the notifications table so a DB that
-      // predates a schema change doesn't 500 (push-based, no migrations).
       .then(() => ensureUserColumns())
       .then(() => ensureNotificationsTable())
       .then(() => ensureDeploymentSubscriptionsTable())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
-  // Deploy-first tiered billing: enforce the 12-hour grace window every 5 minutes.
+
   startDeploymentCleanupJob();
-  // Warm the forex cache so the first PayPal order creation doesn't cold-fetch.
   warmForexCache();
 }
+
+boot().catch((err) => {
+  console.error('[glondia] Failed to start server:', err);
+  process.exit(1);
+});
 
 export default app;

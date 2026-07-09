@@ -27,8 +27,10 @@ import {
 import { ActivityPage } from './activity';
 import BillingPage from './features/billing/BillingPage.jsx';
 import ProfilePage from './features/profile/ProfilePage.jsx';
-import EmailPage from './features/email/EmailPage.jsx';
+import EmailManagementPage from './features/email/EmailManagementPage.jsx';
+import GlondiaMailApp from './features/glondia-mail/GlondiaMailApp.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
+import { isFeatureEnabled } from './app/features.js';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
 import { isLiveMode } from './app/config.js';
@@ -108,7 +110,28 @@ function applyFontPair(pair) {
   }
 }
 
+/** Root entry: GlondiaMail is a separate full-page app; everything else is the client dashboard. */
 export default function App() {
+  const path = String(window.location.pathname || '/').replace(/\/+$/, '') || '/';
+  // Separate Mailboxes webmail (same site, not dashboard shell).
+  if (path === '/mailboxes' || path === '/glondiamail' || path === '/mail') {
+    if (!isFeatureEnabled('glondiaMail')) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="card" style={{ padding: 28, maxWidth: 420, textAlign: 'center' }}>
+            <h1 style={{ marginTop: 0 }}>GlondiaMail</h1>
+            <p className="muted">This feature is not enabled.</p>
+            <a className="btn btn-primary" href="/">Back to Glondia</a>
+          </div>
+        </div>
+      );
+    }
+    return <GlondiaMailApp />;
+  }
+  return <ClientDashboardApp />;
+}
+
+function ClientDashboardApp() {
   const [route, setRoute] = useStateApp({ view: "login" });
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [githubBanner, setGithubBanner] = useStateApp(null);
@@ -243,7 +266,7 @@ export default function App() {
       case "analytics":         return <SimplePage title="Analytics" body="Cross-project analytics — coming up next." />;
       case "activity":          return <ActivityPage />;
       case "billing":           return <BillingPage navigate={navigate} />;
-      case "email":             return <EmailPage navigate={navigate} />;
+      case "email":             return <EmailManagementPage navigate={navigate} />;
       case "profile":           return <ProfilePage navigate={navigate} theme={t.theme} onThemeChange={(v) => { setTweak('theme', v); try { localStorage.setItem('glondia-theme', v); } catch {} }} />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
@@ -283,7 +306,7 @@ export default function App() {
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
-      case "email":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Email" }];
+      case "email":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Business Email" }];
       case "profile":         return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Profile" }];
       case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Cloud Servers" }];
       case "vps-create":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];

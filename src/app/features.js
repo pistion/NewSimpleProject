@@ -10,7 +10,10 @@ const DEFAULTS = {
   githubHosting: true,
   hostingDashboard: true,
   billing: true,
+  // Dashboard Business Email (setup, DNS, mailbox requests) — not webmail reading.
   email: true,
+  // Separate Mailboxes webmail app at /mailboxes (also /mail, /glondiamail).
+  glondiaMail: true,
   // Domain names (search, buy, DNS) — visible in the main customer dashboard.
   // Live purchase still requires Spaceship + PayPal on the server.
   domains: true,
@@ -31,6 +34,7 @@ const ENV_KEYS = {
   hostingDashboard: 'VITE_FEATURE_HOSTING_DASHBOARD',
   billing: 'VITE_FEATURE_BILLING',
   email: 'VITE_FEATURE_EMAIL',
+  glondiaMail: 'VITE_FEATURE_GLONDIA_MAIL',
   domains: 'VITE_FEATURE_DOMAINS',
   vps: 'VITE_FEATURE_VPS',
   aiBuilder: 'VITE_FEATURE_AI_BUILDER',

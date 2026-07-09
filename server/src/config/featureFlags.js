@@ -14,7 +14,10 @@ const FLAG_DEFINITIONS = {
   GITHUB_HOSTING:       { env: 'FEATURE_GITHUB_HOSTING',       default: true,  label: 'GitHub upload/import hosting' },
   HOSTING_DASHBOARD:    { env: 'FEATURE_HOSTING_DASHBOARD',    default: true,  label: 'Hosting dashboard' },
   BILLING:              { env: 'FEATURE_BILLING',              default: true,  label: 'Billing' },
+  // Dashboard Business Email — mailbox setup + DNS (not webmail reading).
   EMAIL:                { env: 'FEATURE_EMAIL',                default: true,  label: 'Business Email' },
+  // Separate GlondiaMail webmail app (login / inbox / send).
+  GLONDIA_MAIL:         { env: 'FEATURE_GLONDIA_MAIL',         default: true,  label: 'GlondiaMail' },
   // Domain names (registrar + buy flow) — active on the main customer dashboard.
   // Set FEATURE_DOMAINS=false to hide. Live purchase still needs Spaceship + PayPal env.
   DOMAINS:              { env: 'FEATURE_DOMAINS',              default: true,  label: 'Domains' },

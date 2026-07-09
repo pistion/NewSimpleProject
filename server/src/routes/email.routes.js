@@ -1,42 +1,28 @@
 /**
- * email.routes.js — client business email API.
+ * email.routes.js — Dashboard Business Email API.
  *
- * GET  /mailboxes  — list mailboxes for the signed-in user
- * POST /requests   — submit a mailbox setup request
+ * GET  /status
+ * GET  /mailboxes
+ * POST /mailboxes/request
+ * GET  /dns/:domain
+ * POST /dns/:domain/check
  *
  * Mounted at /api/v1/email behind requireFeature('EMAIL').
  * Does not expose provider secrets or mailbox passwords.
  */
 import express from 'express';
 import authMiddleware from '../middleware/authMiddleware.js';
-import { listMailboxes, createMailboxRequest } from '../services/emailService.js';
+import * as emailController from '../controllers/email.controller.js';
 
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get('/mailboxes', async (req, res, next) => {
-  try {
-    const data = await listMailboxes(req.user?.id);
-    res.json({ data, requestId: req.id });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post('/requests', async (req, res, next) => {
-  try {
-    const data = await createMailboxRequest(req.user?.id, req.body || {});
-    res.status(201).json({ data, requestId: req.id });
-  } catch (err) {
-    if (err.status === 400) {
-      return res.status(400).json({
-        success: false,
-        error: { code: err.code || 'VALIDATION_ERROR', message: err.message },
-        requestId: req.id,
-      });
-    }
-    next(err);
-  }
-});
+router.get('/status', emailController.getStatus);
+router.get('/mailboxes', emailController.listMailboxes);
+router.post('/mailboxes/request', emailController.requestMailbox);
+// Back-compat with earlier client path
+router.post('/requests', emailController.requestMailbox);
+router.get('/dns/:domain', emailController.getDns);
+router.post('/dns/:domain/check', emailController.checkDns);
 
 export default router;

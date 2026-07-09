@@ -1,38 +1,73 @@
 /**
- * Business Email API client.
- * Never handles mailbox passwords or provider secrets.
+ * Dashboard Business Email API client.
+ * Setup / DNS / mailbox requests only — never passwords or provider secrets.
  */
 import { liveApiRequest } from '../api.js';
 
-/** List mailboxes for the signed-in user. Returns { mailboxes, webmailUrl } or graceful empty. */
-export async function listMailboxes() {
+function soft(err, fallback) {
+  if (err?.status === 503 || err?.status === 404 || err?.status === 401) {
+    return { ...fallback, error: err.message };
+  }
+  throw err;
+}
+
+export async function getEmailStatus() {
+  try {
+    return await liveApiRequest('/v1/email/status');
+  } catch (err) {
+    return soft(err, {
+      configured: false,
+      dnsVerified: false,
+      dnsStatus: 'setup_required',
+      mailboxCount: 0,
+      domainCount: 0,
+      webmailUrl: '/mailboxes',
+      message: err.message || 'Email status unavailable.',
+    });
+  }
+}
+
+export async function listEmailMailboxes() {
   try {
     const data = await liveApiRequest('/v1/email/mailboxes');
     return {
       mailboxes: Array.isArray(data?.mailboxes) ? data.mailboxes : (Array.isArray(data) ? data : []),
-      webmailUrl: data?.webmailUrl || null,
-      webmailConfigured: Boolean(data?.webmailConfigured),
+      webmailUrl: data?.webmailUrl || '/mailboxes',
+      webmailConfigured: Boolean(data?.webmailConfigured ?? true),
     };
   } catch (err) {
-    // Backend missing or feature off — UI still renders with empty state.
-    if (err?.status === 503 || err?.status === 404 || err?.status === 401) {
-      return { mailboxes: [], webmailUrl: null, webmailConfigured: false, error: err.message };
-    }
-    throw err;
+    return soft(err, { mailboxes: [], webmailUrl: '/mailboxes', webmailConfigured: false });
   }
 }
 
-/**
- * Submit a mailbox setup request.
- * @param {{ domain: string, mailboxName: string, notes?: string }} body
- */
-export async function requestMailbox(body) {
-  return liveApiRequest('/v1/email/requests', {
+/** @deprecated use listEmailMailboxes */
+export async function listMailboxes() {
+  return listEmailMailboxes();
+}
+
+export async function requestEmailMailbox(body) {
+  return liveApiRequest('/v1/email/mailboxes/request', {
     method: 'POST',
     body: JSON.stringify({
       domain: String(body.domain || '').trim(),
       mailboxName: String(body.mailboxName || '').trim(),
+      displayName: String(body.displayName || '').trim(),
       notes: String(body.notes || '').trim(),
     }),
   });
+}
+
+/** @deprecated use requestEmailMailbox */
+export async function requestMailbox(body) {
+  return requestEmailMailbox(body);
+}
+
+export async function getEmailDnsRecords(domain) {
+  const d = encodeURIComponent(String(domain || '').trim());
+  return liveApiRequest(`/v1/email/dns/${d}`);
+}
+
+export async function checkEmailDns(domain) {
+  const d = encodeURIComponent(String(domain || '').trim());
+  return liveApiRequest(`/v1/email/dns/${d}/check`, { method: 'POST', body: '{}' });
 }
