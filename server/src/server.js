@@ -40,6 +40,7 @@ import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import { customerTicketRouter } from './routes/tickets.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import emailRoutes from './routes/email.routes.js';
 import providerRenderRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/providerRender.routes.js';
 import sandboxRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/sandbox.routes.js';
 import deploymentStreamRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/deploymentStream.routes.js';
@@ -190,6 +191,10 @@ app.use('/api/payments/domain', requireFeature('DOMAINS'));
 
 // Provider routes: Render deploy/settings/import-github + Spaceship domain registrar
 app.use('/api', providerRenderRoutes);
+// Generic frontend-facing registrar API (provider-agnostic path).
+// Spaceship is the current implementation; swap the handler later without changing the client.
+app.use('/api/registrar', requireFeature('DOMAINS'), spaceshipRoutes);
+// Provider-specific alias kept for admin/tools and backwards compatibility.
 app.use('/api/spaceship', requireFeature('DOMAINS'), spaceshipRoutes);
 
 // ── Provider payment routes (PayPal client, domain+hosting checkout) ──────────
@@ -241,6 +246,8 @@ app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/v1/tickets', customerTicketRouter);
+// Business Email — client mailbox list + setup requests (MVP foundation).
+app.use('/api/v1/email', requireFeature('EMAIL'), emailRoutes);
 // User-facing notifications (Bell dropdown) — mounted on both API prefixes.
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);

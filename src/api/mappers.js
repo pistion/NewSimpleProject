@@ -75,21 +75,35 @@ export function mapApiDomain(domain) {
     active: "Active",
     misconfigured: "Misconfigured",
     disabled: "Disabled",
+    ok: "Active",
+    registered: "Active",
   };
+  // Workspace local shape uses hostname; registrar (Spaceship) often uses name/domain.
+  const hostname = domain.hostname || domain.name || domain.domain || domain.id || '';
+  const statusKey = String(domain.status || domain.lifecycleStatus || 'active').toLowerCase();
+  const expiresRaw = domain.expiresAt || domain.expirationDate || domain.expires || null;
+  let expiresLabel = '—';
+  if (expiresRaw) {
+    try {
+      expiresLabel = new Date(expiresRaw).toLocaleDateString();
+    } catch {
+      expiresLabel = String(expiresRaw);
+    }
+  }
   return {
-    id: domain.id,
-    name: domain.hostname,
-    hostname: domain.hostname,
-    rootDomain: domain.rootDomain,
-    status: statusMap[domain.status] || domain.status,
-    rawStatus: domain.status,
-    verificationToken: domain.verificationToken,
+    id: domain.id || hostname,
+    name: hostname,
+    hostname,
+    rootDomain: domain.rootDomain || hostname,
+    status: statusMap[statusKey] || domain.status || 'Active',
+    rawStatus: domain.status || statusKey,
+    verificationToken: domain.verificationToken || null,
     verifiedAt: domain.verifiedAt || null,
     linkedProject: domain.projectId || null,
     linkedProjectName: null,
-    auto: false,
-    expires: "2027-05-24",
-    price: 14.99,
+    auto: domain.autoRenew === true || domain.auto === true,
+    expires: expiresLabel,
+    price: domain.price ?? null,
   };
 }
 

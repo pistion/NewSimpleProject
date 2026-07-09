@@ -3,8 +3,9 @@ import React, { useEffect, useRef, useState as useStateD } from 'react';
 import { ICN } from './icons';
 import { GD } from './data';
 import { StatusBadge, Tabs, Stat, Badge, Empty, ToggleRow } from './components';
-import { bulkDeleteDnsRecords, captureDomainPayPalOrder, checkDomainAvailability, createDnsRecord, createDomain, createDomainPayPalOrder, deleteDnsRecord, exportZoneFile, getPayPalClientSettings, getRegistrarOperation, importZoneFile, pullDnsFromSpaceship, pushDnsToSpaceship, ttlToSeconds, updateDnsRecord, updateNameservers, verifyDomain } from './api';
+import { bulkDeleteDnsRecords, captureDomainPayPalOrder, checkDomainAvailability, createDnsRecord, createDomain, createDomainPayPalOrder, deleteDnsRecord, exportZoneFile, getPayPalClientSettings, getRegistrarOperation, getRegistrarSettings, importZoneFile, pullDnsFromSpaceship, pushDnsToSpaceship, ttlToSeconds, updateDnsRecord, updateNameservers, verifyDomain } from './api';
 import { useDnsRecords, useDomains } from './use-domains';
+import { isLiveMode } from './app/config.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SKELETON ROWS
@@ -41,9 +42,10 @@ function DnsSkeletonRow({ delay = 0 }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function DomainsMine({ navigate }) {
-  const { domains, loading, source, error } = useDomains();
+  const { domains, loading, source, error, providerConfigured } = useDomains();
   const [verifyingId, setVerifyingId] = useStateD(null);
   const connectedCount = domains.filter(d => d.linkedProject).length;
+  const canBuy = providerConfigured !== false;
 
   return (
     <>
@@ -54,12 +56,26 @@ export function DomainsMine({ navigate }) {
           <p className="sub">Manage every domain you've registered or transferred to Glondia. Link them to projects, edit DNS, set up renewals.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-outline"><ICN.Refresh size={14} /> Transfer in</button>
-          <button className="btn btn-primary" onClick={() => navigate({ view: "domains-buy" })}>
+          <button className="btn btn-outline" disabled title="Transfer-in will be available soon"><ICN.Refresh size={14} /> Transfer in</button>
+          <button
+            className="btn btn-primary"
+            disabled={!canBuy}
+            title={canBuy ? undefined : 'Domain registration is not configured yet.'}
+            onClick={() => canBuy && navigate({ view: "domains-buy" })}
+          >
             <ICN.Plus size={14} /> Buy a domain
           </button>
         </div>
       </div>
+
+      {providerConfigured === false && (
+        <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Domain registration is not configured yet.</div>
+          <p className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 56 + 'ch' }}>
+            Your administrator needs to connect a domain registrar (Spaceship) and PayPal on the server before domains can be searched or purchased. No provider secrets are available in this browser.
+          </p>
+        </div>
+      )}
 
       <div className="grid-4">
         <Stat k="Domains" v={domains.length} d="across all TLDs" />
@@ -70,12 +86,12 @@ export function DomainsMine({ navigate }) {
 
       {source === "api" && (
         <div className="card" style={{ padding: "10px 14px", fontSize: 13 }}>
-          <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Local workspace</span>
+          <span className="row" style={{ gap: 8 }}><ICN.Server size={14} /> Local workspace (demo)</span>
         </div>
       )}
       {error && (
-        <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-muted)" }}>
-          Showing local workspace domains.
+        <div className="card" style={{ padding: "10px 14px", fontSize: 13, color: "var(--danger)" }}>
+          {error}
         </div>
       )}
 
@@ -105,8 +121,14 @@ export function DomainsMine({ navigate }) {
               <tr className="anim-fadeIn">
                 <td colSpan={6}>
                   <Empty icon="Globe" title="No domains yet"
-                    body="Register or transfer a domain to get started."
-                    action={<button className="btn btn-sm btn-primary" onClick={() => navigate({ view: "domains-buy" })}><ICN.Plus size={13} /> Buy a domain</button>} />
+                    body={providerConfigured === false
+                      ? "Domain registration is not configured yet. Contact support when you're ready to connect a registrar."
+                      : "Register or transfer a domain to get started."}
+                    action={canBuy ? (
+                      <button className="btn btn-sm btn-primary" onClick={() => navigate({ view: "domains-buy" })}>
+                        <ICN.Plus size={13} /> Buy a domain
+                      </button>
+                    ) : null} />
                 </td>
               </tr>
             ) : domains.map((d, i) => (
@@ -308,8 +330,49 @@ export function DomainsBuy({ navigate }) {
   const [registerError, setRegisterError] = useStateD(null);
   const [operations, setOperations] = useStateD([]); // [{ domain, operationId, status }]
   const [paidAmounts, setPaidAmounts] = useStateD(null); // amounts returned by capture
+  const [providerReady, setProviderReady] = useStateD(null); // null loading | true | false
+  const [providerMessage, setProviderMessage] = useStateD('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!isLiveMode()) {
+          if (!cancelled) {
+            setProviderReady(false);
+            setProviderMessage('Domain registration requires live mode (VITE_APP_MODE=live) and a configured registrar.');
+          }
+          return;
+        }
+        const [registrar, paypal] = await Promise.all([
+          getRegistrarSettings().catch(() => ({ configured: false })),
+          getPayPalClientSettings().catch(() => ({ configured: false })),
+        ]);
+        if (cancelled) return;
+        if (!registrar?.configured) {
+          setProviderReady(false);
+          setProviderMessage('Domain registration is not configured yet. The domain provider is not connected on the server.');
+          return;
+        }
+        if (!paypal?.configured) {
+          setProviderReady(false);
+          setProviderMessage('Checkout is unavailable until PayPal is configured on the server.');
+          return;
+        }
+        setProviderReady(true);
+        setProviderMessage('');
+      } catch {
+        if (!cancelled) {
+          setProviderReady(false);
+          setProviderMessage('Domain registration is not configured yet.');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const addToCart = (item) => {
+    if (providerReady !== true) return;
     if (cart.find(c => c.name === item.name)) return;
     setCart([...cart, item]);
   };
@@ -343,6 +406,8 @@ export function DomainsBuy({ navigate }) {
     setStep("done");
   };
 
+  const canCheckout = providerReady === true;
+
   return (
     <>
       <div className="page-head">
@@ -355,7 +420,10 @@ export function DomainsBuy({ navigate }) {
         </div>
         {step !== "done" && (
           <div className="actions">
-            {cart.length > 0 && step !== "checkout" && (
+            <button className="btn btn-outline" onClick={() => navigate({ view: 'domains-mine' })}>
+              <ICN.Globe size={14} /> My domains
+            </button>
+            {canCheckout && cart.length > 0 && step !== "checkout" && (
               <button className="btn btn-primary" onClick={() => setStep("checkout")}>
                 <ICN.Cart size={14} /> Checkout · {cart.length} item{cart.length === 1 ? "" : "s"} · ${subtotal.toFixed(2)}
               </button>
@@ -364,6 +432,20 @@ export function DomainsBuy({ navigate }) {
         )}
       </div>
 
+      {providerReady === null && (
+        <div className="card muted" style={{ padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
+          Checking domain provider readiness…
+        </div>
+      )}
+      {providerReady === false && (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Domain registration is not fully configured yet</div>
+          <p className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 60 + 'ch' }}>
+            {providerMessage || 'Connect Spaceship and PayPal on the server to enable live search and checkout. You can still open this page and review the buy flow.'}
+          </p>
+        </div>
+      )}
+
       {step === "search" && (
         <SearchPanel
           query={query}
@@ -371,6 +453,7 @@ export function DomainsBuy({ navigate }) {
           selectedTld={selectedTld}
           setSelectedTld={setSelectedTld}
           onSearch={() => setStep("results")}
+          searchDisabled={providerReady === null}
         />
       )}
       {step === "results" && (
@@ -381,21 +464,37 @@ export function DomainsBuy({ navigate }) {
           removeFromCart={removeFromCart}
           selectedTld={selectedTld}
           onBack={() => setStep("search")}
-          onCheckout={() => setStep("checkout")}
+          onCheckout={() => canCheckout && setStep("checkout")}
+          checkoutEnabled={canCheckout}
         />
       )}
       {step === "checkout" && (
-        <Checkout
-          cart={cart}
-          subtotal={subtotal}
-          contact={contact}
-          setContact={setContact}
-          onBack={() => setStep("results")}
-          onComplete={completeOrder}
-          onPaid={finishPaidOrder}
-          busy={registering}
-          error={registerError}
-        />
+        canCheckout ? (
+          <Checkout
+            cart={cart}
+            subtotal={subtotal}
+            contact={contact}
+            setContact={setContact}
+            onBack={() => setStep("results")}
+            onComplete={completeOrder}
+            onPaid={finishPaidOrder}
+            busy={registering}
+            error={registerError}
+          />
+        ) : (
+          <div className="card" style={{ padding: 24 }}>
+            <Empty
+              icon="Cart"
+              title="Checkout unavailable"
+              body={providerMessage || 'Domain checkout requires Spaceship and PayPal on the server.'}
+              action={
+                <button className="btn btn-primary" onClick={() => setStep('search')}>
+                  Back to search
+                </button>
+              }
+            />
+          </div>
+        )
       )}
       {step === "done" && (
         <Done
@@ -411,7 +510,7 @@ export function DomainsBuy({ navigate }) {
   );
 }
 
-function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch }) {
+function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch, searchDisabled = false }) {
   const selectedIndex = Math.max(0, FEATURED_TLDS.indexOf(selectedTld));
   const [pushAnimating, setPushAnimating] = useStateD(false);
   const [previousTld, setPreviousTld] = useStateD(null);
@@ -431,13 +530,14 @@ function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch })
     <div className="dom-hero">
       <h2>Search for the perfect name.</h2>
       <p>Type a name, business, or idea. We'll check availability across every TLD.</p>
-      <form className="dom-search input-group lg" onSubmit={(e) => { e.preventDefault(); if (query.trim()) onSearch(); }}>
+      <form className="dom-search input-group lg" onSubmit={(e) => { e.preventDefault(); if (!searchDisabled && query.trim()) onSearch(); }}>
         <button
           className="tld-push-input"
           type="button"
           aria-live="polite"
           aria-label={`Selected domain extension ${selectedTld}. Click to change.`}
           onClick={shiftTld}
+          disabled={searchDisabled}
         >
           {previousTld && (
             <span className="tld-push-item item-out">
@@ -448,8 +548,8 @@ function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch })
             <span className="tld-push-label">{selectedTld}</span>
           </span>
         </button>
-        <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. emakora, kumul-shop, talimedia" autoFocus />
-        <button className="btn btn-primary" type="submit">
+        <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. mybusiness, kumul-shop, talimedia" autoFocus disabled={searchDisabled} />
+        <button className="btn btn-primary" type="submit" disabled={searchDisabled || !query.trim()}>
           <ICN.Search size={16} /> Search
         </button>
       </form>
@@ -463,7 +563,7 @@ function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch })
   );
 }
 
-function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, onBack, onCheckout }) {
+function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, onBack, onCheckout, checkoutEnabled = true }) {
   const base = (query || "yourdomain").toLowerCase().replace(/[^a-z0-9-]/g, "");
   const [results, setResults] = useStateD(null); // null = loading, array = done
   const [searchError, setSearchError] = useStateD(null);
@@ -481,31 +581,47 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
     Promise.all(chunks.map(chunk => checkDomainAvailability(chunk)))
       .then(chunkResults => {
         const flat = chunkResults.flat();
-        // Merge API results with our local price table
+        // Only show TLDs we actually got a registrar answer for — never invent availability.
         const merged = GD.tldPrices.map(t => {
           const name = base + t.tld;
           const apiResult = flat.find(d => d.domain === name);
-          const available = apiResult ? apiResult.available : true;
-          const premium = !!(apiResult?.pricing?.length);
-          const premiumPrice = apiResult?.pricing?.find(p => p.operation === 'registration')?.price;
+          if (!apiResult) {
+            return {
+              ...t,
+              name,
+              available: false,
+              premium: false,
+              price: t.price,
+              unchecked: true,
+            };
+          }
+          const pricing = apiResult.pricing;
+          const premiumAmount = pricing && typeof pricing === 'object' && !Array.isArray(pricing)
+            ? pricing.amount
+            : (Array.isArray(pricing)
+              ? pricing.find(p => p.operation === 'register' || p.operation === 'registration')?.price
+              : null);
           return {
             ...t,
             name,
-            available,
-            premium,
-            price: premiumPrice != null ? premiumPrice / 100 : t.price,
+            available: Boolean(apiResult.available),
+            premium: premiumAmount != null,
+            // Registrar premium amounts are treated as cents (same as checkout).
+            price: premiumAmount != null ? Number(premiumAmount) / 100 : t.price,
+            unchecked: false,
           };
         });
         setResults(merged);
       })
       .catch(err => {
-        // Fallback to synthetic results on API failure
-        setSearchError(err.message);
+        // Do not fabricate availability when the provider fails.
+        setSearchError(err.message || 'Domain provider is not configured yet.');
         setResults(GD.tldPrices.map(t => ({
           ...t,
           name: base + t.tld,
-          available: t.tld !== '.com',
-          premium: t.tld === '.io',
+          available: false,
+          premium: false,
+          unchecked: true,
         })));
       });
   }, [base]);
@@ -526,8 +642,10 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
         </div>
 
         {searchError && (
-          <div className="card anim-fadeIn" style={{ padding: '10px 14px', fontSize: 13, color: 'var(--text-muted)' }}>
-            API unavailable — showing estimated results.
+          <div className="card anim-fadeIn" style={{ padding: '10px 14px', fontSize: 13, color: 'var(--danger)' }}>
+            {/not configured|503|configured/i.test(searchError)
+              ? 'Domain provider is not configured yet. Live availability cannot be shown.'
+              : `Could not check availability: ${searchError}`}
           </div>
         )}
 
@@ -628,9 +746,20 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
               <b>Total today</b>
               <b style={{ fontFamily: "var(--serif)", fontSize: 24 }}>${subtotal.toFixed(2)}</b>
             </div>
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={onCheckout}>
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: 14 }}
+              onClick={onCheckout}
+              disabled={!checkoutEnabled}
+              title={checkoutEnabled ? undefined : 'Checkout requires Spaceship and PayPal on the server'}
+            >
               Continue to checkout <ICN.ArrowRight size={14} />
             </button>
+            {!checkoutEnabled && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+                Live checkout is unavailable until the domain provider is configured.
+              </p>
+            )}
           </>
         )}
       </div>

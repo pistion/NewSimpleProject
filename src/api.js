@@ -425,6 +425,7 @@ export const {
   getDomain,
   listDnsRecords,
   saveDnsRecords,
+  getRegistrarSettings,
 } = domainApi;
 
 export async function disconnectGitHub() {

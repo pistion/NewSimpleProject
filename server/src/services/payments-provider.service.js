@@ -10,6 +10,7 @@ import {
   registerSpaceshipDomain,
   saveSpaceshipContact,
   cleanDomainName,
+  getSpaceshipSettings,
 } from './providerSpaceship.service.js';
 import deploymentService from './deploymentService.js';
 import { makeId, mutateHostingStore, nowIso, readHostingStore } from './hostingStore.js';
@@ -309,17 +310,32 @@ export async function markCheckoutPaid(checkoutOrderId, providerCaptureId, resul
 
 // ── Domain payment ────────────────────────────────────────────────────────────
 
+function assertSpaceshipConfigured() {
+  const settings = getSpaceshipSettings();
+  if (!settings.configured) {
+    throw httpError(
+      'Domain registration is not configured yet. Add SPACESHIP_API_KEY and SPACESHIP_API_SECRET on the server.',
+      503
+    );
+  }
+}
+
 export async function createDomainPaymentOrder(input = {}, user = {}) {
+  assertSpaceshipConfigured();
+  assertPayPalConfigured();
+
   const domains = Array.isArray(input.domains) ? input.domains : [];
   if (!domains.length) throw httpError('At least one domain is required.', 400);
   const normalized = domains.map((item) => ({
     name: cleanDomainName(item.name || item.hostname || item.domain),
     years: Math.min(Math.max(Number(item.years || 1), 1), 10),
   }));
+  // Real availability check before creating any PayPal order.
   const availability = await checkSpaceshipAvailability(normalized.map((item) => item.name));
   const lines = normalized.map((item) => {
     const row = availability.domains.find((candidate) => candidate.domain === item.name);
-    if (row && !row.available) throw httpError(`${item.name} is no longer available.`, 409);
+    if (!row) throw httpError(`Could not verify availability for ${item.name}.`, 502);
+    if (!row.available) throw httpError(`${item.name} is no longer available.`, 409);
     const actualAmountCents = domainActualPriceCents(item.name, row) * item.years;
     return { type: 'domain_registration', name: item.name, years: item.years, actualAmountCents };
   });
@@ -338,6 +354,9 @@ export async function createDomainPaymentOrder(input = {}, user = {}) {
 }
 
 export async function captureDomainPaymentOrder(input = {}, user = {}) {
+  assertSpaceshipConfigured();
+  assertPayPalConfigured();
+
   const order = await getCheckoutOrder(input.checkoutOrderId);
   if (order.type !== 'domain_purchase') throw httpError('Checkout order is not for a domain purchase.', 400);
   if (order.status === 'paid') return order.result;
@@ -345,16 +364,18 @@ export async function captureDomainPaymentOrder(input = {}, user = {}) {
   const domains = order.metadata.domains || [];
   const providerOrderId = input.providerOrderId || input.orderId || order.providerOrderId;
 
-  // Batch availability check BEFORE capturing payment to prevent money being taken for unavailable domains
-  if (domains.length) {
-    const availability = await checkSpaceshipAvailability(domains.map((d) => d.name));
-    const unavailable = domains.filter((item) => {
-      const row = availability.domains.find((r) => r.domain === item.name);
-      return row && !row.available;
-    });
-    if (unavailable.length) throw httpError(`${unavailable.map((d) => d.name).join(', ')} is no longer available.`, 409);
+  // Re-check availability BEFORE capturing payment — never charge if the domain is gone.
+  if (!domains.length) throw httpError('Checkout order has no domains to register.', 400);
+  const availability = await checkSpaceshipAvailability(domains.map((d) => d.name));
+  const unavailable = domains.filter((item) => {
+    const row = availability.domains.find((r) => r.domain === item.name);
+    return !row || !row.available;
+  });
+  if (unavailable.length) {
+    throw httpError(`${unavailable.map((d) => d.name).join(', ')} is no longer available.`, 409);
   }
 
+  // Capture only after provider + availability are confirmed.
   const capturePayload = await capturePayPalOrder(providerOrderId);
   const captureId = capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
 

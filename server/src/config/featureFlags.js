@@ -14,8 +14,11 @@ const FLAG_DEFINITIONS = {
   GITHUB_HOSTING:       { env: 'FEATURE_GITHUB_HOSTING',       default: true,  label: 'GitHub upload/import hosting' },
   HOSTING_DASHBOARD:    { env: 'FEATURE_HOSTING_DASHBOARD',    default: true,  label: 'Hosting dashboard' },
   BILLING:              { env: 'FEATURE_BILLING',              default: true,  label: 'Billing' },
+  EMAIL:                { env: 'FEATURE_EMAIL',                default: true,  label: 'Business Email' },
+  // Domain names (registrar + buy flow) — active on the main customer dashboard.
+  // Set FEATURE_DOMAINS=false to hide. Live purchase still needs Spaceship + PayPal env.
+  DOMAINS:              { env: 'FEATURE_DOMAINS',              default: true,  label: 'Domains' },
 
-  DOMAINS:              { env: 'FEATURE_DOMAINS',              default: false, label: 'Domains' },
   VPS:                  { env: 'FEATURE_VPS',                  default: false, label: 'Cloud Servers' },
   AI_BUILDER:           { env: 'FEATURE_AI_BUILDER',           default: false, label: 'RoxanneAI advanced builder' },
   TEMPLATE_MARKETPLACE: { env: 'FEATURE_TEMPLATE_MARKETPLACE', default: false, label: 'Template marketplace' },

@@ -147,26 +147,20 @@ export const DASH_NAV = [
     title: "Account",
     items: [
       { key: "billing",    label: "Billing",        icon: "CreditCard",      route: { view: "billing" } },
+      { key: "email",      label: "Email",          icon: "Mail",            route: { view: "email" }, feature: "email" },
       { key: "settings",   label: "Settings",       icon: "Settings",        route: { view: "settings" }, feature: "settings" },
-    ],
-  },
-  {
-    title: "Administration",
-    items: [
-      { key: "admin",      label: "Admin",          icon: "ShieldCheck",     route: { view: "admin" }, admin: true },
     ],
   },
 ];
 
 // Sidebar groups with disabled-feature items removed (and empty groups dropped).
-// Admin-only items are hidden unless the current user has the admin role.
-function visibleNavGroups({ isAdmin = false } = {}) {
+// Admin tools live in the separate /dashboard app — not in this client shell.
+function visibleNavGroups() {
   return DASH_NAV
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
         if (item.feature && !isFeatureEnabled(item.feature)) return false;
-        if (item.admin && !isAdmin) return false;
         return true;
       }),
     }))
@@ -174,7 +168,6 @@ function visibleNavGroups({ isAdmin = false } = {}) {
 }
 
 export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
-  const isAdmin = getStoredAuth()?.user?.role === 'admin';
   return (
     <aside className={`dash-side ${mobileOpen ? 'is-open' : ''}`}>
       <div className="dash-side-head">
@@ -184,7 +177,7 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
         </button>
       </div>
       <nav className="dash-side-nav">
-        {visibleNavGroups({ isAdmin }).map((group) => (
+        {visibleNavGroups().map((group) => (
           <div key={group.title}>
             <div className="dash-side-group-title">{group.title}</div>
             {group.items.map((item) => {
@@ -247,9 +240,13 @@ function relTime(value) {
 }
 
 // Map a notification actionUrl to an in-app route.
+// Admin work happens in the separate /dashboard app (not this client shell).
 function routeForAction(url) {
   const u = String(url || '');
-  if (u.includes('/admin')) return { view: 'admin' };
+  if (u.includes('/admin') || u.includes('/dashboard')) {
+    window.location.href = '/dashboard';
+    return null;
+  }
   if (u.includes('billing')) return { view: 'billing' };
   return null;
 }

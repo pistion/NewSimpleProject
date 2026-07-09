@@ -10,8 +10,11 @@ const DEFAULTS = {
   githubHosting: true,
   hostingDashboard: true,
   billing: true,
+  email: true,
+  // Domain names (search, buy, DNS) — visible in the main customer dashboard.
+  // Live purchase still requires Spaceship + PayPal on the server.
+  domains: true,
 
-  domains: false,
   vps: false,
   aiBuilder: false,
   templateMarketplace: false,
@@ -27,6 +30,7 @@ const ENV_KEYS = {
   githubHosting: 'VITE_FEATURE_GITHUB_HOSTING',
   hostingDashboard: 'VITE_FEATURE_HOSTING_DASHBOARD',
   billing: 'VITE_FEATURE_BILLING',
+  email: 'VITE_FEATURE_EMAIL',
   domains: 'VITE_FEATURE_DOMAINS',
   vps: 'VITE_FEATURE_VPS',
   aiBuilder: 'VITE_FEATURE_AI_BUILDER',
@@ -67,6 +71,7 @@ export const VIEW_FEATURE = {
   analytics: 'analytics',
   activity: 'activity',
   settings: 'settings',
+  email: 'email',
 };
 
 /** Returns true if the given route view is gated behind a disabled feature. */

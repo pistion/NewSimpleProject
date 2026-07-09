@@ -25,9 +25,9 @@ import {
   BuilderEditor, BuilderAiIntake, BuilderDeploymentSettings, BuilderSitePlan,
 } from './features/builder';
 import { ActivityPage } from './activity';
-import { AdminPage } from './features/admin/AdminPage.jsx';
 import BillingPage from './features/billing/BillingPage.jsx';
 import ProfilePage from './features/profile/ProfilePage.jsx';
+import EmailPage from './features/email/EmailPage.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
@@ -211,7 +211,7 @@ export default function App() {
   const DASHBOARD_VIEWS = new Set([
     "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
     "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings","builder-site-plan",
-    "analytics","activity","billing","settings","profile","vps-hosting","vps-create","vps-detail","admin",
+    "analytics","activity","billing","email","settings","profile","vps-hosting","vps-create","vps-detail",
   ]);
 
   // Render — in demo/dev mode skip auth gate entirely; real JWT check only in live mode
@@ -242,8 +242,8 @@ export default function App() {
       case "builder-editor":                 return <BuilderEditor id={route.params?.id} siteId={route.params?.siteId} navigate={navigate} />;
       case "analytics":         return <SimplePage title="Analytics" body="Cross-project analytics — coming up next." />;
       case "activity":          return <ActivityPage />;
-      case "admin":             return <AdminPage navigate={navigate} />;
       case "billing":           return <BillingPage navigate={navigate} />;
+      case "email":             return <EmailPage navigate={navigate} />;
       case "profile":           return <ProfilePage navigate={navigate} theme={t.theme} onThemeChange={(v) => { setTweak('theme', v); try { localStorage.setItem('glondia-theme', v); } catch {} }} />;
       case "settings":          return <SimplePage title="Settings" body="Workspace settings — coming up next." />;
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
@@ -283,8 +283,8 @@ export default function App() {
       case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
+      case "email":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Email" }];
       case "profile":         return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Profile" }];
-      case "admin":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Admin" }];
       case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Cloud Servers" }];
       case "vps-create":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
       case "vps-detail":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];

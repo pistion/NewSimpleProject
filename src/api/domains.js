@@ -1,3 +1,10 @@
+/**
+ * Domain + registrar API helpers.
+ *
+ * Live registrar calls go through the generic /api/registrar layer
+ * (Spaceship today). Local/demo mode uses the in-browser workspace store.
+ * Never reads provider secrets in the browser.
+ */
 export function createDomainActions({
   apiRequest,
   createId,
@@ -11,6 +18,34 @@ export function createDomainActions({
     const domain = await apiRequest('/domains', { method: 'POST', body: JSON.stringify(input) });
     notifyDataChanged();
     return mapApiDomain(domain);
+  }
+
+  function normalizeAvailability(result) {
+    const items = Array.isArray(result)
+      ? result
+      : (result?.domains || result?.items || []);
+    return items.map((item) => ({
+      domain: item.domain || item.name,
+      available: Boolean(item.available),
+      status: item.status || (item.available ? 'available' : 'unavailable'),
+      pricing: item.pricing || null,
+    }));
+  }
+
+  function normalizeDomainList(result) {
+    if (Array.isArray(result)) return { items: result, total: result.length };
+    const items = result?.items || result?.domains || result?.data || [];
+    return {
+      items: Array.isArray(items) ? items : [],
+      total: Number(result?.total ?? (Array.isArray(items) ? items.length : 0)),
+    };
+  }
+
+  function normalizeDnsList(result) {
+    if (Array.isArray(result)) return result;
+    if (Array.isArray(result?.items)) return result.items;
+    if (Array.isArray(result?.records)) return result.records;
+    return [];
   }
 
   return {
@@ -85,27 +120,39 @@ export function createDomainActions({
       return result;
     },
 
+    /** GET /api/registrar/settings — never includes secrets. */
+    async getRegistrarSettings() {
+      if (registrarRequest) {
+        return registrarRequest('/settings');
+      }
+      return {
+        provider: 'local',
+        configured: false,
+        message: 'Registrar is only available in live mode.',
+      };
+    },
+
     async checkDomainAvailability(domains) {
       if (registrarRequest) {
-        const result = await registrarRequest('/available', {
+        const result = await registrarRequest('/availability', {
           method: 'POST',
           body: { domains },
         });
-        const items = Array.isArray(result) ? result : result.domains || [];
-        return items.map((item) => ({
-          domain: item.domain,
-          available: item.available,
-          status: item.status,
-          pricing: item.pricing || null,
-        }));
+        return normalizeAvailability(result);
       }
-      return domains.map((domain) => ({ domain, available: true, status: 'available', pricing: null }));
+      // Demo mode: do not pretend live registrar results.
+      return domains.map((domain) => ({
+        domain,
+        available: false,
+        status: 'not_configured',
+        pricing: null,
+      }));
     },
 
     async registerDomain(input) {
       if (registrarRequest) {
         const hostname = input.hostname || input.domain || input.name;
-        const result = await registrarRequest('/domains', {
+        const result = await registrarRequest(`/domains/${encodeURIComponent(hostname)}/register`, {
           method: 'POST',
           body: { ...input, hostname },
         });
@@ -113,7 +160,7 @@ export function createDomainActions({
         return result;
       }
       const domain = await createDomain(input);
-      return { operationId: createId('op'), status: 'completed', domain: domain.hostname || domain.name, message: 'Registration recorded locally.' };
+      return { operationId: createId('op'), status: 'completed', domain: domain.hostname || domain.name, message: 'Registration recorded locally (demo).' };
     },
 
     async renewDomain(name, years, currentExpirationDate) {
@@ -131,7 +178,9 @@ export function createDomainActions({
 
     async listRegistrarDomains(skip = 0, take = 100) {
       if (registrarRequest) {
-        return registrarRequest(`/domains?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`);
+        return normalizeDomainList(
+          await registrarRequest(`/domains?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`)
+        );
       }
       return { items: readLocalDb().domains.slice(skip, skip + take), total: readLocalDb().domains.length };
     },
@@ -141,6 +190,10 @@ export function createDomainActions({
         return registrarRequest(`/domains/${encodeURIComponent(name)}`);
       }
       return readLocalDb().domains.find((domain) => domain.hostname === name) || null;
+    },
+
+    async getDomain(name) {
+      return this.getRegistrarDomain(name);
     },
 
     async updateNameservers(name, provider, hosts) {
@@ -158,7 +211,7 @@ export function createDomainActions({
 
     async setRegistrarAutoRenew(name, autoRenew) {
       if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/autorenew`, {
+        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/auto-renew`, {
           method: 'PUT',
           body: { autoRenew },
         });
@@ -169,9 +222,13 @@ export function createDomainActions({
       return { domain: name, autoRenew };
     },
 
-    async pushDnsToSpaceship(domainId) {
+    async pushDnsToSpaceship(domainId, records) {
       if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(domainId)}/dns/push`, { method: 'POST' });
+        const payload = Array.isArray(records) ? { records } : (records || {});
+        const result = await registrarRequest(`/domains/${encodeURIComponent(domainId)}/dns/push`, {
+          method: 'POST',
+          body: payload,
+        });
         notifyDataChanged();
         return result;
       }
@@ -191,67 +248,99 @@ export function createDomainActions({
 
     async getRegistrarOperation(operationId) {
       if (registrarRequest) {
-        return registrarRequest(`/operations/${encodeURIComponent(operationId)}`);
+        return registrarRequest(`/async-operations/${encodeURIComponent(operationId)}`);
       }
       return { operationId, status: 'completed' };
     },
 
     async createRegistrarContact(data) {
       if (registrarRequest) {
+        // Backend canonical method is PUT /contacts.
         return registrarRequest('/contacts', {
-          method: 'POST',
+          method: 'PUT',
           body: data,
         });
       }
       return { id: createId('contact'), ...data };
     },
 
+    async saveDomainContact(data) {
+      return this.createRegistrarContact(data);
+    },
+
     async listRegistrarContacts(skip = 0, take = 100) {
       if (registrarRequest) {
         return registrarRequest(`/contacts?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`);
       }
-      return [];
+      return { items: [], total: 0 };
+    },
+
+    async listDomainContacts(skip = 0, take = 100) {
+      return this.listRegistrarContacts(skip, take);
     },
 
     async listRegisteredDomains(skip = 0, take = 100) {
       if (registrarRequest) {
-        return registrarRequest(`/domains?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`);
+        return normalizeDomainList(
+          await registrarRequest(`/domains?skip=${encodeURIComponent(skip)}&take=${encodeURIComponent(take)}`)
+        );
       }
       return { items: readLocalDb().domains.slice(skip, skip + take), total: readLocalDb().domains.length };
     },
 
     async updateDomainNameservers(name, provider, hosts) {
-      if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/nameservers`, {
-          method: 'PUT',
-          body: { provider, hosts: hosts || [] },
-        });
-        notifyDataChanged();
-        return result;
-      }
-      notifyDataChanged();
-      return { domain: name, provider, hosts: hosts || [] };
+      return this.updateNameservers(name, provider, hosts);
     },
 
     async updateDomainAutoRenew(name, autoRenew) {
-      if (registrarRequest) {
-        const result = await registrarRequest(`/domains/${encodeURIComponent(name)}/autorenew`, {
-          method: 'PUT',
-          body: { autoRenew },
-        });
-        notifyDataChanged();
-        return result;
-      }
-      notifyDataChanged();
-      return { domain: name, autoRenew };
+      return this.setRegistrarAutoRenew(name, autoRenew);
     },
 
+    /**
+     * List DNS records — prefers registrar when live; otherwise local workspace store.
+     */
     async listDnsRecords(domainId) {
+      if (registrarRequest) {
+        try {
+          const result = await registrarRequest(`/dns/${encodeURIComponent(domainId)}/records`);
+          return normalizeDnsList(result).map((record, index) => {
+            if (record?.id && (record.type || record.recordType)) {
+              return mapApiDnsRecord({
+                id: record.id,
+                type: record.type || record.recordType,
+                name: record.name || record.host || '@',
+                value: record.value || record.content || record.data || '',
+                ttl: record.ttl,
+                proxied: record.proxied,
+              });
+            }
+            return mapApiDnsRecord({
+              id: record?.id || `dns_${index}`,
+              type: record?.type || record?.recordType || 'A',
+              name: record?.name || record?.host || '@',
+              value: record?.value || record?.content || record?.data || '',
+              ttl: record?.ttl,
+              proxied: record?.proxied,
+            });
+          });
+        } catch {
+          // Fall through to local workspace records.
+        }
+      }
       const records = await apiRequest(`/domains/${domainId}/dns-records`);
       return Array.isArray(records) ? records.map(mapApiDnsRecord) : [];
     },
 
     async saveDnsRecords(domainId, records, overwrite = true) {
+      if (registrarRequest) {
+        const result = await registrarRequest(`/dns/${encodeURIComponent(domainId)}/records`, {
+          method: 'PUT',
+          body: { records, overwrite },
+        });
+        notifyDataChanged();
+        return result;
+      }
+
       if (overwrite) {
         const existing = await apiRequest(`/domains/${domainId}/dns-records`);
         if (existing.length) {

@@ -1,27 +1,43 @@
 /**
- * DnsRecordController
- * Handles DNS record management as defined in 07_DOMAINS_DNS_SSL_CONTROLLER.md
+ * DnsRecordController — workspace-scoped DNS records.
+ *
+ * Live DNS is managed through /api/registrar/dns/:domain/records (Spaceship).
+ * This workspace surface returns empty data by default so the client dashboard
+ * never shows hardcoded demo DNS (e.g. fake A records).
  */
 
 const DnsRecordController = {
   listRecords: async (req, res) => {
-    res.ok([
-      { id: "rec_1", type: "A", host: "@", value: "76.76.84.21", ttl: "auto", proxied: true }
-    ]);
+    res.ok([], {
+      source: 'workspace',
+      demo: false,
+      message: 'No workspace DNS records. Pull live DNS from the registrar when the domain is registered.',
+    });
   },
 
   createRecord: async (req, res) => {
-    res.created({ id: "rec_new", ...req.body });
+    return res.error(
+      'NOT_IMPLEMENTED',
+      'Workspace DNS writes are disabled. Use the registrar DNS API for live domains.',
+      501
+    );
   },
 
   updateRecord: async (req, res) => {
-    const { recordId } = req.params;
-    res.ok({ id: recordId, ...req.body });
+    return res.error(
+      'NOT_IMPLEMENTED',
+      'Workspace DNS writes are disabled. Use the registrar DNS API for live domains.',
+      501
+    );
   },
 
   deleteRecord: async (req, res) => {
-    res.status(204).send();
-  }
+    return res.error(
+      'NOT_IMPLEMENTED',
+      'Workspace DNS writes are disabled. Use the registrar DNS API for live domains.',
+      501
+    );
+  },
 };
 
 export default DnsRecordController;

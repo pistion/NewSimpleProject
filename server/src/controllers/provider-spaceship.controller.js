@@ -46,6 +46,16 @@ async function registerDomain(req, res, next) {
   }
 }
 
+/** POST /domains — body carries hostname/domain for older clients. */
+async function registerDomainFromBody(req, res, next) {
+  try {
+    const domain = req.body?.hostname || req.body?.domain || req.body?.name;
+    res.json(await spaceshipService.registerSpaceshipDomain(domain, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function renewDomain(req, res, next) {
   try {
     res.json(await spaceshipService.renewSpaceshipDomain(req.params.domain, req.body || {}));
@@ -110,12 +120,40 @@ async function saveDnsRecords(req, res, next) {
   }
 }
 
+/** Pull DNS from provider (alias of list). */
+async function pullDnsRecords(req, res, next) {
+  try {
+    const data = await spaceshipService.listSpaceshipDnsRecords(req.params.domain, req.query);
+    const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : data?.records || []);
+    res.json({ domain: req.params.domain, pulled: items.length, records: items, ...((data && typeof data === 'object' && !Array.isArray(data)) ? {} : {}) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Push DNS to provider — body.records preferred; otherwise empty overwrite is rejected. */
+async function pushDnsRecords(req, res, next) {
+  try {
+    const body = req.body || {};
+    if (!Array.isArray(body.records) && !Array.isArray(body.items)) {
+      const error = new Error('Provide records to push (body.records). Use GET/PUT /dns/:domain/records for full DNS management.');
+      error.status = 400;
+      error.expose = true;
+      throw error;
+    }
+    res.json(await spaceshipService.saveSpaceshipDnsRecords(req.params.domain, body));
+  } catch (error) {
+    next(error);
+  }
+}
+
 export default {
   getSettings,
   checkAvailability,
   listDomains,
   getDomain,
   registerDomain,
+  registerDomainFromBody,
   renewDomain,
   updateNameservers,
   updateAutoRenew,
@@ -124,4 +162,6 @@ export default {
   getOperation,
   listDnsRecords,
   saveDnsRecords,
+  pullDnsRecords,
+  pushDnsRecords,
 };
