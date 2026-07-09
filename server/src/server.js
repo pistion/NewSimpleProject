@@ -8,6 +8,9 @@ import dotenv from 'dotenv';
 import { requestId } from './middleware/request-id.middleware.js';
 import { responseHelper } from './middleware/response.middleware.js';
 import { requireFeature, featureFlagsHandler } from './middleware/featureFlag.js';
+import { securityContext } from './middleware/securityContext.middleware.js';
+import { slowRequestWarning } from './middleware/slowRequestWarning.middleware.js';
+import { threatTag } from './middleware/threatTag.middleware.js';
 
 import frontPageRoutes from './routes/frontPage.routes.js';
 import publicRoutes from './routes/public.routes.js';
@@ -35,6 +38,7 @@ import diskRoutes from './routes/diskRoutes.js';
 import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import { customerTicketRouter } from './routes/tickets.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import providerRenderRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/providerRender.routes.js';
 import sandboxRoutes from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/01-ROUTES/sandbox.routes.js';
@@ -149,6 +153,9 @@ app.post('/api/v1/payments/paypal/webhook', express.raw({ type: '*/*', limit: '1
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(isProd ? 'combined' : 'dev'));
 app.use(requestId);
+app.use(securityContext);
+app.use(slowRequestWarning);
+app.use(threatTag);
 app.use(responseHelper);
 app.use(auditWrites);
 
@@ -233,9 +240,27 @@ app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 // Deploy-first tiered billing: customer payments + receipts, and the admin surface.
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/v1/tickets', customerTicketRouter);
 // User-facing notifications (Bell dropdown) — mounted on both API prefixes.
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+
+// ── Admin dashboard — served from admin-dashboard/frontend/ ──────────────────
+const adminDashDir = join(rootDir, 'admin-dashboard', 'frontend');
+if (existsSync(adminDashDir)) {
+  // Static assets: /dashboard-assets/* → admin-dashboard/frontend/*
+  app.use('/dashboard-assets', express.static(adminDashDir, {
+    index: false,
+    setHeaders(res, filePath) {
+      res.setHeader('Cache-Control', 'no-cache');
+    },
+  }));
+  // Dashboard shell: /dashboard and /dashboard/* → admin-dashboard/frontend/index.html
+  app.get(['/dashboard', '/dashboard/*'], (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    createReadStream(join(adminDashDir, 'index.html')).pipe(res);
+  });
+}
 
 // ── SPA fallback — serve Vite dist for everything else ──────────────────────
 app.use((req, res) => serveStatic(req, res));

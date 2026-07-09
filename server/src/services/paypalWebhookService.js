@@ -19,6 +19,7 @@ import {
   getPaypalApiBase,
   captureDeploymentPaypalOrder,
 } from './deploymentPaypalService.js';
+import { syncServiceAccessOnPayment } from './serviceAccessService.js';
 
 export function webhookConfigured() {
   return Boolean(
@@ -84,29 +85,83 @@ async function findOrderForResource(resource = {}) {
 }
 
 /**
- * Act on a verified webhook event. Idempotent.
+ * Act on a verified webhook event. Idempotent via WebhookEvent table.
  *  - CHECKOUT.ORDER.APPROVED  → capture (completes the payment automatically)
- *  - PAYMENT.CAPTURE.COMPLETED → mark the order + deployment paid
+ *  - PAYMENT.CAPTURE.COMPLETED → mark the order + deployment paid + sync ServiceAccess
  */
 export async function handlePaypalWebhookEvent(event = {}) {
   const type = event?.event_type;
+  const providerEventId = event?.id || null;
   const resource = event?.resource || {};
+
+  // ── WebhookEvent idempotency ──────────────────────────────────────────────
+  // Every event gets a record. If we've already processed this providerEventId,
+  // short-circuit immediately rather than double-applying the payment.
+  let webhookRecord = null;
+  if (providerEventId) {
+    const existing = await prisma.webhookEvent.findUnique({
+      where: { provider_providerEventId: { provider: 'paypal', providerEventId } },
+    });
+    if (existing?.status === 'processed') {
+      return { handled: true, duplicate: true, providerEventId };
+    }
+    if (!existing) {
+      webhookRecord = await prisma.webhookEvent.create({
+        data: {
+          provider: 'paypal',
+          providerEventId,
+          eventType: type || 'unknown',
+          status: 'received',
+          signatureValid: true,
+          metadata: JSON.stringify({ eventType: type }),
+        },
+      }).catch(() => null); // Non-fatal if create races with another process.
+    } else {
+      webhookRecord = existing;
+    }
+  }
+
+  const markWebhookStatus = async (status, errorMessage = null) => {
+    if (!webhookRecord) return;
+    await prisma.webhookEvent.update({
+      where: { id: webhookRecord.id },
+      data: { status, processedAt: new Date(), ...(errorMessage ? { errorMessage } : {}) },
+    }).catch(() => {});
+  };
+
+  // ── Event handling ────────────────────────────────────────────────────────
 
   if (type === 'CHECKOUT.ORDER.APPROVED') {
     const paypalOrderId = resource.id;
     const order = await prisma.checkoutOrder.findFirst({ where: { providerOrderId: paypalOrderId } });
-    if (!order) return { handled: false, reason: 'order_not_found' };
-    if (order.status === 'paid') return { handled: true, alreadyPaid: true };
+    if (!order) {
+      await markWebhookStatus('ignored');
+      return { handled: false, reason: 'order_not_found' };
+    }
+    if (order.status === 'paid') {
+      await markWebhookStatus('processed');
+      return { handled: true, alreadyPaid: true };
+    }
     // role:'admin' bypasses the per-user owner check for this system-initiated capture.
     const result = await captureDeploymentPaypalOrder({ paypalOrderId, user: { id: order.userId || null, role: 'admin' } });
+    await markWebhookStatus('processed');
     return { handled: true, captured: true, result };
   }
 
   if (type === 'PAYMENT.CAPTURE.COMPLETED') {
     const order = await findOrderForResource(resource);
-    if (!order) return { handled: false, reason: 'order_not_found' };
-    if (order.status === 'paid') return { handled: true, alreadyPaid: true };
-    if (!resource.id) return { handled: false, reason: 'missing_capture_id' };
+    if (!order) {
+      await markWebhookStatus('ignored');
+      return { handled: false, reason: 'order_not_found' };
+    }
+    if (order.status === 'paid') {
+      await markWebhookStatus('processed');
+      return { handled: true, alreadyPaid: true };
+    }
+    if (!resource.id) {
+      await markWebhookStatus('failed', 'missing_capture_id');
+      return { handled: false, reason: 'missing_capture_id' };
+    }
 
     // The captured amount/currency must match the order's tier processor charge.
     assertAmountMatchesTier({
@@ -122,6 +177,12 @@ export async function handlePaypalWebhookEvent(event = {}) {
         checkoutOrderId: order.id,
         via: 'paypal_webhook',
         providerCaptureId: resource.id,
+      });
+      await syncServiceAccessOnPayment({
+        userId: order.userId || null,
+        deploymentId: order.deploymentId,
+        orderId: order.id,
+        via: 'paypal_webhook',
       });
     } else {
       await prisma.checkoutOrder.update({
@@ -139,9 +200,23 @@ export async function handlePaypalWebhookEvent(event = {}) {
       result: { deploymentId: order.deploymentId || null, captureId: resource.id, via: 'paypal_webhook' },
     });
 
+    if (webhookRecord) {
+      await prisma.webhookEvent.update({
+        where: { id: webhookRecord.id },
+        data: {
+          status: 'processed',
+          processedAt: new Date(),
+          relatedOrderId: order.id,
+          relatedServiceType: order.deploymentId ? 'hosting' : null,
+          relatedServiceId: order.deploymentId || null,
+        },
+      }).catch(() => {});
+    }
+
     return { handled: true, result };
   }
 
+  await markWebhookStatus('ignored');
   return { handled: false, reason: 'ignored_event_type', type };
 }
 

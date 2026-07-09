@@ -18,6 +18,7 @@ import {
 } from './deploymentBillingService.js';
 import { updateDeploymentRecord } from '../glondia-engines/00-SHARED/deploymentRecordStore.js';
 import { getPromoUsage } from './deploymentPromoService.js';
+import { syncServiceAccessOnPayment } from './serviceAccessService.js';
 import { createUserNotification } from './notificationService.js';
 import { archiveGeneratedSiteFolder } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSiteRepoCleanup.stage.js';
 
@@ -288,6 +289,7 @@ export async function approveReceipt(receiptId, adminUserId) {
   let paidResult = null;
   if (order?.deploymentId) {
     paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, checkoutOrderId: order.id, actorUserId: adminUserId, via: 'manual_admin_approval' });
+    await syncServiceAccessOnPayment({ userId: receipt.userId || order?.userId, deploymentId: order.deploymentId, orderId: order.id, via: 'manual_admin_approval' });
   } else if (order) {
     await prisma.checkoutOrder.update({ where: { id: order.id }, data: { status: 'paid', paidAt: new Date() } });
   }

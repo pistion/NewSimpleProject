@@ -9,6 +9,11 @@ dist/
 .DS_Store
 coverage/
 prisma/*.db
+prisma/**/*.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 # Local packaging artifacts — template sources are tracked as folders, not zips
 templates/*.zip
 backend/dist/

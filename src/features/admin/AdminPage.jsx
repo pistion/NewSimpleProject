@@ -120,9 +120,20 @@ export function AdminPage() {
 
   return (
     <div className="admin-console">
+      {/* Admin direction banner — primary admin work belongs at /dashboard */}
+      <div className="card" style={{ padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'var(--surface-2, #f8f9fa)', borderLeft: '3px solid var(--accent)' }}>
+        <div style={{ fontSize: 13 }}>
+          <strong>GlondiaSites Admin Dashboard</strong> is the primary admin control center.
+          {' '}This in-app console is a legacy surface and will be migrated.
+        </div>
+        <a href="/dashboard" className="btn btn-outline" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+          <ICN.ExternalLink size={13} style={{ marginRight: 4 }} />Open Dashboard
+        </a>
+      </div>
+
       <div className="page-head">
         <div>
-          <div className="page-eyebrow">Administration</div>
+          <div className="page-eyebrow">Administration (Legacy)</div>
           <h1>Admin console</h1>
           <p className="sub">Manage users, hosting, billing, receipts and platform settings.</p>
         </div>

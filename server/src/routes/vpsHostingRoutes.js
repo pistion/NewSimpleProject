@@ -1,49 +1,98 @@
 import express from 'express';
 import * as ctrl from '../controllers/vpsHostingController.js';
+import { authMiddleware } from '../middleware/authMiddleware.js';
+import { requireServiceAccess } from '../middleware/serviceAccess.middleware.js';
 
 const router = express.Router();
 
-// Catalog
+// Resolver: VPS serviceId comes from :id param
+const vpsServiceId = (req) => req.params.id;
+
+// ── Public catalog (no auth needed) ──────────────────────────────────────────
 router.get('/settings',           ctrl.getSettings);
 router.get('/regions',            ctrl.listRegions);
 router.get('/plans',              ctrl.listPlans);
 router.get('/os',                 ctrl.listOs);
 router.post('/quote',             ctrl.quote);
 
-// Direct deploy (requires VPS_DIRECT_DEPLOY_ENABLED=true)
-router.post('/services',          ctrl.createService);
+// ── Service creation + payment (auth required but no access row yet) ─────────
+router.post('/services',          authMiddleware, ctrl.createService);
+router.post('/paypal/create-order', authMiddleware, ctrl.createPaypalOrder);
+router.post('/paypal/capture',      authMiddleware, ctrl.capturePaypalOrder);
 
-// PayPal
-router.post('/paypal/create-order', ctrl.createPaypalOrder);
-router.post('/paypal/capture',      ctrl.capturePaypalOrder);
+// ── Service list (auth, ownership enforced in controller) ─────────────────────
+router.get('/services',               authMiddleware, ctrl.listServices);
 
-// Service management
-router.get('/services',               ctrl.listServices);
-router.get('/services/:id',           ctrl.getService);
-router.post('/services/:id/start',    ctrl.startService);
-router.post('/services/:id/halt',     ctrl.haltService);
-router.post('/services/:id/reboot',   ctrl.rebootService);
-router.delete('/services/:id',        ctrl.destroyService);
+// ── Individual service management — require active ServiceAccess ──────────────
+// Read-only details: auth + access check
+router.get('/services/:id',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.getService);
 
-// SSH keys
-router.get('/ssh-keys',               ctrl.listSshKeys);
-router.delete('/ssh-keys/:keyId',     ctrl.deleteSshKey);
+// Mutating actions: auth + access check
+router.post('/services/:id/start',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.startService);
 
-// Bandwidth
-router.get('/services/:id/bandwidth', ctrl.getBandwidth);
+router.post('/services/:id/halt',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.haltService);
 
-// Snapshots
-router.get('/snapshots',                      ctrl.listSnapshots);
-router.post('/services/:id/snapshots',        ctrl.createSnapshot);
-router.delete('/snapshots/:snapshotId',       ctrl.deleteSnapshot);
-router.post('/services/:id/restore',          ctrl.restoreService);
+router.post('/services/:id/reboot',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.rebootService);
 
-// Backup schedule
-router.get('/services/:id/backup-schedule',   ctrl.getBackupSchedule);
-router.post('/services/:id/backup-schedule',  ctrl.setBackupSchedule);
+router.delete('/services/:id',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.destroyService);
 
-// Resize / reinstall
-router.patch('/services/:id/resize',          ctrl.resizeService);
-router.post('/services/:id/reinstall',        ctrl.reinstallService);
+// ── SSH keys (auth only — not tied to a single service ID) ────────────────────
+router.get('/ssh-keys',               authMiddleware, ctrl.listSshKeys);
+router.delete('/ssh-keys/:keyId',     authMiddleware, ctrl.deleteSshKey);
+
+// ── Bandwidth / snapshots / backup / resize ───────────────────────────────────
+router.get('/services/:id/bandwidth',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.getBandwidth);
+
+router.get('/snapshots',              authMiddleware, ctrl.listSnapshots);
+
+router.post('/services/:id/snapshots',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.createSnapshot);
+
+router.delete('/snapshots/:snapshotId', authMiddleware, ctrl.deleteSnapshot);
+
+router.post('/services/:id/restore',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.restoreService);
+
+router.get('/services/:id/backup-schedule',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.getBackupSchedule);
+
+router.post('/services/:id/backup-schedule',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.setBackupSchedule);
+
+router.patch('/services/:id/resize',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.resizeService);
+
+router.post('/services/:id/reinstall',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.reinstallService);
 
 export default router;

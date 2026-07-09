@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "generatedAt": "2026-05-18T14:04:42.893Z",
+    "source": "empty production seed",
+    "step": "clean-render-ready-data"
+  },
+  "users": [],
+  "positions": [],
+  "applicants": [],
+  "screeningCriteria": [],
+  "screeningScores": [],
+  "filtrationRuns": [],
+  "aiSuggestions": [],
+  "screeningReports": [],
+  "talents": [],
+  "messages": [],
+  "files": [],
+  "tasks": [],
+  "activityLogs": [],
+  "calendarEvents": [],
+  "offers": [],
+  "userPreferences": []
+}

@@ -1,0 +1,73 @@
+[error] POST /api/v1/auth/login → Invalid email or password.
+[error] POST /api/v1/auth/refresh-token → Invalid or expired refresh token.
+[error] POST /api/v1/auth/refresh-token → Invalid or expired refresh token.
+[error] GET /api/admin/service-access → 
+Invalid `prisma.serviceAccess.findMany()` invocation:
+
+{
+  where: {},
+  orderBy: {
+    createdAt: "desc"
+  },
+  take: 30,
+  skip: 0,
+  include: {
+    user: {
+    ~~~~
+      select: {
+        id: true,
+        email: true,
+        name: true
+      }
+    }
+  }
+}
+
+Unknown field `user` for include statement on model `ServiceAccess`. Available options are marked with ?.
+[error] GET /api/admin/service-access → 
+Invalid `prisma.serviceAccess.findMany()` invocation:
+
+{
+  where: {},
+  orderBy: {
+    createdAt: "desc"
+  },
+  take: 30,
+  skip: 0,
+  include: {
+    user: {
+    ~~~~
+      select: {
+        id: true,
+        email: true,
+        name: true
+      }
+    }
+  }
+}
+
+Unknown field `user` for include statement on model `ServiceAccess`. Available options are marked with ?.
+[error] POST /api/v1/auth/login → Invalid email or password.
+[error] GET /api/admin/service-access → 
+Invalid `prisma.serviceAccess.findMany()` invocation:
+
+{
+  where: {},
+  orderBy: {
+    createdAt: "desc"
+  },
+  take: 30,
+  skip: 0,
+  include: {
+    user: {
+    ~~~~
+      select: {
+        id: true,
+        email: true,
+        name: true
+      }
+    }
+  }
+}
+
+Unknown field `user` for include statement on model `ServiceAccess`. Available options are marked with ?.
