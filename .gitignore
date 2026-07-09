@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 dist/
 .glondia-data/
+Waste Management/
 .env
 .env.local
 .env.*

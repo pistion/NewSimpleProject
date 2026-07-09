@@ -113,6 +113,33 @@ export async function ensureUserColumns() {
 }
 
 /**
+ * Create the `refresh_tokens` table if it doesn't exist. Older live SQLite DBs
+ * can predate DB-backed auth; without this table, login/register succeed at the
+ * user query layer but fail when issuing the refresh token.
+ */
+export async function ensureRefreshTokensTable() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "refresh_tokens" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "user_id" TEXT NOT NULL,
+        "token_hash" TEXT NOT NULL UNIQUE,
+        "expires_at" DATETIME NOT NULL,
+        "revoked_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "refresh_tokens_user_id_fkey"
+          FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+          ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "refresh_tokens_user_id_idx" ON "refresh_tokens" ("user_id")`);
+  } catch (err) {
+    console.error('[db] ensureRefreshTokensTable failed:', err.message);
+  }
+}
+
+/**
  * Create the `notifications` table if it doesn't exist (same push-based reason
  * as ensureUserColumns). Idempotent. SQLite only.
  */

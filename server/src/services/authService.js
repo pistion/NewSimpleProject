@@ -170,6 +170,11 @@ export async function loginUser({ email, password }) {
 
 export async function refreshSession(rawToken) {
   const { user, refreshToken } = await rotateRefreshToken(rawToken);
+  const status = user.accountStatus || 'active';
+  if (status !== 'active') {
+    await logoutUser(refreshToken);
+    throw httpError('This account is not active. Please contact support.', 403);
+  }
   const accessToken = signAccessToken(user);
   return {
     user: toPublicUser(user),

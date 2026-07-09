@@ -332,6 +332,8 @@ export function DomainsBuy({ navigate }) {
   const [paidAmounts, setPaidAmounts] = useStateD(null); // amounts returned by capture
   const [providerReady, setProviderReady] = useStateD(null); // null loading | true | false
   const [providerMessage, setProviderMessage] = useStateD('');
+  const [searchTransitioning, setSearchTransitioning] = useStateD(false);
+  const searchTimerRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +373,10 @@ export function DomainsBuy({ navigate }) {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => () => {
+    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
+  }, []);
+
   const addToCart = (item) => {
     if (providerReady !== true) return;
     if (cart.find(c => c.name === item.name)) return;
@@ -407,6 +413,15 @@ export function DomainsBuy({ navigate }) {
   };
 
   const canCheckout = providerReady === true;
+  const beginSearch = () => {
+    if (!query.trim() || providerReady === null || searchTransitioning) return;
+    setSearchTransitioning(true);
+    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = window.setTimeout(() => {
+      setSearchTransitioning(false);
+      setStep("results");
+    }, 520);
+  };
 
   return (
     <>
@@ -452,8 +467,9 @@ export function DomainsBuy({ navigate }) {
           setQuery={setQuery}
           selectedTld={selectedTld}
           setSelectedTld={setSelectedTld}
-          onSearch={() => setStep("results")}
-          searchDisabled={providerReady === null}
+          onSearch={beginSearch}
+          searchDisabled={providerReady === null || searchTransitioning}
+          searching={searchTransitioning}
         />
       )}
       {step === "results" && (
@@ -510,7 +526,7 @@ export function DomainsBuy({ navigate }) {
   );
 }
 
-function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch, searchDisabled = false }) {
+function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch, searchDisabled = false, searching = false }) {
   const selectedIndex = Math.max(0, FEATURED_TLDS.indexOf(selectedTld));
   const [pushAnimating, setPushAnimating] = useStateD(false);
   const [previousTld, setPreviousTld] = useStateD(null);
@@ -527,7 +543,7 @@ function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch, s
   };
 
   return (
-    <div className="dom-hero">
+    <div className={`dom-hero ${searching ? 'is-searching' : ''}`}>
       <h2>Search for the perfect name.</h2>
       <p>Type a name, business, or idea. We'll check availability across every TLD.</p>
       <form className="dom-search input-group lg" onSubmit={(e) => { e.preventDefault(); if (!searchDisabled && query.trim()) onSearch(); }}>
@@ -550,9 +566,23 @@ function SearchPanel({ query, setQuery, selectedTld, setSelectedTld, onSearch, s
         </button>
         <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. mybusiness, kumul-shop, talimedia" autoFocus disabled={searchDisabled} />
         <button className="btn btn-primary" type="submit" disabled={searchDisabled || !query.trim()}>
-          <ICN.Search size={16} /> Search
+          {searching ? (
+            <>
+              <span className="anim-spin" style={{ display: 'inline-flex' }}><ICN.Refresh size={16} /></span>
+              Searching
+            </>
+          ) : (
+            <>
+              <ICN.Search size={16} /> Search
+            </>
+          )}
         </button>
       </form>
+      {searching && (
+        <div className="dom-search-status" role="status">
+          Preparing availability check for <b className="mono">{query.trim().toLowerCase()}{selectedTld}</b>
+        </div>
+      )}
       <div className="row" style={{ justifyContent: "center", gap: 18, marginTop: 22, color: "var(--text-muted)", fontSize: 12.5, flexWrap: "wrap" }}>
         <span className="row" style={{ gap: 6 }}><ICN.ShieldCheck size={14} /> WHOIS privacy free</span>
         <span className="row" style={{ gap: 6 }}><ICN.Refresh size={14} /> Free auto-renew</span>
@@ -570,6 +600,8 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
 
   useEffect(() => {
     if (!base) return;
+    let cancelled = false;
+    const startedAt = Date.now();
     setResults(null);
     setSearchError(null);
 
@@ -577,6 +609,13 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
     // Spaceship max 20 at a time — chunk if needed
     const chunks = [];
     for (let i = 0; i < tlds.length; i += 20) chunks.push(tlds.slice(i, i + 20));
+
+    const finish = (callback) => {
+      const remaining = Math.max(0, 720 - (Date.now() - startedAt));
+      window.setTimeout(() => {
+        if (!cancelled) callback();
+      }, remaining);
+    };
 
     Promise.all(chunks.map(chunk => checkDomainAvailability(chunk)))
       .then(chunkResults => {
@@ -611,19 +650,23 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
             unchecked: false,
           };
         });
-        setResults(merged);
+        finish(() => setResults(merged));
       })
       .catch(err => {
         // Do not fabricate availability when the provider fails.
-        setSearchError(err.message || 'Domain provider is not configured yet.');
-        setResults(GD.tldPrices.map(t => ({
-          ...t,
-          name: base + t.tld,
-          available: false,
-          premium: false,
-          unchecked: true,
-        })));
+        finish(() => {
+          setSearchError(err.message || 'Domain provider is not configured yet.');
+          setResults(GD.tldPrices.map(t => ({
+            ...t,
+            name: base + t.tld,
+            available: false,
+            premium: false,
+            unchecked: true,
+          })));
+        });
       });
+
+    return () => { cancelled = true; };
   }, [base]);
 
   const subtotal = cart.reduce((a, c) => a + c.price, 0);
@@ -633,9 +676,9 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
   const selectedAvailable = selectedResult?.available ?? false;
 
   return (
-    <div className="grid-side" style={{ alignItems: "flex-start" }}>
+    <div className="grid-side dom-results-shell" style={{ alignItems: "flex-start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div className="row" style={{ gap: 10 }}>
+        <div className="row dom-results-toolbar" style={{ gap: 10 }}>
           <button className="btn btn-outline btn-sm" onClick={onBack}><ICN.ArrowLeft size={14} /> Modify search</button>
           <span className="muted">Results for <b className="mono" style={{ color: "var(--text)" }}>{base}</b></span>
           {loading && <span className="row" style={{ gap: 6, color: 'var(--text-muted)', fontSize: 13 }}><span className="anim-spin" style={{ display: 'inline-flex' }}><ICN.Refresh size={13} /></span> Checking availability…</span>}
@@ -650,7 +693,7 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
         )}
 
         {/* Featured (top match) */}
-        <div className="card" style={{ background: "linear-gradient(180deg, var(--accent-soft), transparent), var(--bg-elev)", borderColor: "color-mix(in srgb, var(--accent) 30%, var(--border))" }}>
+        <div className={`card dom-featured-result ${loading ? 'is-loading' : 'is-ready'}`} style={{ background: "linear-gradient(180deg, var(--accent-soft), transparent), var(--bg-elev)", borderColor: "color-mix(in srgb, var(--accent) 30%, var(--border))" }}>
           <div className="row between" style={{ alignItems: "flex-start" }}>
             <div>
               <Badge tone={selectedAvailable ? "success" : "warning"}>
@@ -690,10 +733,10 @@ function SearchResults({ query, cart, addToCart, removeFromCart, selectedTld, on
             <h2>All TLDs</h2>
             <span className="meta">{loading ? "…" : `${availableCount} available`}</span>
           </div>
-          <div>
+          <div className={loading ? 'dom-loading-list' : 'dom-ready-list'}>
             {loading
               ? [0,1,2,3,4,5,6,7].map(i => (
-                  <div key={i} className="dom-result" style={{ animationDelay: `${i * 0.04}s` }}>
+                  <div key={i} className="dom-result dom-result-skeleton" style={{ animationDelay: `${i * 0.06}s` }}>
                     <div className="skel skel-line" style={{ width: 160, height: 18 }} />
                     <div className="skel skel-badge" style={{ width: 70 }} />
                     <div className="skel skel-btn" />

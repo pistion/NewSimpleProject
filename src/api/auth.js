@@ -8,6 +8,8 @@ const USER_KEY      = 'glondia.user';
 
 export const AUTH_CHANGED_EVENT = 'glondia:auth-changed';
 
+let refreshInFlight = null;
+
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
 export function getStoredAuth() {
@@ -72,7 +74,7 @@ export async function register({ name, email, password, organizationName }) {
     storeAuthSession(session);
     return session;
   }
-  const session = await authPost('/v1/auth/register', { name, email, password });
+  const session = await authPost('/v1/auth/register', { name, email, password, organizationName });
   storeAuthSession(session);
   return session;
 }
@@ -80,9 +82,17 @@ export async function register({ name, email, password, organizationName }) {
 export async function refreshAccessToken() {
   const { refreshToken } = getStoredAuth();
   if (!refreshToken) throw new Error('No refresh token stored.');
-  const data = await authPost('/v1/auth/refresh-token', { refreshToken });
-  storeAuthSession(data);
-  return data;
+  if (!refreshInFlight) {
+    refreshInFlight = authPost('/v1/auth/refresh-token', { refreshToken })
+      .then((data) => {
+        storeAuthSession(data);
+        return data;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 export async function logout() {
@@ -100,13 +110,21 @@ export async function getMe() {
   const { accessToken } = getStoredAuth();
   if (!accessToken) return null;
   const base = liveApiBase();
-  const res = await fetch(`${base}/v1/auth/me`, {
+  let res = await fetch(`${base}/v1/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
   });
   if (res.status === 401) {
-    await refreshAccessToken();
-    return getMe();
+    try {
+      const refreshed = await refreshAccessToken();
+      res = await fetch(`${base}/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${refreshed.tokens.accessToken}`, Accept: 'application/json' },
+      });
+    } catch {
+      clearAuthSession();
+      return null;
+    }
   }
+  if (res.status === 401) clearAuthSession();
   if (!res.ok) return null;
   const envelope = await res.json();
   return envelope?.data ?? envelope;

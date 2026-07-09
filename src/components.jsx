@@ -1,7 +1,8 @@
 // components.jsx — shared UI primitives: Logo, Badge, Topbar, Sidebar
 import React from 'react';
 import { ICN } from './icons';
-import { clearAuthSession, getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
+import { getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
+import { logout } from './api/auth.js';
 import { getAvatarUrl } from './api/profile.js';
 import {
   listNotifications as apiListNotifications,
@@ -133,6 +134,7 @@ export const DASH_NAV = [
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" }, feature: "domains" },
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },
       { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true, feature: "domains" },
+      { key: "email",        label: "Email",          icon: "Mail",            route: { view: "email" },        feature: "email" },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
@@ -147,7 +149,6 @@ export const DASH_NAV = [
     title: "Account",
     items: [
       { key: "billing",    label: "Billing",        icon: "CreditCard",      route: { view: "billing" } },
-      { key: "email",      label: "Email",          icon: "Mail",            route: { view: "email" }, feature: "email" },
       { key: "settings",   label: "Settings",       icon: "Settings",        route: { view: "settings" }, feature: "settings" },
     ],
   },
@@ -168,6 +169,8 @@ function visibleNavGroups() {
 }
 
 export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
+  const [helpOpen, setHelpOpen] = useState(false);
+
   return (
     <aside className={`dash-side ${mobileOpen ? 'is-open' : ''}`}>
       <div className="dash-side-head">
@@ -197,21 +200,31 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
           </div>
         ))}
       </nav>
-      <div className="dash-side-foot">
+      <div className={`dash-side-foot ${helpOpen ? 'is-open' : ''}`}>
         <div className="help">
-          <b>Need a hand?</b>
-          <div style={{ color: "var(--text-muted)" }}>Docs, status page, and live support are one click away.</div>
-          <a href="mailto:johnweslytawa@gmail.com"
-             className="btn btn-outline btn-sm"
-             style={{ width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}>
-            <ICN.HelpCircle size={14} /> Help center
-          </a>
-          {/* LinkedIn */}
-          <a href="https://www.linkedin.com/company/111230074/" target="_blank" rel="noopener noreferrer"
-             className="btn btn-outline btn-sm"
-             style={{ width: "100%", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--text-muted)", textDecoration: "none" }}>
-            <ICN.LinkedIn size={13} /> Follow on LinkedIn
-          </a>
+          <button
+            type="button"
+            className="dash-help-toggle"
+            aria-expanded={helpOpen}
+            onClick={() => setHelpOpen((open) => !open)}
+          >
+            <b>Need a hand?</b>
+            <span aria-hidden="true">{helpOpen ? '/\\' : '\\/'}</span>
+          </button>
+          <div className="dash-help-body" hidden={!helpOpen}>
+            <div style={{ color: "var(--text-muted)" }}>Docs, status page, and live support are one click away.</div>
+            <a href="mailto:johnweslytawa@gmail.com"
+               className="btn btn-outline btn-sm"
+               style={{ width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}>
+              <ICN.HelpCircle size={14} /> Help center
+            </a>
+            {/* LinkedIn */}
+            <a href="https://www.linkedin.com/company/111230074/" target="_blank" rel="noopener noreferrer"
+               className="btn btn-outline btn-sm"
+               style={{ width: "100%", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--text-muted)", textDecoration: "none" }}>
+              <ICN.LinkedIn size={13} /> Follow on LinkedIn
+            </a>
+          </div>
         </div>
       </div>
     </aside>
@@ -464,7 +477,7 @@ function AuthMenu({ navigate }) {
         <span className="auth-menu-name">{signedIn ? displayName : "Sign in"}</span>
       </button>
       {open && (
-        <div className="card auth-menu-panel">
+        <div className={`card auth-menu-panel ${signedIn ? 'auth-menu-panel--signed-in' : 'auth-menu-panel--signed-out'}`}>
           {signedIn ? (
             <div>
               <div className="auth-user-block">
@@ -488,7 +501,12 @@ function AuthMenu({ navigate }) {
                 <button
                   type="button"
                   className="auth-panel-signout"
-                  onClick={() => { clearAuthSession(); setAuth(getStoredAuth()); setOpen(false); window.location.href = "/"; }}
+                  onClick={async () => {
+                    await logout();
+                    setAuth(getStoredAuth());
+                    setOpen(false);
+                    window.location.href = "/";
+                  }}
                 >
                   Sign out
                 </button>

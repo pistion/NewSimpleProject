@@ -51,7 +51,7 @@ import { providerApiGuard } from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/ser
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
 import { warmForexCache } from './services/forexService.js';
-import { prisma, ensureUserColumns, ensureNotificationsTable, ensureDeploymentSubscriptionsTable } from './services/db.js';
+import { prisma, ensureUserColumns, ensureRefreshTokensTable, ensureNotificationsTable, ensureDeploymentSubscriptionsTable } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import renderApiService from './services/renderApiService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
@@ -394,6 +394,7 @@ async function boot() {
     prisma.$connect()
       .then(() => console.log('[glondia] Database connection established.'))
       .then(() => ensureUserColumns())
+      .then(() => ensureRefreshTokensTable())
       .then(() => ensureNotificationsTable())
       .then(() => ensureDeploymentSubscriptionsTable())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
