@@ -58,12 +58,8 @@ export default function GlondiaMailApp() {
       <div style={S.page}>
         <div style={S.box}>
           <div style={S.head}>
-            <div style={S.dots}>
-              <span style={S.dot('#ff5f57')} />
-              <span style={S.dot('#febc2e')} />
-              <span style={S.dot('#28c840')} />
-            </div>
-            <div style={S.titleBar}>mailboxes — offline</div>
+            <div style={S.headBrand}><ICN.Mail size={16} /></div>
+            <div style={S.titleBar}>Mailboxes — offline</div>
           </div>
           <div style={S.body}>
             <div style={S.eyebrow}><span style={S.pulse} /> Feature off</div>
@@ -181,7 +177,7 @@ function MailboxesApp() {
   if (loading && !session) {
     return (
       <div style={S.page}>
-        <div style={{ color: '#4A5550', fontFamily: mono, fontSize: 13 }}>Loading mailboxes…</div>
+        <div style={{ color: '#9a9f98', fontFamily: sans, fontSize: 14 }}>Loading mailboxes…</div>
       </div>
     );
   }
@@ -227,7 +223,7 @@ function MailboxesApp() {
         </div>
 
         <div style={M.searchWrap}>
-          <ICN.Search size={14} style={{ color: '#4A5550' }} />
+          <ICN.Search size={14} style={{ color: '#6c757d' }} />
           <input
             style={M.search}
             placeholder={`Search ${folderMeta.name.toLowerCase()}…`}
@@ -302,8 +298,8 @@ function MailboxesApp() {
           {filtered.length === 0 ? (
             <div style={M.emptyList}>
               <div style={M.emptyIcon}><ICN.Mail size={22} /></div>
-              <div style={{ fontWeight: 600, color: '#E8E8DC', marginBottom: 6 }}>No messages</div>
-              <div style={{ color: '#4A5550', fontSize: 13, maxWidth: 280, lineHeight: 1.5, textAlign: 'center' }}>
+              <div style={{ fontWeight: 600, color: '#111827', marginBottom: 6 }}>No messages</div>
+              <div style={{ color: '#6c757d', fontSize: 13.5, maxWidth: 280, lineHeight: 1.5, textAlign: 'center' }}>
                 {listMsg || `${folderMeta.name} is empty. Messages will appear here when your mailbox is connected.`}
               </div>
             </div>
@@ -334,8 +330,8 @@ function MailboxesApp() {
           {!selectedId ? (
             <div style={M.emptyList}>
               <div style={M.emptyIcon}><ICN.Layers size={22} /></div>
-              <div style={{ fontWeight: 600, color: '#E8E8DC', marginBottom: 6 }}>Select a message</div>
-              <div style={{ color: '#4A5550', fontSize: 13 }}>
+              <div style={{ fontWeight: 600, color: '#111827', marginBottom: 6 }}>Select a message</div>
+              <div style={{ color: '#6c757d', fontSize: 13.5 }}>
                 Choose a message from the list to read it here.
               </div>
             </div>
@@ -345,8 +341,8 @@ function MailboxesApp() {
               <div style={M.readMeta}>
                 <div style={M.avatarLg}>{(selected?.from || session.mailbox || '?')[0].toUpperCase()}</div>
                 <div>
-                  <div style={{ color: '#E8E8DC', fontWeight: 600, fontSize: 14 }}>{selected?.from || '—'}</div>
-                  <div style={{ color: '#4A5550', fontSize: 12, marginTop: 2 }}>
+                  <div style={{ color: '#111827', fontWeight: 600, fontSize: 14 }}>{selected?.from || '—'}</div>
+                  <div style={{ color: '#6c757d', fontSize: 12.5, marginTop: 2 }}>
                     to {selected?.to || session.mailbox} · {formatDate(selected?.date || selected?.createdAt, true)}
                   </div>
                 </div>
@@ -420,12 +416,8 @@ function MailboxLogin({ session, onSuccess }) {
 
       <div style={S.box}>
         <div style={S.head}>
-          <div style={S.dots}>
-            <span style={S.dot('#ff5f57')} />
-            <span style={S.dot('#febc2e')} />
-            <span style={S.dot('#28c840')} />
-          </div>
-          <div style={S.titleBar}>mailboxes — sign in</div>
+          <div style={S.headBrand}><ICN.Mail size={16} /></div>
+          <div style={S.titleBar}>Glondia Mailboxes</div>
         </div>
 
         <div style={S.body}>
@@ -503,34 +495,34 @@ function ComposeModal({ from, onClose, previewMode }) {
     <div style={M.modalBackdrop} onClick={onClose}>
       <div style={M.modal} onClick={(e) => e.stopPropagation()}>
         <div style={M.modalHead}>
-          <strong style={{ color: '#E8E8DC' }}>New message</strong>
+          <strong style={{ color: '#111827' }}>New message</strong>
           <button type="button" style={M.btnGhost} onClick={onClose}>Close</button>
         </div>
         <div style={{ padding: 18, display: 'grid', gap: 12 }}>
           <div>
-            <div style={S.label}>From</div>
-            <div style={{ ...S.input(false), color: '#4A5550' }}>{from}</div>
+            <div style={M.label}>From</div>
+            <div style={{ ...M.input, color: '#6c757d', background: '#f8faf9' }}>{from}</div>
           </div>
           <div>
-            <label style={S.label} htmlFor="c-to">To</label>
-            <input id="c-to" style={S.input(false)} value={to} onChange={(e) => setTo(e.target.value)} placeholder="recipient@example.com" />
+            <label style={M.label} htmlFor="c-to">To</label>
+            <input id="c-to" style={M.input} value={to} onChange={(e) => setTo(e.target.value)} placeholder="recipient@example.com" />
           </div>
           <div>
-            <label style={S.label} htmlFor="c-sub">Subject</label>
-            <input id="c-sub" style={S.input(false)} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" />
+            <label style={M.label} htmlFor="c-sub">Subject</label>
+            <input id="c-sub" style={M.input} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" />
           </div>
           <div>
-            <label style={S.label} htmlFor="c-body">Message</label>
+            <label style={M.label} htmlFor="c-body">Message</label>
             <textarea
               id="c-body"
               rows={8}
-              style={{ ...S.input(false), resize: 'vertical', minHeight: 140, fontFamily: mono }}
+              style={{ ...M.input, resize: 'vertical', minHeight: 140 }}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Write your message…"
             />
           </div>
-          {msg && <div style={{ color: '#5BFF8F', fontSize: 12 }}>{msg}</div>}
+          {msg && <div style={{ color: '#146c43', fontSize: 13 }}>{msg}</div>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" style={M.btnGhost} onClick={onClose}>Discard</button>
             <button
@@ -569,20 +561,19 @@ function formatDate(value, long = false) {
   }
 }
 
-const mono = "'JetBrains Mono', 'SF Mono', ui-monospace, monospace";
+const sans = "Inter, 'Segoe UI', system-ui, -apple-system, sans-serif";
 
-// ── Login styles (match dashboard LoginPage) ─────────────────────────────────
+// ── Login styles (match dashboard auth pages) ────────────────────────────────
 const S = {
   page: {
     minHeight: '100vh',
-    background: '#0A0D0A',
+    background: '#050706',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    fontFamily: mono,
-    backgroundImage: 'radial-gradient(rgba(91,255,143,0.04) 1px, transparent 1px)',
-    backgroundSize: '32px 32px',
+    fontFamily: sans,
+    backgroundImage: 'radial-gradient(ellipse 70% 45% at 50% -5%, rgba(62,207,142,0.09), transparent 55%)',
     padding: 24,
     position: 'relative',
   },
@@ -590,39 +581,48 @@ const S = {
     position: 'absolute',
     top: 24,
     left: 28,
-    fontFamily: mono,
-    fontSize: 12,
-    color: '#4A5550',
+    fontFamily: sans,
+    fontSize: 13.5,
+    fontWeight: 500,
+    color: '#9a9f98',
     background: 'none',
     border: 'none',
-    letterSpacing: '0.06em',
     cursor: 'pointer',
   },
   box: {
     width: '100%',
-    maxWidth: 420,
-    border: '1px solid #1E2A20',
-    background: '#0D110D',
-    boxShadow: '0 0 60px -20px rgba(91,255,143,0.12)',
+    maxWidth: 440,
+    border: '1px solid #1a221c',
+    borderRadius: 16,
+    overflow: 'hidden',
+    background: '#0b0f0c',
+    boxShadow: '0 28px 80px rgba(0,0,0,0.55)',
   },
   head: {
-    borderBottom: '1px solid #1E2A20',
-    background: '#0F140F',
-    padding: '12px 20px',
+    borderBottom: '1px solid #1a221c',
+    background: '#0e1310',
+    padding: '14px 20px',
     display: 'flex',
     alignItems: 'center',
     gap: 10,
-    fontSize: 11,
-    color: '#4A5550',
   },
-  dots: { display: 'flex', gap: 6 },
-  dot: (c) => ({ width: 10, height: 10, borderRadius: '50%', background: c }),
-  titleBar: { flex: 1, textAlign: 'center', color: '#4A5550' },
+  headBrand: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    background: 'rgba(62,207,142,0.14)',
+    color: '#3ecf8e',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleBar: { fontSize: 13, fontWeight: 600, color: '#f2f0e8' },
   body: { padding: '32px 28px 28px' },
   eyebrow: {
-    fontSize: 10,
-    color: '#5BFF8F',
-    letterSpacing: '0.18em',
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#3ecf8e',
+    letterSpacing: '0.1em',
     textTransform: 'uppercase',
     marginBottom: 12,
     display: 'flex',
@@ -633,104 +633,107 @@ const S = {
     width: 6,
     height: 6,
     borderRadius: '50%',
-    background: '#5BFF8F',
-    boxShadow: '0 0 8px #5BFF8F',
+    background: '#3ecf8e',
+    boxShadow: '0 0 8px #3ecf8e',
   },
   h1: {
-    fontSize: 22,
-    fontWeight: 600,
-    color: '#E8E8DC',
+    fontSize: 24,
+    fontWeight: 700,
+    color: '#f2f0e8',
     letterSpacing: '-0.02em',
     margin: '0 0 6px',
   },
   sub: {
-    fontSize: 13,
-    color: '#4A5550',
+    fontSize: 14,
+    color: '#9a9f98',
     marginBottom: 22,
-    lineHeight: 1.5,
+    lineHeight: 1.55,
   },
   notice: {
-    fontSize: 12,
-    color: '#8A9388',
-    border: '1px solid #1E2A20',
-    background: '#0A0D0A',
+    fontSize: 12.5,
+    color: '#9a9f98',
+    border: '1px solid #1a221c',
+    borderRadius: 10,
+    background: '#0e1310',
     padding: '10px 12px',
     marginBottom: 18,
     lineHeight: 1.5,
   },
   label: {
     display: 'block',
-    fontSize: 11,
-    color: '#8A9388',
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
+    fontSize: 13,
+    fontWeight: 500,
+    color: '#9a9f98',
     marginBottom: 6,
   },
   input: (focused) => ({
     width: '100%',
-    background: '#0A0D0A',
-    border: `1px solid ${focused ? '#5BFF8F' : '#1E2A20'}`,
-    color: '#E8E8DC',
-    fontFamily: mono,
-    fontSize: 13,
-    padding: '10px 14px',
+    background: '#050706',
+    border: `1px solid ${focused ? '#3ecf8e' : '#2a362e'}`,
+    borderRadius: 10,
+    color: '#f2f0e8',
+    fontFamily: sans,
+    fontSize: 14,
+    padding: '11px 14px',
     outline: 'none',
     boxSizing: 'border-box',
     transition: 'border-color 0.15s',
+    boxShadow: focused ? '0 0 0 3px rgba(62,207,142,0.14)' : 'none',
   }),
   fieldWrap: { marginBottom: 16 },
   btn: (disabled) => ({
     width: '100%',
-    background: disabled ? '#2D5A3A' : '#5BFF8F',
-    color: '#001A09',
+    background: 'linear-gradient(180deg, #6ee7b0, #3ecf8e)',
+    color: '#04140c',
     border: 'none',
-    fontFamily: mono,
-    fontSize: 13,
+    borderRadius: 10,
+    fontFamily: sans,
+    fontSize: 14.5,
     fontWeight: 700,
-    letterSpacing: '0.06em',
     padding: '13px 20px',
     cursor: disabled ? 'not-allowed' : 'pointer',
     marginTop: 8,
-    opacity: disabled ? 0.6 : 1,
+    opacity: disabled ? 0.55 : 1,
+    boxShadow: '0 6px 20px rgba(62,207,142,0.25)',
   }),
-  error: { color: '#ff7b72', fontSize: 12, marginBottom: 8 },
-  footer: { marginTop: 20, fontSize: 12, color: '#4A5550', textAlign: 'center' },
-  footerLink: { color: '#5BFF8F', textDecoration: 'none' },
-  linkBack: { color: '#5BFF8F', fontSize: 13, textDecoration: 'none' },
+  error: { color: '#ff8a8a', fontSize: 13, marginBottom: 8 },
+  footer: { marginTop: 20, fontSize: 13, color: '#9a9f98', textAlign: 'center' },
+  footerLink: { color: '#3ecf8e', textDecoration: 'none', fontWeight: 600 },
+  linkBack: { color: '#3ecf8e', fontSize: 13.5, textDecoration: 'none', fontWeight: 600 },
 };
 
-// ── Mail shell styles ────────────────────────────────────────────────────────
+// ── Mail shell styles (match client dashboard theme) ─────────────────────────
 const M = {
   shell: {
     minHeight: '100vh',
     display: 'flex',
     flexDirection: 'column',
-    background: '#0A0D0A',
-    color: '#E8E8DC',
-    fontFamily: mono,
+    background: '#f8faf9',
+    color: '#111827',
+    fontFamily: sans,
   },
   topbar: {
     display: 'flex',
     alignItems: 'center',
     gap: 16,
     padding: '10px 16px',
-    borderBottom: '1px solid #1E2A20',
-    background: '#0D110D',
+    borderBottom: '1px solid #dfe7e2',
+    background: '#ffffff',
     flexWrap: 'wrap',
   },
   brand: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 160 },
   brandMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    background: 'rgba(91,255,143,0.12)',
-    color: '#5BFF8F',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    background: '#d8f3dc',
+    color: '#198754',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  brandTitle: { fontWeight: 700, fontSize: 14, color: '#E8E8DC', letterSpacing: '0.04em' },
-  brandSub: { fontSize: 10, color: '#4A5550', letterSpacing: '0.08em', textTransform: 'uppercase' },
+  brandTitle: { fontWeight: 700, fontSize: 15, color: '#111827' },
+  brandSub: { fontSize: 11, color: '#6c757d' },
   searchWrap: {
     flex: 1,
     minWidth: 180,
@@ -738,8 +741,9 @@ const M = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    background: '#0A0D0A',
-    border: '1px solid #1E2A20',
+    background: '#f8faf9',
+    border: '1px solid #dfe7e2',
+    borderRadius: 10,
     padding: '8px 12px',
   },
   search: {
@@ -747,31 +751,34 @@ const M = {
     background: 'transparent',
     border: 'none',
     outline: 'none',
-    color: '#E8E8DC',
-    fontFamily: mono,
-    fontSize: 13,
+    color: '#111827',
+    fontFamily: sans,
+    fontSize: 14,
   },
   topActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   btnPrimary: {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    background: '#5BFF8F',
-    color: '#001A09',
+    background: '#198754',
+    color: '#ffffff',
     border: 'none',
-    fontFamily: mono,
-    fontSize: 12,
-    fontWeight: 700,
-    padding: '8px 12px',
+    borderRadius: 8,
+    fontFamily: sans,
+    fontSize: 13.5,
+    fontWeight: 600,
+    padding: '8px 14px',
     cursor: 'pointer',
   },
   btnGhost: {
-    background: 'transparent',
-    border: '1px solid #1E2A20',
-    color: '#8A9388',
-    fontFamily: mono,
-    fontSize: 12,
-    padding: '7px 10px',
+    background: '#ffffff',
+    border: '1px solid #dfe7e2',
+    borderRadius: 8,
+    color: '#374151',
+    fontFamily: sans,
+    fontSize: 13.5,
+    fontWeight: 500,
+    padding: '7px 12px',
     cursor: 'pointer',
     textDecoration: 'none',
   },
@@ -779,16 +786,17 @@ const M = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    border: '1px solid #1E2A20',
-    padding: '4px 10px 4px 4px',
-    background: '#0A0D0A',
+    border: '1px solid #dfe7e2',
+    borderRadius: 999,
+    padding: '4px 12px 4px 4px',
+    background: '#ffffff',
   },
   avatar: {
     width: 26,
     height: 26,
     borderRadius: '50%',
-    background: 'rgba(91,255,143,0.18)',
-    color: '#5BFF8F',
+    background: '#d8f3dc',
+    color: '#146c43',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -799,8 +807,8 @@ const M = {
     width: 40,
     height: 40,
     borderRadius: '50%',
-    background: 'rgba(91,255,143,0.18)',
-    color: '#5BFF8F',
+    background: '#d8f3dc',
+    color: '#146c43',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -808,22 +816,22 @@ const M = {
     fontWeight: 700,
     flexShrink: 0,
   },
-  userEmail: { fontSize: 11, color: '#8A9388', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' },
+  userEmail: { fontSize: 12.5, color: '#374151', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' },
   banner: {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
     padding: '10px 16px',
-    background: 'rgba(91,255,143,0.06)',
-    borderBottom: '1px solid #1E2A20',
-    color: '#8A9388',
-    fontSize: 12,
+    background: '#eef8f1',
+    borderBottom: '1px solid #dfe7e2',
+    color: '#146c43',
+    fontSize: 13,
   },
   body: { display: 'flex', flex: 1, minHeight: 0 },
   sidebar: {
     width: 210,
-    borderRight: '1px solid #1E2A20',
-    background: '#0D110D',
+    borderRight: '1px solid #dfe7e2',
+    background: '#ffffff',
     padding: 12,
     display: 'flex',
     flexDirection: 'column',
@@ -834,12 +842,13 @@ const M = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    background: '#5BFF8F',
-    color: '#001A09',
+    background: '#198754',
+    color: '#ffffff',
     border: 'none',
-    fontFamily: mono,
-    fontWeight: 700,
-    fontSize: 12,
+    borderRadius: 10,
+    fontFamily: sans,
+    fontWeight: 600,
+    fontSize: 13.5,
     padding: '11px 12px',
     cursor: 'pointer',
   },
@@ -850,27 +859,29 @@ const M = {
     gap: 10,
     background: 'transparent',
     border: 'none',
-    color: '#8A9388',
-    fontFamily: mono,
-    fontSize: 13,
+    color: '#4b5563',
+    fontFamily: sans,
+    fontSize: 14,
+    fontWeight: 500,
     padding: '9px 10px',
     cursor: 'pointer',
     textAlign: 'left',
-    borderRadius: 0,
+    borderRadius: 8,
   },
   folderBtnActive: {
-    background: 'rgba(91,255,143,0.1)',
-    color: '#5BFF8F',
+    background: '#d8f3dc',
+    color: '#146c43',
+    fontWeight: 600,
   },
   sideFoot: { marginTop: 'auto', paddingTop: 16 },
-  sideLink: { color: '#4A5550', fontSize: 11, textDecoration: 'none' },
+  sideLink: { color: '#6c757d', fontSize: 12.5, textDecoration: 'none' },
   listPane: {
     width: 340,
     maxWidth: '40vw',
-    borderRight: '1px solid #1E2A20',
+    borderRight: '1px solid #dfe7e2',
     display: 'flex',
     flexDirection: 'column',
-    background: '#0A0D0A',
+    background: '#ffffff',
     minWidth: 260,
   },
   listHead: {
@@ -878,32 +889,32 @@ const M = {
     alignItems: 'baseline',
     justifyContent: 'space-between',
     padding: '14px 16px',
-    borderBottom: '1px solid #1E2A20',
+    borderBottom: '1px solid #eef2ef',
   },
-  listTitle: { margin: 0, fontSize: 15, color: '#E8E8DC' },
-  listCount: { fontSize: 11, color: '#4A5550' },
+  listTitle: { margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' },
+  listCount: { fontSize: 12, color: '#6c757d' },
   listScroll: { overflow: 'auto', flex: 1 },
   msgRow: {
     width: '100%',
     textAlign: 'left',
     background: 'transparent',
     border: 'none',
-    borderBottom: '1px solid #1E2A20',
+    borderBottom: '1px solid #eef2ef',
     padding: '12px 16px',
     cursor: 'pointer',
-    fontFamily: mono,
+    fontFamily: sans,
     display: 'grid',
     gap: 3,
   },
   msgRowActive: {
-    background: 'rgba(91,255,143,0.08)',
-    boxShadow: 'inset 2px 0 0 #5BFF8F',
+    background: '#f0faf4',
+    boxShadow: 'inset 3px 0 0 #198754',
   },
-  msgFrom: { fontSize: 12, color: '#E8E8DC', fontWeight: 600 },
-  msgSubject: { fontSize: 12, color: '#C8D0C8' },
-  msgPreview: { fontSize: 11, color: '#4A5550', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  msgDate: { fontSize: 10, color: '#4A5550', marginTop: 2 },
-  readPane: { flex: 1, minWidth: 0, background: '#0D110D', overflow: 'auto' },
+  msgFrom: { fontSize: 13.5, color: '#111827', fontWeight: 600 },
+  msgSubject: { fontSize: 13, color: '#374151' },
+  msgPreview: { fontSize: 12.5, color: '#6c757d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  msgDate: { fontSize: 11.5, color: '#9ca3af', marginTop: 2 },
+  readPane: { flex: 1, minWidth: 0, background: '#f8faf9', overflow: 'auto' },
   emptyList: {
     flex: 1,
     display: 'flex',
@@ -917,8 +928,8 @@ const M = {
     width: 48,
     height: 48,
     borderRadius: 12,
-    background: 'rgba(91,255,143,0.08)',
-    color: '#4A5550',
+    background: '#d8f3dc',
+    color: '#198754',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -928,25 +939,25 @@ const M = {
   readSubject: {
     margin: '0 0 18px',
     fontSize: 22,
-    fontWeight: 600,
-    color: '#E8E8DC',
+    fontWeight: 700,
+    color: '#111827',
     letterSpacing: '-0.02em',
     lineHeight: 1.3,
   },
   readMeta: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24 },
   readBody: {
-    color: '#C8D0C8',
-    fontSize: 14,
+    color: '#374151',
+    fontSize: 14.5,
     lineHeight: 1.7,
     whiteSpace: 'pre-wrap',
-    borderTop: '1px solid #1E2A20',
+    borderTop: '1px solid #dfe7e2',
     paddingTop: 20,
   },
   modalBackdrop: {
     position: 'fixed',
     inset: 0,
     zIndex: 500,
-    background: 'rgba(0,0,0,.65)',
+    background: 'rgba(5,8,7,.45)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -954,16 +965,37 @@ const M = {
   },
   modal: {
     width: 'min(560px, 100%)',
-    background: '#0D110D',
-    border: '1px solid #1E2A20',
-    boxShadow: '0 20px 60px rgba(0,0,0,.5)',
+    background: '#ffffff',
+    border: '1px solid #dfe7e2',
+    borderRadius: 14,
+    overflow: 'hidden',
+    boxShadow: '0 20px 60px rgba(5,8,7,.25)',
   },
   modalHead: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '12px 16px',
-    borderBottom: '1px solid #1E2A20',
-    background: '#0F140F',
+    borderBottom: '1px solid #dfe7e2',
+    background: '#f8faf9',
+  },
+  label: {
+    display: 'block',
+    fontSize: 13,
+    fontWeight: 500,
+    color: '#374151',
+    marginBottom: 6,
+  },
+  input: {
+    width: '100%',
+    background: '#ffffff',
+    border: '1px solid #dfe7e2',
+    borderRadius: 8,
+    color: '#111827',
+    fontFamily: sans,
+    fontSize: 14,
+    padding: '10px 12px',
+    outline: 'none',
+    boxSizing: 'border-box',
   },
 };

@@ -12,6 +12,8 @@ import { requirePermission } from '../middleware/requirePermission.middleware.js
 import { requireRecentMfa } from '../middleware/requireRecentMfa.middleware.js';
 import adminService from '../services/adminService.js';
 import { adminTicketRouter } from './tickets.routes.js';
+import { adminServiceRequestRouter } from './service-requests.routes.js';
+import crmContactsRouter from './crm-contacts.routes.js';
 import {
   listServiceAccess, getServiceAccess,
   adminUpdateServiceAccess, adminSuspendServiceAccess, adminReactivateServiceAccess,
@@ -249,6 +251,12 @@ router.post('/deployments/:deploymentId/render-plan', async (req, res, next) => 
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
 router.use('/tickets', adminTicketRouter);
+
+// CRM Service Requests (intake/consultation — not support tickets)
+router.use('/crm/service-requests', adminServiceRequestRouter);
+
+// CRM contact emails (client accounts + captured contacts)
+router.use('/crm', crmContactsRouter);
 
 // ── ServiceAccess management ──────────────────────────────────────────────────
 router.get('/service-access', async (req, res, next) => {

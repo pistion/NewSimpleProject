@@ -38,6 +38,10 @@ import diskRoutes from './routes/diskRoutes.js';
 import vpsHostingRoutes from './routes/vpsHostingRoutes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import {
+  publicServiceRequestRouter,
+  customerServiceRequestRouter,
+} from './routes/service-requests.routes.js';
 import { customerTicketRouter } from './routes/tickets.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import emailRoutes from './routes/email.routes.js';
@@ -51,7 +55,15 @@ import { providerApiGuard } from './glondia-engines/01-HOSTING-DEPLOY-ENGINE/ser
 import { verifyPaypalWebhook, handlePaypalWebhookEvent } from './services/paypalWebhookService.js';
 import { startDeploymentCleanupJob } from './services/deploymentCleanupService.js';
 import { warmForexCache } from './services/forexService.js';
-import { prisma, ensureUserColumns, ensureRefreshTokensTable, ensureNotificationsTable, ensureDeploymentSubscriptionsTable } from './services/db.js';
+import {
+  prisma,
+  ensureUserColumns,
+  ensureNotificationsTable,
+  ensureClientProjectsTable,
+  ensureDeploymentSubscriptionsTable,
+  ensureServiceRequestsTable,
+  ensureCrmEmailTables,
+} from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import renderApiService from './services/renderApiService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
@@ -210,6 +222,9 @@ app.use('/sandbox', sandboxRoutes);
 // Public (unauthenticated)
 app.use('/api/v1/public', publicRoutes);
 app.use('/api/v1/public/sites', publicSalesRoutes);
+// Service Requests intake (public — not tickets)
+app.use('/api/public/service-requests', publicServiceRequestRouter);
+app.use('/api/v1/public/service-requests', publicServiceRequestRouter);
 app.use('/api/v1/domains', requireFeature('DOMAINS'), domainPublicRoutes);
 // Template catalog is part of the Site Builder surface. TEMPLATE_MARKETPLACE
 // remains reserved for the future paid template store.
@@ -224,6 +239,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/workspaces', workspaceRoutes);
 app.use('/api/v1/workspaces/:workspaceId', workspaceDetailRoutes);
 app.use('/api/v1/workspaces/:workspaceId/projects', projectRoutes);
+app.use('/api/projects', projectRoutes);
 app.use('/api/v1/workspaces/:workspaceId/domains', requireFeature('DOMAINS'), domainRoutes);
 app.use('/api/v1/workspaces/:workspaceId/sites', siteRoutes);
 app.use('/api/v1/workspaces/:workspaceId/commerce', commerceRoutes);
@@ -248,6 +264,7 @@ app.use('/api/hosting', requireFeature('DOMAINS'), domainHostingRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/v1/tickets', customerTicketRouter);
+app.use('/api/v1/service-requests', customerServiceRequestRouter);
 // Dashboard Business Email — setup, DNS, mailbox requests (not webmail reading).
 app.use('/api/v1/email', requireFeature('EMAIL'), emailRoutes);
 // GlondiaMail — separate webmail (login / folders / messages / send).
@@ -394,9 +411,11 @@ async function boot() {
     prisma.$connect()
       .then(() => console.log('[glondia] Database connection established.'))
       .then(() => ensureUserColumns())
-      .then(() => ensureRefreshTokensTable())
       .then(() => ensureNotificationsTable())
+      .then(() => ensureClientProjectsTable())
       .then(() => ensureDeploymentSubscriptionsTable())
+      .then(() => ensureServiceRequestsTable())
+      .then(() => ensureCrmEmailTables())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
 

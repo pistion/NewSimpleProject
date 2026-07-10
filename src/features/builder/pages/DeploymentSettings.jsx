@@ -38,7 +38,6 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
   const [repoUrl, setRepoUrl] = useStateB('');
   const [branch, setBranch] = useStateB('main');
   const [rootDirectory, setRootDirectory] = useStateB('');
-  const [showAdvanced, setShowAdvanced] = useStateB(false);
   const [deploying, setDeploying] = useStateB(false);
   const [deployError, setDeployError] = useStateB(null);
   const [deployMsg, setDeployMsg] = useStateB(null);
@@ -147,11 +146,6 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
           <div><div className="label">Glondia subdomain</div><input className="input" value={subdomain} onChange={(e) => setSubdomain(e.target.value)} placeholder={slugify(siteName || 'my-site')} /><div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Will be available at <span className="mono">{siteSlug}.glondia.app</span></div></div>
           <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><div><div className="label">Build command</div><input className="input mono" value={buildCommand} readOnly /></div><div><div className="label">Publish directory</div><input className="input mono" value={publishDirectory} readOnly /></div></div>
           <div><div className="label">Environment</div><select className="select" value={environment} onChange={(e) => setEnvironment(e.target.value)}><option value="production">Production</option><option value="preview">Preview</option></select></div>
-
-          <div className="card" style={{ padding: 14, background: 'var(--bg-deep)', fontSize: 13 }}>
-            <div className="row between" style={{ gap: 12 }}><div><div style={{ fontWeight: 600 }}>Source repository handoff</div><div className="muted" style={{ marginTop: 3 }}>Optional here. If blank, configured in the Glondia backend. Service controls stay in Hosting.</div></div><button type="button" className="btn btn-sm btn-outline" onClick={() => setShowAdvanced(!showAdvanced)}>{showAdvanced ? 'Hide' : 'Configure'}</button></div>
-            {showAdvanced && <div style={{ display: 'grid', gap: 12, marginTop: 14 }}><div><div className="label">Repository URL</div><input className="input" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/pistion/glondia-generated-sites" /></div><div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><div><div className="label">Branch</div><input className="input" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" /></div><div><div className="label">Root directory</div><input className="input" value={rootDirectory} onChange={(e) => setRootDirectory(e.target.value)} placeholder={`generated-template-sites/${siteSlug}`} /></div></div></div>}
-          </div>
 
           {deployError && <div style={{ color: 'var(--danger)', fontSize: 13, padding: '10px 12px', background: 'var(--danger-soft, #fff0f0)', border: '1px solid var(--danger)', borderRadius: 'var(--r-sm)' }}>{deployError}</div>}
           {deployMsg && <div style={{ color: 'var(--accent)', fontSize: 13 }}>{deployMsg}</div>}

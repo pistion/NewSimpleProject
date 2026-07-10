@@ -962,28 +962,32 @@ function CrmInbox({ messages: _legacyMessages, positions }) {
   );
 }
 
-// ─── Service Request grouping ─────────────────────────────────────────────────
+// ─── Service Request filters (Glondia intake — not tickets / not HR) ──────────
 
 const SR_GROUPS = [
-  { id: "all",         label: "All Requests" },
-  { id: "contact",     label: "General Contact" },
-  { id: "recruitment", label: "Recruitment / Staffing" },
-  { id: "labour-hire", label: "Labour Hire" },
-  { id: "immigration", label: "Immigration / Passport / Visa" },
-  { id: "training",    label: "Training" },
-  { id: "vacancy",     label: "Vacancy Enquiries" },
-  { id: "other",       label: "Other Services" },
-  { id: "spam",        label: "Spam" },
+  { id: "all",            label: "All types" },
+  { id: "consultation",   label: "Consultation" },
+  { id: "website_build",  label: "Website Build" },
+  { id: "domain",         label: "Domain" },
+  { id: "hosting",        label: "Hosting" },
+  { id: "vps",            label: "VPS" },
+  { id: "email",          label: "Email" },
+  { id: "migration",      label: "Migration" },
+  { id: "ai_automation",  label: "AI Automation" },
+  { id: "custom",         label: "Custom" },
 ];
 
 const SR_STATUS_OPTIONS = [
-  { id: "all",         label: "All statuses" },
+  { id: "all",         label: "All" },
   { id: "new",         label: "New" },
-  { id: "unread",      label: "Unread" },
-  { id: "read",        label: "Read" },
-  { id: "in-progress", label: "In Progress" },
-  { id: "resolved",    label: "Resolved" },
-  { id: "spam",        label: "Spam" },
+  { id: "reviewing",   label: "Reviewing" },
+  { id: "contacted",   label: "Contacted" },
+  { id: "quoted",      label: "Quoted" },
+  { id: "approved",    label: "Approved" },
+  { id: "in_progress", label: "In Progress" },
+  { id: "completed",   label: "Completed" },
+  { id: "cancelled",   label: "Cancelled" },
+  { id: "rejected",    label: "Rejected" },
 ];
 
 const SR_SORT_OPTIONS = [
@@ -991,14 +995,22 @@ const SR_SORT_OPTIONS = [
   { id: "oldest",  label: "Oldest first" },
   { id: "name",    label: "Name A-Z" },
   { id: "company", label: "Company A-Z" },
-  { id: "service", label: "Service A-Z" },
+  { id: "service", label: "Type A-Z" },
 ];
 
 const SR_SOURCE_OPTIONS = [
-  { id: "contact", label: "Contact Form" },
-  { id: "vacancy", label: "Vacancy Enquiry" },
-  { id: "message", label: "Inbox Message" },
-  { id: "service", label: "Service Form" },
+  { id: "public_form",        label: "Public form" },
+  { id: "customer_dashboard", label: "Customer dashboard" },
+  { id: "admin_created",      label: "Admin created" },
+  { id: "website_bot",        label: "Website bot" },
+  { id: "consultation",       label: "Consultation" },
+];
+
+const SR_PRIORITY_OPTIONS = [
+  { id: "low", label: "Low" },
+  { id: "normal", label: "Normal" },
+  { id: "high", label: "High" },
+  { id: "urgent", label: "Urgent" },
 ];
 
 const DEFAULT_SR_FILTERS = {
@@ -1027,48 +1039,38 @@ function srActiveFilterCount(filters) {
 }
 
 function sourceLabelForRequest(r) {
-  const source = r.sourceType || r.type;
-  if (source === "vacancy") return "Vacancy";
-  if (source === "message") return "Inbox Message";
-  if (source === "contact") return "Contact Form";
-  if (source === "service") return "Service Form";
-  return r.type || "Service Request";
+  const source = String(r.source || r.sourceType || "").toLowerCase();
+  const hit = SR_SOURCE_OPTIONS.find((s) => s.id === source);
+  if (hit) return hit.label;
+  return source || "Service Request";
+}
+
+function requestTypeLabel(type) {
+  const t = String(type || "").toLowerCase().replace(/[\s-]+/g, "_");
+  return SR_GROUPS.find((g) => g.id === t)?.label || type || "Custom";
 }
 
 function requestSourceType(r) {
-  const source = r.sourceType || r.type;
-  if (source === "service") return "service";
-  if (source === "vacancy") return "vacancy";
-  if (source === "message") return "message";
-  return "contact";
+  return String(r.source || r.sourceType || "public_form").toLowerCase();
 }
 
 function matchesServiceRequestFilters(r, filters) {
-  const spam = isSpamReq(r);
   const groups = filters.groups || [];
   const statuses = filters.statuses || [];
   const sources = filters.sources || [];
+  const typeKey = String(r.requestType || r._group || r.serviceNeeded || "custom").toLowerCase().replace(/[\s-]+/g, "_");
 
-  if (groups.length === 0) {
-    if (spam) return false;
-  } else {
-    const wantsSpam = groups.includes("spam");
-    const normalGroups = groups.filter((g) => g !== "spam");
-    let groupMatch = false;
-    if (wantsSpam && (spam || r.autoSpam)) groupMatch = true;
-    if (normalGroups.length && normalGroups.includes(r._group) && !spam) groupMatch = true;
-    if (!groupMatch) return false;
-  }
-
-  if (statuses.length && !statuses.includes(r.status || "new")) return false;
+  if (groups.length && !groups.includes(typeKey)) return false;
+  if (statuses.length && !statuses.includes(String(r.status || "new").toLowerCase().replace(/[\s-]+/g, "_"))) return false;
   if (sources.length && !sources.includes(requestSourceType(r))) return false;
 
   const q = String(filters.query || "").trim().toLowerCase();
   if (q) {
     const hay = [
-      r.id, r.name, r.companyName, r.email, r.phone, r.serviceNeeded,
-      r.subject, r.message, r.status, r.sourcePath, r.type, r.sourceType,
-      r.serviceGroup, r.serviceCategory, sourceLabelForRequest(r),
+      r.id, r.requestNumber, r.contactName, r.name, r.companyName,
+      r.contactEmail, r.email, r.contactPhone, r.phone,
+      r.requestType, r.serviceNeeded, r.subject, r.description, r.message,
+      r.status, r.priority, r.assignedAdminId, sourceLabelForRequest(r),
     ].filter(Boolean).join(" ").toLowerCase();
     if (!hay.includes(q)) return false;
   }
@@ -1150,7 +1152,7 @@ function ServiceRequestFilterModal({
             />
           </div>
           <div className="crm-sr-filter-modal__section">
-            <div className="crm-sr-filter-modal__section-title">Service group</div>
+            <div className="crm-sr-filter-modal__section-title">Request type</div>
             <div className="crm-sr-filter-tags">
               {SR_FILTER_GROUPS.map((g) => (
                 <button
@@ -1257,58 +1259,46 @@ function sortServiceRequests(list, sort) {
 }
 
 const SR_GROUP_COLORS = {
-  "vacancy":     { bg: "#e0f2fe", text: "#0369a1" },
-  "immigration": { bg: "#ede9fe", text: "#6d28d9" },
-  "labour-hire": { bg: "#fef3c7", text: "#92400e" },
-  "recruitment": { bg: "#dcfce7", text: "#166534" },
-  "training":    { bg: "#fce7f3", text: "#9d174d" },
-  "contact":     { bg: "#f1f5f9", text: "#334155" },
-  "other":       { bg: "#f4f4f5", text: "#52525b" },
-  "spam":        { bg: "#fee2e2", text: "#b91c1c" },
+  consultation:  { bg: "#e0f2fe", text: "#0369a1" },
+  website_build: { bg: "#dcfce7", text: "#166534" },
+  domain:        { bg: "#ede9fe", text: "#6d28d9" },
+  hosting:       { bg: "#fef3c7", text: "#92400e" },
+  vps:           { bg: "#ffedd5", text: "#c2410c" },
+  email:         { bg: "#fce7f3", text: "#9d174d" },
+  migration:     { bg: "#e0e7ff", text: "#3730a3" },
+  ai_automation: { bg: "#f5f3ff", text: "#6d28d9" },
+  custom:        { bg: "#f1f5f9", text: "#334155" },
 };
 
-function isSpamReq(r)  { return r.status === "spam"; }
+function isSpamReq() { return false; }
 
 function getServiceRequestGroup(r) {
-  if (r.serviceGroup) return r.serviceGroup;
-  if (r.type === "vacancy") return "vacancy";
-  if (r.type === "service") {
-    const svc = String(r.serviceNeeded || "").toLowerCase();
-    if (/recruit|talent acquisition|talent marketing|advertising.*talent|advertising.*sourc/.test(svc)) return "recruitment";
-    if (/immigration|visa|passport|work.?permit|mobility service/.test(svc)) return "immigration";
-    if (/labour.?hire|labor.?hire|workforce solution|workforce management|onboard|mobil/.test(svc)) return "labour-hire";
-    if (/training|job.?ready|course|certificate|upskill/.test(svc)) return "training";
-    if (/hr|workforce support|advisory|consulting/.test(svc)) return "other";
-    return "other";
-  }
-  const hay = [r.serviceNeeded, r.subject, r.message, r.sourcePath]
-    .filter(Boolean).join(" ").toLowerCase();
-  if (/visa|passport|immigration|work.?permit/.test(hay)) return "immigration";
-  if (/labour.?hire|labor.?hire|shutdown|operations.?support/.test(hay)) return "labour-hire";
-  if (/recruit|staffing|manpower|workforce|sourcing|hiring/.test(hay)) return "recruitment";
-  if (/training|course|certificate|upskill/.test(hay)) return "training";
-  if (r.type === "contact" || !hay) return "contact";
-  return "other";
+  const t = String(r.requestType || r.serviceNeeded || r.serviceGroup || "custom")
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (SR_GROUPS.some((g) => g.id === t)) return t;
+  return "custom";
 }
 
 function srEmailButtonProps(r) {
-  const subject = r.serviceNeeded || r.subject || "Service request";
+  const subject = r.subject || r.serviceNeeded || "Service request";
+  const name = r.contactName || r.name || "";
+  const email = r.contactEmail || r.email || "";
   return {
-    email: r.email,
-    name: r.name,
+    email,
+    name,
     sourceType: "service-request",
     sourceLabel: "Service Request",
     sourceId: r.id,
-    subject: "Glondiasites - " + subject,
-    body: "Hello " + (r.name || "") + ",\n\nThank you for contacting Glondiasites about " + subject + ".\n\n",
+    subject: "Glondia — " + subject,
+    body: "Hello " + name + ",\n\nThank you for contacting Glondia about " + subject + ".\n\n",
   };
 }
 
-function ServiceRequestActions({ r, busy, copiedId, onCopy, onView, onAgent, onSpam, onNotSpam, onDelete, compact = false }) {
-  const spam = isSpamReq(r);
+function ServiceRequestActions({ r, busy, copiedId, onCopy, onView, onAgent, onDelete, compact = false }) {
   return (
     <div className={"crm-sr-card__actions" + (compact ? " crm-sr-card__actions--compact" : "")}>
-      {r.email && (
+      {(r.contactEmail || r.email) && typeof window !== "undefined" && window.CrmEmailActionButton && (
         <window.CrmEmailActionButton
           className="crm-sr-action-btn crm-sr-action-btn--icon"
           {...srEmailButtonProps(r)}
@@ -1332,11 +1322,6 @@ function ServiceRequestActions({ r, busy, copiedId, onCopy, onView, onAgent, onS
         {!compact && <span>Agent</span>}
       </button>
       <button type="button" className="crm-sr-action-btn" onClick={() => onView(r)}>View</button>
-      {spam ? (
-        <button type="button" className="crm-sr-action-btn" onClick={() => onNotSpam(r)} disabled={busy}>Not spam</button>
-      ) : (
-        <button type="button" className="crm-sr-action-btn" onClick={() => onSpam(r)} disabled={busy}>Spam</button>
-      )}
       <button type="button" className="crm-sr-action-btn crm-sr-action-btn--danger" onClick={() => onDelete(r)} disabled={busy}>Delete</button>
     </div>
   );
@@ -1368,9 +1353,8 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
   const groupCounts = React.useMemo(() => {
     const counts = {};
     withGroup.forEach((r) => {
-      const g = r._group || "other";
+      const g = r._group || "custom";
       counts[g] = (counts[g] || 0) + 1;
-      if (isSpamReq(r) || r.autoSpam) counts.spam = (counts.spam || 0) + 1;
     });
     return counts;
   }, [withGroup]);
@@ -1445,10 +1429,11 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
 
   function copyContact(r) {
     const lines = [
-      r.name ? `Name: ${r.name}` : "",
-      r.email ? `Email: ${r.email}` : "",
-      r.phone ? `Phone: ${r.phone}` : "",
-      r.id ? `Ref: ${r.id}` : "",
+      (r.contactName || r.name) ? `Name: ${r.contactName || r.name}` : "",
+      (r.contactEmail || r.email) ? `Email: ${r.contactEmail || r.email}` : "",
+      (r.contactPhone || r.phone) ? `Phone: ${r.contactPhone || r.phone}` : "",
+      r.requestNumber ? `Ref: ${r.requestNumber}` : (r.id ? `Ref: ${r.id}` : ""),
+      `Type: ${requestTypeLabel(r.requestType)}`,
       `Source: ${sourceLabelForRequest(r)}`,
     ].filter(Boolean);
     copyToClipboard(lines.join("\n"));
@@ -1461,17 +1446,40 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
   }
 
   const filtersActive = activeFilterCount > 0 || (filters.sort && filters.sort !== "newest");
-  const spamFilterActive = (filters.groups || []).includes("spam");
 
   return (
     <div className="crm-sr-board">
       <div className="crm-section-head">
         <div>
           <div className="crm-section-title">Service Requests</div>
-          <div className="crm-section-sub">Website enquiries from contact forms, vacancies, and inbox messages.</div>
+          <div className="crm-section-sub">Consultations, builds, and setup intake — separate from support tickets.</div>
         </div>
         {reload && <button className="btn sm" onClick={reload}>Reload</button>}
       </div>
+
+      {/* Quick status chips */}
+      {!loading && !error && (
+        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {SR_STATUS_OPTIONS.map((s) => {
+            const active = s.id === "all"
+              ? !(filters.statuses || []).length
+              : (filters.statuses || []).includes(s.id);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                className={"crm-sr-filter-tag" + (active ? " is-selected" : "")}
+                onClick={() => {
+                  if (s.id === "all") setFilters((prev) => ({ ...prev, statuses: [] }));
+                  else setFilters((prev) => ({ ...prev, statuses: [s.id] }));
+                }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {loading && <div className="crm-sr-loading">Loading…</div>}
       {error && (
@@ -1531,49 +1539,53 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
           {requests.length === 0 && (
             <div className="crm-empty">
               <div className="crm-empty__title">No service requests yet</div>
-              <div className="crm-empty__body">Website contact and service enquiries will appear here.</div>
+              <div className="crm-empty__body">Consultations and setup enquiries from the public site or customer dashboard will appear here.</div>
             </div>
           )}
           {requests.length > 0 && filtered.length === 0 && (
             <div className="crm-empty">
-              <div className="crm-empty__title">{spamFilterActive ? "No spam" : "No results"}</div>
-              <div className="crm-empty__body">{spamFilterActive ? "Nothing has been flagged or marked as spam." : "No requests match your search or filters."}</div>
+              <div className="crm-empty__title">No results</div>
+              <div className="crm-empty__body">No requests match your search or filters.</div>
             </div>
           )}
 
+          <div className={"crm-sr-layout" + (activeReq ? " has-detail" : "")} style={activeReq ? { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 380px)", gap: 14, alignItems: "start" } : undefined}>
+            <div>
           {viewMode === "grid" && filtered.length > 0 && (
             <div className="crm-sr-grid">
               {filtered.map((r) => {
-                const gc = SR_GROUP_COLORS[r._group] || SR_GROUP_COLORS["other"];
-                const spam = isSpamReq(r);
+                const gc = SR_GROUP_COLORS[r._group] || SR_GROUP_COLORS.custom;
+                const name = r.contactName || r.name || "Unknown";
+                const email = r.contactEmail || r.email;
+                const phone = r.contactPhone || r.phone;
+                const desc = r.description || r.message || "";
                 return (
-                  <div key={r.id} className={"crm-sr-card" + (spam ? " is-spam" : "")}>
+                  <div
+                    key={r.id}
+                    className={"crm-sr-card" + (activeReq?.id === r.id ? " is-selected" : "")}
+                    onClick={() => setActiveReq(r)}
+                    style={{ cursor: "pointer" }}
+                  >
                     <div className="crm-sr-card__banner" style={{ background: gc.bg }} />
                     <div className="crm-sr-card__head">
-                      <span className="crm-sr-card__badge" style={{ background: gc.bg, color: gc.text }}>{groupLabel(r._group)}</span>
-                      <span className={"crm-sr-card__status crm-sr-status--" + (r.status || "new")}>{r.status || "new"}</span>
+                      <span className="crm-sr-card__badge" style={{ background: gc.bg, color: gc.text }}>{requestTypeLabel(r.requestType || r._group)}</span>
+                      <span className={"crm-sr-card__status crm-sr-status--" + String(r.status || "new").replace(/_/g, "-")}>{r.status || "new"}</span>
                     </div>
-                    {!spam && r.autoSpam && (
-                      <div className="crm-sr-spam-badge" title={(r.spamReasons || []).join(", ")}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                        Likely spam
-                      </div>
-                    )}
                     <div className="crm-sr-ticket-meta">
-                      <span>Ref: {r.id}</span>
-                      <span>Source: {sourceLabelForRequest(r)}</span>
+                      <span>{r.requestNumber || r.id}</span>
+                      <span style={{ textTransform: "capitalize" }}>{r.priority || "normal"}</span>
                     </div>
-                    <div className="crm-sr-card__name">{r.name || "Unknown"}</div>
+                    <div className="crm-sr-card__name">{name}</div>
                     {r.companyName && <div className="crm-sr-card__company">{r.companyName}</div>}
                     <div className="crm-sr-contact-stack">
-                      {r.email && <span><i className="fa-solid fa-envelope" aria-hidden="true" /> {r.email}</span>}
-                      {r.phone && <span><i className="fa-solid fa-phone" aria-hidden="true" /> {r.phone}</span>}
+                      {email && <span><i className="fa-solid fa-envelope" aria-hidden="true" /> {email}</span>}
+                      {phone && <span><i className="fa-solid fa-phone" aria-hidden="true" /> {phone}</span>}
                     </div>
-                    <div className="crm-sr-card__service">{r.serviceNeeded || r.subject || "—"}</div>
-                    {r.message && <div className="crm-sr-card__message">{r.message}</div>}
+                    <div className="crm-sr-card__service">{r.subject || "—"}</div>
+                    {desc && <div className="crm-sr-card__message">{desc.length > 140 ? desc.slice(0, 140) + "…" : desc}</div>}
                     <div className="crm-sr-card__footer">
                       <span className="crm-sr-card__date">{fmtDate(r.submittedAt || r.createdAt)}</span>
-                      {r.sourcePath && <span className="crm-sr-card__source">{r.sourcePath}</span>}
+                      {r.assignedAdminId && <span className="crm-sr-card__source">Assigned</span>}
                     </div>
                     <ServiceRequestActions
                       r={r}
@@ -1582,8 +1594,6 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
                       onCopy={copyContact}
                       onView={setActiveReq}
                       onAgent={openAgentForRequest}
-                      onSpam={(req) => applyAction([req.id], "spam")}
-                      onNotSpam={(req) => applyAction([req.id], "not-spam")}
                       onDelete={(req) => askDelete([req.id])}
                     />
                   </div>
@@ -1595,29 +1605,28 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
           {viewMode === "list" && filtered.length > 0 && (
             <div className="crm-sr-list">
               <div className="crm-sr-list-header">
-                <span>Ticket</span><span>Service</span><span>Contact</span><span>Status</span><span>Date</span><span>Actions</span>
+                <span>Request</span><span>Type</span><span>Contact</span><span>Status</span><span>Date</span><span>Actions</span>
               </div>
               {filtered.map((r) => {
-                const spam = isSpamReq(r);
+                const name = r.contactName || r.name || "—";
+                const email = r.contactEmail || r.email;
+                const phone = r.contactPhone || r.phone;
                 return (
-                  <div key={r.id} className={"crm-sr-list-row" + (spam ? " is-spam" : "")}>
+                  <div key={r.id} className={"crm-sr-list-row" + (activeReq?.id === r.id ? " is-selected" : "")} onClick={() => setActiveReq(r)} style={{ cursor: "pointer" }}>
                     <div>
-                      <div className="crm-sr-list-row__name">
-                        {r.name || "—"}
-                        {!spam && r.autoSpam && <span className="crm-sr-spam-tag" title={(r.spamReasons || []).join(", ")}>spam?</span>}
-                      </div>
+                      <div className="crm-sr-list-row__name">{name}</div>
                       {r.companyName && <div className="crm-sr-list-row__company">{r.companyName}</div>}
                       <div className="crm-sr-ticket-meta crm-sr-ticket-meta--inline">
-                        <span>Ref: {r.id}</span>
+                        <span>{r.requestNumber || r.id}</span>
                         <span>{sourceLabelForRequest(r)}</span>
                       </div>
                     </div>
-                    <div className="crm-sr-list-row__service">{r.serviceNeeded || r.subject || "—"}</div>
+                    <div className="crm-sr-list-row__service">{requestTypeLabel(r.requestType || r.serviceNeeded)}</div>
                     <div className="crm-sr-contact-stack crm-sr-contact-stack--list">
-                      {r.email && <span><i className="fa-solid fa-envelope" aria-hidden="true" /> {r.email}</span>}
-                      {r.phone && <span><i className="fa-solid fa-phone" aria-hidden="true" /> {r.phone}</span>}
+                      {email && <span><i className="fa-solid fa-envelope" aria-hidden="true" /> {email}</span>}
+                      {phone && <span><i className="fa-solid fa-phone" aria-hidden="true" /> {phone}</span>}
                     </div>
-                    <span className={"crm-sr-card__status crm-sr-status--" + (r.status || "new")}>{r.status || "new"}</span>
+                    <span className={"crm-sr-card__status crm-sr-status--" + String(r.status || "new").replace(/_/g, "-")}>{r.status || "new"}</span>
                     <div className="crm-sr-list-row__date">{fmtDate(r.submittedAt || r.createdAt)}</div>
                     <ServiceRequestActions
                       r={r}
@@ -1626,8 +1635,6 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
                       onCopy={copyContact}
                       onView={setActiveReq}
                       onAgent={openAgentForRequest}
-                      onSpam={(req) => applyAction([req.id], "spam")}
-                      onNotSpam={(req) => applyAction([req.id], "not-spam")}
                       onDelete={(req) => askDelete([req.id])}
                       compact
                     />
@@ -1636,6 +1643,200 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
               })}
             </div>
           )}
+            </div>
+
+            {activeReq && (
+              <aside className="card" style={{ padding: 14, position: "sticky", top: 12 }}>
+                <div className="row between" style={{ marginBottom: 10 }}>
+                  <div>
+                    <div className="mono eyebrow">{activeReq.requestNumber || activeReq.id}</div>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{activeReq.subject || "Service request"}</div>
+                  </div>
+                  <button type="button" className="icon-btn" onClick={() => setActiveReq(null)} aria-label="Close detail"><I.X /></button>
+                </div>
+
+                <div className="stack" style={{ gap: 12, fontSize: 13 }}>
+                  <section>
+                    <div className="mono eyebrow">Overview</div>
+                    <div>Type: <strong>{requestTypeLabel(activeReq.requestType)}</strong></div>
+                    <div>Status: <strong>{activeReq.status}</strong></div>
+                    <div>Priority: <strong>{activeReq.priority || "normal"}</strong></div>
+                    <div>Source: <strong>{sourceLabelForRequest(activeReq)}</strong></div>
+                    <div>Created: {fmtDate(activeReq.createdAt || activeReq.submittedAt)}</div>
+                    {activeReq.assignedAdminId && <div>Assigned: {activeReq.assignedAdminId}</div>}
+                  </section>
+
+                  <section>
+                    <div className="mono eyebrow">Contact</div>
+                    <div><strong>{activeReq.contactName || activeReq.name || "—"}</strong></div>
+                    <div>{activeReq.contactEmail || activeReq.email || "No email"}</div>
+                    {(activeReq.contactPhone || activeReq.phone) && <div>{activeReq.contactPhone || activeReq.phone}</div>}
+                    {activeReq.companyName && <div>{activeReq.companyName}</div>}
+                    {activeReq.preferredContactMethod && <div>Prefer: {activeReq.preferredContactMethod}</div>}
+                  </section>
+
+                  <section>
+                    <div className="mono eyebrow">Request details</div>
+                    <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{activeReq.description || activeReq.message || "—"}</div>
+                    {activeReq.budgetRange && <div style={{ marginTop: 6 }}>Budget: {activeReq.budgetRange}</div>}
+                    {activeReq.timeline && <div>Timeline: {activeReq.timeline}</div>}
+                  </section>
+
+                  <section>
+                    <div className="mono eyebrow">Notes</div>
+                    <div style={{ whiteSpace: "pre-wrap", color: "var(--muted)", minHeight: 24 }}>{activeReq.adminNotes || "No admin notes yet."}</div>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      style={{ marginTop: 8, width: "100%" }}
+                      placeholder="Add admin note…"
+                      defaultValue=""
+                      id={"sr-note-" + activeReq.id}
+                    />
+                    <button
+                      type="button"
+                      className="btn sm"
+                      style={{ marginTop: 6 }}
+                      disabled={busy}
+                      onClick={async () => {
+                        const el = document.getElementById("sr-note-" + activeReq.id);
+                        const note = el?.value || "";
+                        if (!note.trim()) return;
+                        setBusy(true);
+                        try {
+                          const updated = await window.HEYA_API.updateCrmServiceRequest(activeReq.id, {
+                            adminNotes: [activeReq.adminNotes, note.trim()].filter(Boolean).join("\n\n"),
+                          });
+                          setActiveReq(updated);
+                          showToast("ok", "Note saved.");
+                          if (reload) reload();
+                          if (el) el.value = "";
+                        } catch (err) {
+                          showToast("err", err.message || "Could not save note.");
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Save note
+                    </button>
+                  </section>
+
+                  <section>
+                    <div className="mono eyebrow">Metadata</div>
+                    <pre style={{ fontSize: 11, margin: 0, whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto" }}>
+                      {JSON.stringify(activeReq.metadata || {}, null, 2)}
+                    </pre>
+                    {activeReq.convertedLeadId && <div style={{ marginTop: 6 }}>Lead: {activeReq.convertedLeadId}</div>}
+                    {activeReq.convertedTicketId && <div>Ticket: {activeReq.convertedTicketId}</div>}
+                  </section>
+
+                  <section>
+                    <div className="mono eyebrow">Actions</div>
+                    <div className="stack" style={{ gap: 6 }}>
+                      <button type="button" className="btn sm" disabled={busy} onClick={async () => {
+                        setBusy(true);
+                        try {
+                          const updated = await window.HEYA_API.markCrmServiceRequestContacted(activeReq.id, "Marked contacted from CRM");
+                          setActiveReq(updated);
+                          showToast("ok", "Marked contacted.");
+                          if (reload) reload();
+                        } catch (err) { showToast("err", err.message || "Failed"); }
+                        finally { setBusy(false); }
+                      }}>Mark contacted</button>
+
+                      <label className="label" style={{ marginBottom: 0 }}>Change status</label>
+                      <select
+                        className="input"
+                        value={activeReq.status || "new"}
+                        disabled={busy}
+                        onChange={async (e) => {
+                          setBusy(true);
+                          try {
+                            const updated = await window.HEYA_API.updateCrmServiceRequest(activeReq.id, { status: e.target.value });
+                            setActiveReq(updated);
+                            showToast("ok", "Status updated.");
+                            if (reload) reload();
+                          } catch (err) { showToast("err", err.message || "Failed"); }
+                          finally { setBusy(false); }
+                        }}
+                      >
+                        {SR_STATUS_OPTIONS.filter((s) => s.id !== "all").map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+
+                      <label className="label" style={{ marginBottom: 0 }}>Priority</label>
+                      <select
+                        className="input"
+                        value={activeReq.priority || "normal"}
+                        disabled={busy}
+                        onChange={async (e) => {
+                          setBusy(true);
+                          try {
+                            const updated = await window.HEYA_API.updateCrmServiceRequest(activeReq.id, { priority: e.target.value });
+                            setActiveReq(updated);
+                            if (reload) reload();
+                          } catch (err) { showToast("err", err.message || "Failed"); }
+                          finally { setBusy(false); }
+                        }}
+                      >
+                        {SR_PRIORITY_OPTIONS.map((p) => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </select>
+
+                      <label className="label" style={{ marginBottom: 0 }}>Assign admin (user id)</label>
+                      <div className="row" style={{ gap: 6 }}>
+                        <input
+                          className="input"
+                          style={{ flex: 1 }}
+                          defaultValue={activeReq.assignedAdminId || ""}
+                          id={"sr-assign-" + activeReq.id}
+                          placeholder="Admin user UUID"
+                        />
+                        <button type="button" className="btn sm" disabled={busy} onClick={async () => {
+                          const el = document.getElementById("sr-assign-" + activeReq.id);
+                          setBusy(true);
+                          try {
+                            const updated = await window.HEYA_API.updateCrmServiceRequest(activeReq.id, {
+                              assignedAdminId: el?.value?.trim() || null,
+                            });
+                            setActiveReq(updated);
+                            showToast("ok", "Assignment saved.");
+                            if (reload) reload();
+                          } catch (err) { showToast("err", err.message || "Failed"); }
+                          finally { setBusy(false); }
+                        }}>Save</button>
+                      </div>
+
+                      <button type="button" className="btn sm" disabled={busy || !!activeReq.convertedLeadId} onClick={async () => {
+                        setBusy(true);
+                        try {
+                          const updated = await window.HEYA_API.convertCrmServiceRequestToLead(activeReq.id);
+                          setActiveReq(updated);
+                          showToast("ok", "Converted to lead reference.");
+                          if (reload) reload();
+                        } catch (err) { showToast("err", err.message || "Failed"); }
+                        finally { setBusy(false); }
+                      }}>{activeReq.convertedLeadId ? "Lead linked" : "Convert to lead"}</button>
+
+                      <button type="button" className="btn sm" disabled={busy || !!activeReq.convertedTicketId} onClick={async () => {
+                        setBusy(true);
+                        try {
+                          const updated = await window.HEYA_API.convertCrmServiceRequestToTicket(activeReq.id);
+                          setActiveReq(updated);
+                          showToast("ok", "Converted to support ticket.");
+                          if (reload) reload();
+                        } catch (err) { showToast("err", err.message || "Failed"); }
+                        finally { setBusy(false); }
+                      }}>{activeReq.convertedTicketId ? "Ticket linked" : "Convert to ticket"}</button>
+                    </div>
+                  </section>
+                </div>
+              </aside>
+            )}
+          </div>
         </React.Fragment>
       )}
 
@@ -1672,67 +1873,6 @@ function CrmServiceRequests({ requests = [], loading = false, error = null, relo
         </div>
       )}
 
-      {activeReq && (
-        <div className="publish-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) setActiveReq(null); }}>
-          <div className="edit-modal" style={{ maxWidth: 540 }}>
-            <div className="edit-modal-head">
-              <div>
-                <div className="mono eyebrow">{groupLabel(activeReq._group)} · {sourceLabelForRequest(activeReq)}</div>
-                <div className="edit-modal-title">{activeReq.subject || activeReq.serviceNeeded || "Service Request"}</div>
-              </div>
-              <button className="icon-btn" onClick={() => setActiveReq(null)}><I.X /></button>
-            </div>
-            <div className="edit-modal-body">
-              <div className="stack" style={{ gap: 12 }}>
-                <div className="crm-sr-ticket-meta crm-sr-ticket-meta--detail">
-                  <span>Ref: {activeReq.id}</span>
-                  <span>Source: {sourceLabelForRequest(activeReq)}</span>
-                </div>
-                <div className="inbox-read-card">
-                  <div className="mono eyebrow">From</div>
-                  <div className="inbox-read-card__name">{activeReq.name || "—"}</div>
-                  {activeReq.companyName && <div className="inbox-read-card__line">{activeReq.companyName}</div>}
-                  <div className="inbox-read-card__line">{activeReq.email || "No email"}</div>
-                  {activeReq.phone && <div className="inbox-read-card__line">{activeReq.phone}</div>}
-                </div>
-                {activeReq.serviceNeeded && (
-                  <div style={{ fontSize: 13 }}><strong>Service:</strong> {activeReq.serviceNeeded}</div>
-                )}
-                {activeReq.message && (
-                  <div style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, padding: "12px 16px", background: "#f9fafb", borderRadius: 8, border: "1px solid var(--line)" }}>
-                    {activeReq.message}
-                  </div>
-                )}
-                {activeReq.sourcePath && (
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>Page: {activeReq.sourcePath}</div>
-                )}
-              </div>
-            </div>
-            <div className="edit-modal-foot">
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>{fmtDate(activeReq.submittedAt || activeReq.createdAt)}</span>
-              <button type="button" className="btn sm" onClick={() => copyContact(activeReq)}>
-                {copiedId === activeReq.id ? "Copied ✓" : "Copy"}
-              </button>
-              <button type="button" className="btn sm" onClick={() => openAgentForRequest(activeReq)} disabled={busy}>
-                <i className="fa-solid fa-robot" aria-hidden="true" /> Agent
-              </button>
-              {isSpamReq(activeReq)
-                ? <button className="btn sm" onClick={() => applyAction([activeReq.id], "not-spam")} disabled={busy}>Not spam</button>
-                : <button className="btn sm" onClick={() => applyAction([activeReq.id], "spam")} disabled={busy}>Mark spam</button>}
-              <button className="btn sm danger" onClick={() => askDelete([activeReq.id])} disabled={busy}>Delete</button>
-              {activeReq.email && (
-                <window.CrmEmailActionButton
-                  className="btn accent sm"
-                  {...srEmailButtonProps(activeReq)}
-                >
-                  Email
-                </window.CrmEmailActionButton>
-              )}
-              <button className="btn" onClick={() => setActiveReq(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1788,11 +1928,81 @@ function openAgentForEmailRow(row, listTitle) {
   window.dispatchEvent(new CustomEvent("heya:crm-agent-context", { detail: payload }));
 }
 
-function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
+function CrmEmailLists({ talentPool, applicants, employerSubmissions, serviceRequests = [] }) {
   const [copiedKey,        setCopiedKey]        = React.useState(null);
   const [copiedVisible,    setCopiedVisible]     = React.useState(false);
   const [emailSearch,      setEmailSearch]       = React.useState("");
-  const [activeEmailGroup, setActiveEmailGroup]  = React.useState("all");
+  const [activeEmailGroup, setActiveEmailGroup]  = React.useState("clients");
+  const [clientContacts,   setClientContacts]    = React.useState([]);
+  const [srContacts,       setSrContacts]        = React.useState([]);
+  const [contactsLoading,  setContactsLoading]   = React.useState(true);
+  const [contactsError,    setContactsError]     = React.useState("");
+  const [syncBusy,         setSyncBusy]          = React.useState(false);
+  const [syncNote,         setSyncNote]          = React.useState("");
+  const [captureEmail,     setCaptureEmail]      = React.useState("");
+  const [captureName,      setCaptureName]       = React.useState("");
+  const [captureBusy,      setCaptureBusy]       = React.useState(false);
+
+  function loadCrmContacts() {
+    setContactsLoading(true);
+    setContactsError("");
+    Promise.all([
+      window.HEYA_API.listCrmContacts({ listType: "client_accounts", limit: 5000 }).catch(() => []),
+      window.HEYA_API.listCrmContacts({ listType: "service_requests", limit: 5000 }).catch(() => []),
+    ])
+      .then(([clients, srs]) => {
+        setClientContacts(Array.isArray(clients) ? clients : []);
+        setSrContacts(Array.isArray(srs) ? srs : []);
+      })
+      .catch((err) => setContactsError(err.message || "Could not load CRM contacts."))
+      .finally(() => setContactsLoading(false));
+  }
+
+  React.useEffect(() => { loadCrmContacts(); }, []);
+
+  async function handleSyncClients() {
+    setSyncBusy(true);
+    setSyncNote("");
+    setContactsError("");
+    try {
+      const result = await window.HEYA_API.syncCrmContacts();
+      setSyncNote(
+        `Synced ${result?.clientEmailsCaptured ?? 0} client email(s)`
+        + (result?.serviceRequestEmailsCaptured != null
+          ? ` · ${result.serviceRequestEmailsCaptured} service-request email(s)`
+          : "")
+        + ".",
+      );
+      await loadCrmContacts();
+    } catch (err) {
+      setContactsError(err.message || "Sync failed.");
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
+  async function handleCapture() {
+    const email = captureEmail.trim();
+    if (!email) return;
+    setCaptureBusy(true);
+    setContactsError("");
+    try {
+      await window.HEYA_API.captureCrmContact({
+        email,
+        name: captureName.trim() || email.split("@")[0],
+        source: "crm_manual",
+        listType: "client_accounts",
+      });
+      setCaptureEmail("");
+      setCaptureName("");
+      setSyncNote("Contact captured.");
+      await loadCrmContacts();
+    } catch (err) {
+      setContactsError(err.message || "Could not capture email.");
+    } finally {
+      setCaptureBusy(false);
+    }
+  }
 
   function copyList(emails, key) {
     copyToClipboard(emails.join(", "));
@@ -1814,13 +2024,70 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
     return map;
   }, [applicants]);
 
+  // Prefer DB-backed CRM members; fall back to live service-request props if DB empty.
+  const srFallbackRows = React.useMemo(() => {
+    const seen = new Set();
+    return (serviceRequests || [])
+      .filter((r) => r.contactEmail || r.email)
+      .map((r) => {
+        const email = String(r.contactEmail || r.email || "").toLowerCase();
+        if (!email || seen.has(email)) return null;
+        seen.add(email);
+        return {
+          id: r.id,
+          name: r.contactName || r.name || email.split("@")[0],
+          email,
+          tag: r.requestType || "Service request",
+          listTitle: "Service Request Contacts",
+          databaseId: r.userId || r.id,
+          userId: r.userId || null,
+          role: null,
+        };
+      })
+      .filter(Boolean);
+  }, [serviceRequests]);
+
   const lists = React.useMemo(() => [
+    {
+      key: "clients",
+      title: "Client Accounts",
+      rows: clientContacts.map((c) => ({
+        id: c.id,
+        name: c.name || c.email,
+        email: c.email,
+        tag: c.role || "Client",
+        listTitle: "Client Accounts",
+        databaseId: c.databaseId || c.userId || c.id,
+        userId: c.userId || null,
+        role: c.role || null,
+        accountStatus: c.accountStatus || null,
+      })),
+      emails: clientContacts.map((c) => c.email),
+    },
+    {
+      key: "service-requests",
+      title: "Service Request Contacts",
+      rows: (srContacts.length
+        ? srContacts.map((c) => ({
+          id: c.id,
+          name: c.name || c.email,
+          email: c.email,
+          tag: "Service request",
+          listTitle: "Service Request Contacts",
+          databaseId: c.databaseId || c.userId || c.id,
+          userId: c.userId || null,
+          role: null,
+        }))
+        : srFallbackRows),
+      emails: (srContacts.length ? srContacts.map((c) => c.email) : srFallbackRows.map((r) => r.email)),
+    },
     {
       key: "talent",
       title: "Talent Pool",
       rows: talentPool.filter((t) => t.email).map((t) => ({
         name: t.name, email: t.email, tag: t.source || "Talent Pool",
         listTitle: "Talent Pool", companyName: null, positionTitle: null, role: t.role || null,
+        databaseId: t.id || null, userId: t.userId || t.id || null,
       })),
       emails: talentPool.filter((t) => t.email).map((t) => t.email),
     },
@@ -1830,6 +2097,7 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
       rows: applicants.filter((a) => a.email).map((a) => ({
         name: a.name, email: a.email, tag: a.positionTitle || "Application",
         listTitle: "All Applicants", companyName: null, positionTitle: a.positionTitle || null, role: null,
+        databaseId: a.id || null, userId: a.userId || a.id || null,
       })),
       emails: applicants.filter((a) => a.email).map((a) => a.email),
     },
@@ -1839,6 +2107,7 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
       rows: employerSubmissions.filter((e) => e.email).map((e) => ({
         name: e.companyName || e.name, email: e.email, tag: "Employer",
         listTitle: "Employer Leads", companyName: e.companyName || null, positionTitle: null, role: null,
+        databaseId: e.id || null, userId: e.userId || e.id || null,
       })),
       emails: employerSubmissions.filter((e) => e.email).map((e) => e.email),
     },
@@ -1849,16 +2118,17 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
       rows: apps.map((a) => ({
         name: a.name, email: a.email, tag: a.status || "Applicant",
         listTitle: `Position: ${title}`, companyName: null, positionTitle: title, role: null,
+        databaseId: a.id || null, userId: a.userId || a.id || null,
       })),
       emails: apps.map((a) => a.email),
     })),
-  ], [talentPool, applicants, employerSubmissions, byPosition]);
+  ], [clientContacts, srContacts, srFallbackRows, talentPool, applicants, employerSubmissions, byPosition]);
 
   // All flat rows for search / count
   const allRows = React.useMemo(() => lists.flatMap((l) => l.rows), [lists]);
   const totalCount = allRows.length;
 
-  // Group chips
+  // Group chips — Client Accounts first
   const groupChips = React.useMemo(() => [
     { key: "all", label: "All Emails", count: totalCount },
     ...lists.map((l) => ({ key: l.key, label: l.title, count: l.rows.length })),
@@ -1871,9 +2141,17 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
       .filter((l) => activeEmailGroup === "all" || l.key === activeEmailGroup)
       .map((l) => ({
         ...l,
-        rows: q ? l.rows.filter((r) => emailSearchText(r).includes(q)) : l.rows,
+        rows: q
+          ? l.rows.filter((r) => {
+            const hay = [
+              r.name, r.email, r.tag, r.listTitle, r.databaseId, r.userId, r.role,
+              emailSearchText ? emailSearchText(r) : "",
+            ].filter(Boolean).join(" ").toLowerCase();
+            return hay.includes(q);
+          })
+          : l.rows,
       }))
-      .filter((l) => l.rows.length > 0);
+      .filter((l) => l.rows.length > 0 || (activeEmailGroup !== "all" && l.key === activeEmailGroup));
   }, [lists, q, activeEmailGroup]);
 
   const visibleRows = React.useMemo(() => filteredLists.flatMap((l) => l.rows), [filteredLists]);
@@ -1890,9 +2168,60 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
       <div className="crm-section-head">
         <div>
           <div className="crm-section-title">Email Lists</div>
-          <div className="crm-section-sub">Organised email pools from talent, applicants, and employers. Copy lists for campaigns.</div>
+          <div className="crm-section-sub">
+            Client account emails from the main database (name + email + database ID), plus service-request and other contact pools.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn sm" disabled={syncBusy || contactsLoading} onClick={handleSyncClients}>
+            {syncBusy ? "Syncing…" : "Sync client emails"}
+          </button>
+          <button className="btn ghost sm" disabled={contactsLoading} onClick={loadCrmContacts}>Refresh</button>
         </div>
       </div>
+
+      {contactsError && (
+        <div className="card" style={{ padding: "10px 14px", marginBottom: 12, color: "var(--danger)", fontSize: 13 }}>
+          {contactsError}
+        </div>
+      )}
+      {syncNote && (
+        <div className="card" style={{ padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "var(--muted)" }}>
+          {syncNote}
+        </div>
+      )}
+
+      {/* Capture email */}
+      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>
+          Capture contact email
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <input
+            className="ifield"
+            style={{ minWidth: 160, flex: "1 1 140px" }}
+            placeholder="Name"
+            value={captureName}
+            onChange={(e) => setCaptureName(e.target.value)}
+          />
+          <input
+            className="ifield"
+            style={{ minWidth: 200, flex: "1 1 200px" }}
+            type="email"
+            placeholder="email@company.com"
+            value={captureEmail}
+            onChange={(e) => setCaptureEmail(e.target.value)}
+          />
+          <button className="btn accent sm" disabled={captureBusy || !captureEmail.trim()} onClick={handleCapture}>
+            {captureBusy ? "Saving…" : "Save email"}
+          </button>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+          Stores under CRM Client Accounts with name. Link to a user database ID via Sync after the client registers.
+        </div>
+      </div>
+
+      {contactsLoading && <div style={{ padding: "8px 0", fontSize: 13, color: "var(--muted)" }}>Loading client emails from database…</div>}
 
       {/* Search + groups */}
       <div className="crm-email-search">
@@ -1971,9 +2300,16 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
             {list.rows.length === 0 && (
               <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--muted)" }}>No emails in this list.</div>
             )}
-            {list.rows.slice(0, 40).map((row, i) => (
-              <div key={i} className="crm-email-row">
-                <div className="crm-email-row__name">{row.name || "—"}</div>
+            {list.rows.slice(0, 80).map((row, i) => (
+              <div key={row.id || row.email + i} className="crm-email-row">
+                <div className="crm-email-row__name">
+                  {row.name || "—"}
+                  {(row.databaseId || row.userId) && (
+                    <div className="crm-tbl__muted" style={{ fontSize: 10, marginTop: 2 }} title="Database ID">
+                      ID: {row.databaseId || row.userId}
+                    </div>
+                  )}
+                </div>
                 <div className="crm-email-row__email">{row.email}</div>
                 <span className="crm-email-row__tag">{row.tag}</span>
                 <window.CrmEmailActionButton
@@ -1982,7 +2318,7 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
                   name={row.name}
                   sourceType="email-list"
                   sourceLabel={row.listTitle || "Email List"}
-                  sourceId={row.id || row.email}
+                  sourceId={row.databaseId || row.userId || row.id || row.email}
                   subject={`Glondiasites - ${row.listTitle || row.tag || "Email list"}`}
                 >
                   Email
@@ -1991,9 +2327,9 @@ function CrmEmailLists({ talentPool, applicants, employerSubmissions }) {
                 <button className="crm-email-copy-btn" onClick={() => openAgentForEmailRow(row, list.title)} title="Open in AI Chat">Ask AI</button>
               </div>
             ))}
-            {list.rows.length > 40 && (
+            {list.rows.length > 80 && (
               <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--muted)", borderTop: "1px solid var(--line)" }}>
-                +{list.rows.length - 40} more — use Copy All to get full list.
+                +{list.rows.length - 80} more — use Copy All to get full list.
               </div>
             )}
           </div>
@@ -3578,12 +3914,15 @@ function CRMWorkspace({
     if (onTabChange) onTabChange(id);
   }
 
-  // Fetch service requests once on mount
+  // Fetch service requests once on mount (real CRM ServiceRequest API)
   function loadServiceRequests() {
     setSrLoading(true);
     setSrError(null);
-    window.HEYA_API.getCrmServiceRequests()
-      .then((d) => { setServiceRequests(d.serviceRequests || []); setSrLoading(false); })
+    window.HEYA_API.getCrmServiceRequests({ limit: 100 })
+      .then((d) => {
+        setServiceRequests(Array.isArray(d.serviceRequests) ? d.serviceRequests : []);
+        setSrLoading(false);
+      })
       .catch((err) => { setSrError(err.message || "Could not load service requests."); setSrLoading(false); });
   }
 
@@ -3630,6 +3969,7 @@ function CRMWorkspace({
             talentPool={talentPool}
             applicants={applicants}
             employerSubmissions={employerSubmissions}
+            serviceRequests={serviceRequests}
           />
         )}
         {tab === "ai-chat" && <CrmAiChat />}

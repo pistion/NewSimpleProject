@@ -1,5 +1,5 @@
 import { prisma } from './db.js';
-import { signAccessToken, issueRefreshToken } from './authService.js';
+import { signAccessToken, issueRefreshToken, ensureClientId } from './authService.js';
 import { randomBytes } from 'node:crypto';
 
 const GITHUB_CLIENT_ID     = process.env.GITHUB_CLIENT_ID;
@@ -54,30 +54,58 @@ export async function handleGitHubCallback(code) {
     throw Object.assign(new Error('Your GitHub account has no verified public email. Please add one and retry.'), { status: 400 });
   }
 
+  // Store emails the same way as password register: trim + lowercase.
+  const email = String(ghUser.email || '').trim().toLowerCase();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw Object.assign(new Error('A valid GitHub email address is required.'), { status: 400 });
+  }
+
   // Find or create the user by GitHub ID stored in profileDetails, falling back to email.
   let user = await prisma.user.findFirst({ where: { profileDetails: { contains: `"githubId":"${ghUser.id}"` } } })
-          ?? await prisma.user.findUnique({ where: { email: ghUser.email } });
+          ?? await prisma.user.findUnique({ where: { email } });
 
   if (user) {
     // Merge GitHub ID into profileDetails if not already there.
     const details = safeJson(user.profileDetails);
+    const patch = {};
     if (!details.githubId) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { profileDetails: JSON.stringify({ ...details, githubId: ghUser.id, githubLogin: ghUser.login }) },
-      });
+      patch.profileDetails = JSON.stringify({ ...details, githubId: ghUser.id, githubLogin: ghUser.login });
+    }
+    // Heal legacy mixed-case emails so uniqueness/login stay consistent.
+    if (user.email !== email) patch.email = email;
+    if (Object.keys(patch).length) {
+      user = await prisma.user.update({ where: { id: user.id }, data: patch });
     }
   } else {
     // New user — create account. No password set for OAuth-only users.
     const details = JSON.stringify({ githubId: ghUser.id, githubLogin: ghUser.login });
     user = await prisma.user.create({
       data: {
-        email:        ghUser.email,
+        email,
         name:         ghUser.name,
         passwordHash: randomBytes(32).toString('hex'), // unusable random hash
         profileDetails: details,
       },
     });
+  }
+
+  // Assign the glondiac-XXXX client reference (no-op when already set).
+  user = await ensureClientId(user);
+
+  // Capture OAuth account email into CRM Client Accounts (name + database id).
+  try {
+    const { captureContactEmail } = await import('./crmContactsService.js');
+    await captureContactEmail({
+      email: user.email,
+      name: user.name || user.email?.split('@')[0],
+      userId: user.id,
+      source: 'github_oauth',
+      listType: 'client_accounts',
+      role: user.role,
+      accountStatus: user.accountStatus || 'active',
+    });
+  } catch (err) {
+    console.warn('[github-oauth] CRM contact capture skipped:', err.message);
   }
 
   const accessToken  = signAccessToken(user);

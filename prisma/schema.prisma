@@ -15,6 +15,11 @@ datasource db {
 
 model User {
   id                       String    @id @default(uuid())
+  // Human-friendly customer reference (glondiac-XXXX), assigned at signup and
+  // backfilled on first sign-in for older accounts.
+  clientId                 String?   @unique @map("client_id")
+  // IP address recorded when the account was created / client ID assigned.
+  signupIp                 String?   @map("signup_ip")
   email                    String    @unique
   passwordHash             String    @map("password_hash")
   name                     String?
@@ -46,11 +51,41 @@ model User {
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
   refreshTokens RefreshToken[]
+  projects      ClientProject[]
 
   @@index([accountStatus])
   @@index([createdAt])
   @@index([promoSignupRank])
   @@map("users")
+}
+
+// ─── Client Projects ─────────────────────────────────────────────────────────
+
+model ClientProject {
+  id              String    @id @default(uuid())
+  projectCode     String    @unique @map("project_code")
+  userId          String?   @map("user_id")
+  clientId        String?   @map("client_id")
+  workspaceId     String?   @map("workspace_id")
+  name            String
+  slug            String
+  serviceType     String    @default("website") @map("service_type") // website | hosting | domain | email | vps | consultation | build | support | other
+  status          String    @default("draft") // draft | active | paused | completed | archived
+  priority        String    @default("normal")
+  description     String?
+  metadata        String    @default("{}")
+  archivedAt      DateTime? @map("archived_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, slug])
+  @@index([userId, serviceType])
+  @@index([clientId])
+  @@index([workspaceId])
+  @@index([status, createdAt])
+  @@map("client_projects")
 }
 
 // User-facing notifications (distinct from internal AuditLog history).

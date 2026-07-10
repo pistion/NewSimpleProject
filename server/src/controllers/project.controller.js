@@ -1,71 +1,86 @@
-/**
- * ProjectController
- * Handles project management as defined in 06_HOSTING_PROJECTS_DEPLOYMENTS_CONTROLLER.md
- */
+import {
+  archiveProject,
+  createProject,
+  getProject,
+  listProjectServiceTypes,
+  listProjects,
+  projectDto,
+  updateProject,
+} from '../services/projectService.js';
+
+function scope(req) {
+  return {
+    userId: req.user?.id && req.user.id !== 'local-user' ? req.user.id : null,
+    workspaceId: req.params?.workspaceId || req.body?.workspaceId || null,
+  };
+}
 
 const ProjectController = {
-  listProjects: async (req, res) => {
-    const { workspaceId } = req.params;
-    res.ok([
-      {
-        id: "p_1",
-        name: "ema-store",
-        framework: "Next.js",
-        status: "ready",
-        repo: "kora/ema-store",
-        branch: "main",
-        primaryDomain: "ema-store.glondia.app",
-        customDomain: "shop.emakora.co",
-        lastDeployAt: new Date().toISOString(),
-        deployedBy: "Sarah Kora",
-        region: "Sydney (syd1)",
-        visitors30d: 8420,
-        bandwidth30d: 28,
-        requests30d: 184000
-      }
-    ]);
+  listServiceTypes: async (_req, res) => {
+    res.ok(listProjectServiceTypes());
   },
 
-  createProject: async (req, res) => {
-    const { name, framework, repo } = req.body;
-    res.created({
-      id: "p_new",
-      name,
-      framework,
-      status: "building",
-      repo,
-      createdAt: new Date().toISOString()
-    });
+  listProjects: async (req, res, next) => {
+    try {
+      const rows = await listProjects({
+        ...scope(req),
+        includeArchived: req.query?.includeArchived === 'true',
+      });
+      res.ok(rows.map(projectDto));
+    } catch (error) {
+      next(error);
+    }
   },
 
-  getProject: async (req, res) => {
-    const { projectId } = req.params;
-    res.ok({
-      id: projectId,
-      name: "ema-store",
-      framework: "Next.js",
-      status: "ready",
-      repo: "kora/ema-store"
-    });
+  createProject: async (req, res, next) => {
+    try {
+      const project = await createProject({ ...scope(req), input: req.body || {} });
+      res.created(projectDto(project));
+    } catch (error) {
+      next(error);
+    }
   },
 
-  getProjectSummary: async (req, res) => {
-    const { projectId } = req.params;
-    res.ok({
-      id: projectId,
-      metrics: { visitors30d: 8420, bandwidth30d: 28 },
-      recentDeployments: []
-    });
+  getProject: async (req, res, next) => {
+    try {
+      const project = await getProject({ ...scope(req), projectId: req.params.projectId });
+      res.ok(projectDto(project));
+    } catch (error) {
+      next(error);
+    }
   },
 
-  updateProject: async (req, res) => {
-    const { projectId } = req.params;
-    res.ok({ id: projectId, ...req.body, updatedAt: new Date().toISOString() });
+  getProjectSummary: async (req, res, next) => {
+    try {
+      const project = await getProject({ ...scope(req), projectId: req.params.projectId });
+      res.ok({
+        project: projectDto(project),
+        metrics: { visitors30d: 0, bandwidth30d: 0, requests30d: 0 },
+        services: [],
+        recentDeployments: [],
+      });
+    } catch (error) {
+      next(error);
+    }
   },
 
-  archiveProject: async (req, res) => {
-    res.status(204).send();
-  }
+  updateProject: async (req, res, next) => {
+    try {
+      const project = await updateProject({ ...scope(req), projectId: req.params.projectId, patch: req.body || {} });
+      res.ok(projectDto(project));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  archiveProject: async (req, res, next) => {
+    try {
+      const project = await archiveProject({ ...scope(req), projectId: req.params.projectId });
+      res.ok(projectDto(project));
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 export default ProjectController;

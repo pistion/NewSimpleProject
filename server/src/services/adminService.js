@@ -6,7 +6,7 @@
  * Deployments are read from the JSON hosting store; everything else is Prisma.
  */
 import { prisma } from './db.js';
-import { readHostingStore, nowIso } from './hostingStore.js';
+import { readHostingStore, mutateHostingStore, nowIso } from './hostingStore.js';
 import { writeAuditLog } from './auditLogService.js';
 import renderApiService from './renderApiService.js';
 import {
@@ -638,34 +638,141 @@ export async function reactivateUser(userId, adminUserId = null, { resumeDeploym
   return { ...userView(updated), resumed };
 }
 
-/** Soft delete only — the User row is preserved so payment/deployment history survives. */
+/**
+ * Best-effort delete of user-owned rows across Prisma models that store userId
+ * as a plain string (no FK cascade). Missing tables are ignored so older DBs
+ * do not break hard-delete.
+ */
+async function purgeUserOwnedPrismaRows(userId) {
+  const cleaned = {};
+  async function tryDelete(label, fn) {
+    try {
+      const result = await fn();
+      cleaned[label] = result?.count ?? result ?? true;
+    } catch (err) {
+      cleaned[label] = `skip: ${err.message}`;
+    }
+  }
+
+  // Ownership / auth / messaging
+  await tryDelete('refreshToken', () => prisma.refreshToken.deleteMany({ where: { userId } }));
+  await tryDelete('notification', () => prisma.notification.deleteMany({ where: { userId } }));
+  await tryDelete('notificationPreference', () => prisma.notificationPreference.deleteMany({ where: { userId } }));
+  await tryDelete('adminMfaMethod', () => prisma.adminMfaMethod.deleteMany({ where: { userId } }));
+  await tryDelete('ticket', () => prisma.ticket.deleteMany({ where: { userId } })); // messages cascade
+  await tryDelete('serviceRequest', () => prisma.serviceRequest.deleteMany({ where: { userId } }));
+  await tryDelete('serviceAccess', () => prisma.serviceAccess.deleteMany({ where: { userId } }));
+  await tryDelete('watchdogEvent', () => prisma.watchdogEvent.deleteMany({ where: { userId } }));
+  await tryDelete('analyticsEvent', () => prisma.analyticsEvent.deleteMany({ where: { userId } }));
+  await tryDelete('chatbotInteraction', () => prisma.chatbotInteraction.deleteMany({ where: { userId } }));
+  await tryDelete('crmAiSession', () => prisma.crmAiSession.deleteMany({ where: { userId } }));
+  await tryDelete('crmEmailListMember', () => prisma.crmEmailListMember.deleteMany({ where: { userId } }));
+  await tryDelete('customerLifecycle', () => prisma.customerLifecycle.deleteMany({ where: { userId } }));
+
+  // Billing / commerce owned by the customer
+  await tryDelete('paymentMethod', () => prisma.paymentMethod.deleteMany({ where: { userId } }));
+  await tryDelete('discountRedemption', () => prisma.discountRedemption.deleteMany({ where: { userId } }));
+  await tryDelete('invoice', () => prisma.invoice.deleteMany({ where: { userId } }));
+  await tryDelete('creditNote', () => prisma.creditNote.deleteMany({ where: { userId } }));
+  await tryDelete('paymentReceipt', () => prisma.paymentReceipt.deleteMany({ where: { userId } }));
+  await tryDelete('deploymentSubscription', () => prisma.deploymentSubscription.deleteMany({ where: { userId } }));
+  await tryDelete('deploymentCleanupJob', () => prisma.deploymentCleanupJob.deleteMany({ where: { userId } }));
+  await tryDelete('checkoutOrder', () => prisma.checkoutOrder.deleteMany({ where: { userId } }));
+
+  // Infrastructure services created by the customer
+  await tryDelete('vpsService', () => prisma.vpsService.deleteMany({ where: { createdByUserId: userId } }));
+  await tryDelete('webHostingService', () => prisma.webHostingService.deleteMany({ where: { createdByUserId: userId } }));
+  await tryDelete('businessService', () => prisma.businessService.deleteMany({ where: { createdByUserId: userId } }));
+
+  // Notes / commands targeting this customer (keep admin-authored history only when not target)
+  await tryDelete('adminNote', () => prisma.adminNote.deleteMany({ where: { targetUserId: userId } }));
+  await tryDelete('adminCommand', () => prisma.adminCommand.deleteMany({ where: { targetUserId: userId } }));
+
+  return cleaned;
+}
+
+/**
+ * Remove hosting-store deployments owned by this user after bring-down.
+ * Keeps the JSON store consistent with a hard-deleted account.
+ */
+async function purgeUserHostingDeployments(userId) {
+  let removed = 0;
+  try {
+    await mutateHostingStore((store) => {
+      const before = Array.isArray(store.deployments) ? store.deployments.length : 0;
+      store.deployments = (store.deployments || []).filter((d) => d.userId !== userId);
+      removed = before - store.deployments.length;
+      return store;
+    });
+  } catch (err) {
+    return { removed: 0, error: err.message };
+  }
+  return { removed };
+}
+
+/**
+ * Hard-delete a client account from the main database.
+ *
+ * Admin delete in the dashboard is permanent for customer (non-admin) accounts:
+ *  1) bring down Render/hosting for their sites
+ *  2) purge user-owned Prisma rows
+ *  3) delete the User row itself
+ *
+ * Soft-delete is intentionally not used for admin "Delete" — soft-deleted users
+ * still blocked login and cluttered the DB (see Local Admin recovery incident).
+ * Admin accounts cannot be deleted here (protect operator access).
+ */
 export async function deleteUser(userId, reason = null, adminUserId = null) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw httpError('User not found.', 404);
 
-  const now = new Date();
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      accountStatus: 'deleted',
-      deletedAt: now,
-      disabledAt: now,
-      disabledReason: reason ? String(reason).slice(0, 1000) : 'account_deleted',
-    },
-  });
+  if (adminUserId && userId === adminUserId) {
+    throw httpError('You cannot delete your own admin account.', 400);
+  }
+  if (String(user.role || '').toLowerCase() === 'admin') {
+    throw httpError('Admin accounts cannot be deleted from the customer panel. Use a dedicated operator process.', 403);
+  }
+
+  const why = reason ? String(reason).slice(0, 1000) : 'account_deleted';
+  const snapshot = userView(user);
+
+  // 1) Force logout + take sites offline (provider best-effort).
   await revokeUserRefreshTokens(userId);
-  // Account closure brings down all of the user's sites (DB rows kept for audit).
-  const deployments = await cascadeBringDownUserDeployments(userId, reason || 'account_deleted');
+  const deployments = await cascadeBringDownUserDeployments(userId, why);
+
+  // 2) Purge related main-DB rows, then the user row itself.
+  const cleaned = await purgeUserOwnedPrismaRows(userId);
+  await prisma.user.delete({ where: { id: userId } });
+
+  // 3) Drop hosting-store ownership for this user.
+  const hosting = await purgeUserHostingDeployments(userId);
 
   await writeAuditLog({
     actorUserId: adminUserId,
-    action: 'admin.user.deleted',
+    action: 'admin.user.hard_deleted',
     entityType: 'user',
     entityId: userId,
-    result: { reason: reason || 'account_deleted', softDelete: true, deployments: deployments.length },
+    result: {
+      reason: why,
+      hardDelete: true,
+      email: snapshot.email,
+      name: snapshot.name,
+      deployments: deployments.length,
+      hostingRemoved: hosting.removed,
+      cleaned,
+    },
   });
 
-  return { ...userView(updated), deployments };
+  return {
+    deleted: true,
+    hardDelete: true,
+    id: userId,
+    email: snapshot.email,
+    name: snapshot.name,
+    deployments,
+    hosting,
+    cleaned,
+  };
 }
 
 export async function setUserIdPhotoPath(userId, filePath, adminUserId = null) {

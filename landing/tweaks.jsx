@@ -2,23 +2,23 @@
 const { useEffect } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accentPalette": ["#5BFF8F", "#5BFF8F", "#8CFFB5", "#2D8050", "rgba(91,255,143,0.18)"],
+  "accentPalette": ["#3ecf8e", "#3ecf8e", "#6ee7b0", "#1f7a52", "rgba(62,207,142,0.16)"],
   "bgMode": "noir",
   "showGrid": true,
   "scanlines": false,
-  "h1Text": "Market intelligence at the speed of a terminal"
+  "h1Text": "Build on dark iron. Ship in green light."
 }/*EDITMODE-END*/;
 
 // 4 curated accent palettes — each is [accent, accent, accent-bright, accent-dim, accent-glow]
 const ACCENT_PALETTES = [
-  ["#5BFF8F", "#5BFF8F", "#8CFFB5", "#2D8050", "rgba(91,255,143,0.18)"],   // terminal green (default)
-  ["#FFB23B", "#FFB23B", "#FFD580", "#8A5E1F", "rgba(255,178,59,0.18)"],   // amber CRT
-  ["#6EAFFF", "#6EAFFF", "#A8CDFF", "#2E5A8A", "rgba(110,175,255,0.18)"],  // tron blue
-  ["#FF5C9C", "#FF5C9C", "#FF9AC2", "#8A2E5A", "rgba(255,92,156,0.18)"],   // magenta-pink
+  ["#3ecf8e", "#3ecf8e", "#6ee7b0", "#1f7a52", "rgba(62,207,142,0.16)"],   // emerald (default)
+  ["#e0a54b", "#e0a54b", "#f0c878", "#8a5e1f", "rgba(224,165,75,0.18)"],   // amber
+  ["#6ea8ff", "#6ea8ff", "#a8cdff", "#2e5a8a", "rgba(110,168,255,0.18)"],  // steel blue
+  ["#c9a227", "#c9a227", "#e0c060", "#6a5518", "rgba(201,162,39,0.18)"],  // gold
 ];
 
 const BG_MODES = {
-  noir:  { "--bg": "#0A0D0A", "--bg-elev": "#11150F", "--bg-card": "#0D110D", "--bg-line": "#0F140F" },
+  noir:  { "--bg": "#050706", "--bg-elev": "#0b0f0c", "--bg-card": "#0e1310", "--bg-line": "#0a0d0b" },
   black: { "--bg": "#000000", "--bg-elev": "#070907", "--bg-card": "#040604", "--bg-line": "#020402" },
   paper: { "--bg": "#F4F2EA", "--bg-elev": "#EBE9E0", "--bg-card": "#FFFFFF", "--bg-line": "#EFEDE3" },
 };

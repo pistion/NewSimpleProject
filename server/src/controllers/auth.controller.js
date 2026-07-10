@@ -16,6 +16,8 @@ import {
   refreshSession,
   registerUser,
   changePassword,
+  updateUserEmail,
+  deleteOwnAccount,
 } from '../services/authService.js';
 import { streamUserIdPhoto, streamUserAvatar } from '../services/adminReceiptService.js';
 
@@ -23,7 +25,8 @@ const AuthController = {
   register: async (req, res, next) => {
     try {
       const { email, password, name, organizationName } = req.body || {};
-      const session = await registerUser({ email, password, name, organizationName });
+      const signupIp = req.securityContext?.ip || req.ip || null;
+      const session = await registerUser({ email, password, name, organizationName, signupIp });
       res.created(session);
     } catch (error) {
       next(error);
@@ -33,7 +36,8 @@ const AuthController = {
   login: async (req, res, next) => {
     try {
       const { email, password } = req.body || {};
-      const session = await loginUser({ email, password });
+      const ip = req.securityContext?.ip || req.ip || null;
+      const session = await loginUser({ email, password, ip });
       res.ok(session);
     } catch (error) {
       next(error);
@@ -135,6 +139,26 @@ const AuthController = {
       const { currentPassword, newPassword } = req.body || {};
       await changePassword(req.user?.id, currentPassword, newPassword);
       res.ok({ message: 'Password updated successfully.' });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  updateEmail: async (req, res, next) => {
+    try {
+      const { newEmail, email, currentPassword } = req.body || {};
+      const profile = await updateUserEmail(req.user?.id, newEmail || email, currentPassword);
+      res.ok({ profile });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  deleteAccount: async (req, res, next) => {
+    try {
+      const { currentPassword } = req.body || {};
+      await deleteOwnAccount(req.user?.id, currentPassword);
+      res.ok({ message: 'Account deleted.' });
     } catch (error) {
       next(error);
     }

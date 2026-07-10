@@ -5,7 +5,7 @@ import { GD } from './data';
 import { StatusBadge, Tabs, Stat, Empty } from './components';
 import { useProjects } from './use-projects';
 import { useActivity } from './use-activity';
-import { getStoredAuth } from './api';
+import { createProject, getStoredAuth, listProjectServiceTypes } from './api';
 
 function greeting() {
   const h = new Date().getHours();
@@ -17,9 +17,41 @@ function greeting() {
 export function Overview({ navigate }) {
   const { projects, source } = useProjects();
   const { items: activity, source: activitySource } = useActivity(8);
+  const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
+  const [projectTypes, setProjectTypes] = React.useState(DEFAULT_PROJECT_TYPES);
+  const [creatingType, setCreatingType] = React.useState('');
+  const [createError, setCreateError] = React.useState('');
   const totalVisitors = projects.reduce((a, p) => a + (p.visitors30d || 0), 0);
   const auth = getStoredAuth();
   const userName = auth.user?.name || auth.user?.email || null;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    listProjectServiceTypes()
+      .then((types) => { if (!cancelled && Array.isArray(types) && types.length) setProjectTypes(types); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleCreateProject(type) {
+    setCreatingType(type.id);
+    setCreateError('');
+    try {
+      const project = await createProject({
+        serviceType: type.id,
+        name: `${type.label} project`,
+        source: 'overview_dropdown',
+      });
+      setProjectMenuOpen(false);
+      const nextView = routeForProjectType(type.id, project?.nextView || type.nextView);
+      navigate({ view: nextView, params: { projectId: project.id, serviceType: type.id } });
+    } catch (error) {
+      setCreateError(error.message || 'Could not create project.');
+    } finally {
+      setCreatingType('');
+    }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -29,11 +61,20 @@ export function Overview({ navigate }) {
           <p className="sub">A summary of your sites, hosting, and recent activity. Jump back into anything in progress.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-primary" onClick={() => navigate({ view: "builder-gallery" })}>
+          <button className="btn btn-primary" onClick={() => setProjectMenuOpen((open) => !open)}>
             <ICN.Plus size={14} /> New project
           </button>
         </div>
       </div>
+
+      <ProjectCreateDrawer
+        open={projectMenuOpen}
+        projectTypes={projectTypes}
+        creatingType={creatingType}
+        error={createError}
+        onClose={() => setProjectMenuOpen(false)}
+        onCreate={handleCreateProject}
+      />
 
       {/* Stat row */}
       <div className="grid-4">
@@ -64,7 +105,7 @@ export function Overview({ navigate }) {
                   <td colSpan={5}>
                     <Empty icon="Server" title="No projects yet"
                       body="Create your first project or connect the backend to load existing ones."
-                      action={<button className="btn btn-sm btn-primary" onClick={() => navigate({ view: "builder-gallery" })}><ICN.Plus size={13} /> New project</button>} />
+                      action={<button className="btn btn-sm btn-primary" onClick={() => setProjectMenuOpen(true)}><ICN.Plus size={13} /> New project</button>} />
                   </td>
                 </tr>
               ) : projects.map(p => (
@@ -129,6 +170,139 @@ export function Overview({ navigate }) {
       </div>
     </>
   );
+}
+
+const DEFAULT_PROJECT_TYPES = [
+  { id: 'website', label: 'Website / Site Builder', nextView: 'builder-gallery' },
+  { id: 'hosting', label: 'Hosting', nextView: 'hosting-list' },
+  { id: 'domain', label: 'Domain', nextView: 'domains-mine' },
+  { id: 'email', label: 'Business Email', nextView: 'email' },
+  { id: 'vps', label: 'VPS Hosting', nextView: 'vps-hosting' },
+  { id: 'consultation', label: 'Consultation', nextView: 'overview' },
+  { id: 'build', label: 'Custom Build', nextView: 'overview' },
+  { id: 'support', label: 'Support', nextView: 'overview' },
+  { id: 'other', label: 'Other', nextView: 'overview' },
+];
+
+function routeForProjectType(type, fallback) {
+  return {
+    website: 'builder-gallery',
+    hosting: 'hosting-list',
+    domain: 'domains-mine',
+    email: 'email',
+    vps: 'vps-hosting',
+  }[type] || fallback || 'overview';
+}
+
+function iconForProjectType(type) {
+  const Icon = {
+    website: ICN.Layers,
+    hosting: ICN.Server,
+    domain: ICN.Globe,
+    email: ICN.Mail,
+    vps: ICN.Cpu,
+    consultation: ICN.HelpCircle,
+    build: ICN.Wand2,
+    support: ICN.HelpCircle,
+    other: ICN.Folder,
+  }[type] || ICN.Folder;
+  return <Icon size={14} />;
+}
+
+function ProjectCreateDrawer({ open, projectTypes, creatingType, error, onClose, onCreate }) {
+  return (
+    <div
+      aria-hidden={!open}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 80,
+        pointerEvents: open ? 'auto' : 'none',
+      }}
+    >
+      <div
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: open ? 'rgba(5, 7, 6, .42)' : 'rgba(5, 7, 6, 0)',
+          opacity: open ? 1 : 0,
+          transition: 'opacity .22s ease, background .22s ease',
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create project"
+        className="card"
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: 'min(390px, calc(100vw - 24px))',
+          height: '100%',
+          borderRadius: 0,
+          borderTop: 0,
+          borderRight: 0,
+          borderBottom: 0,
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          transform: open ? 'translateX(0)' : 'translateX(104%)',
+          transition: 'transform .26s cubic-bezier(.2,.8,.2,1)',
+          boxShadow: '-24px 0 60px rgba(0,0,0,.22)',
+        }}
+      >
+        <div style={{ padding: '22px 22px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 14, alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <div className="page-eyebrow" style={{ marginBottom: 6 }}>New project</div>
+            <h2 style={{ margin: 0, fontSize: 24 }}>Choose service type</h2>
+            <p className="muted" style={{ margin: '8px 0 0', fontSize: 13, lineHeight: 1.5 }}>Every service starts inside a project record with its own project id.</p>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close project drawer">
+            <ICN.X size={15} />
+          </button>
+        </div>
+
+        <div className="project-create-options">
+          {projectTypes.map((type) => (
+            <button
+              key={type.id}
+              className="btn btn-ghost project-create-option"
+              disabled={!!creatingType}
+              onClick={() => onCreate(type)}
+            >
+              <span className="project-create-option__main">
+                <span className="project-create-option__icon">
+                  {iconForProjectType(type.id)}
+                </span>
+                <span className="project-create-option__copy">
+                  <span className="project-create-option__label">{type.label}</span>
+                  <span className="project-create-option__hint">{projectTypeHint(type.id)}</span>
+                </span>
+              </span>
+              <span className="project-create-option__action">{creatingType === type.id ? 'Creating...' : 'Create'}</span>
+            </button>
+          ))}
+          {error && <div style={{ color: 'var(--danger)', fontSize: 12, padding: '8px 2px' }}>{error}</div>}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function projectTypeHint(type) {
+  return {
+    website: 'Build or customize a site',
+    hosting: 'Deploy ZIP, GitHub, or generated source',
+    domain: 'Register, transfer, or connect DNS',
+    email: 'Set up mailbox and mail records',
+    vps: 'Cloud server service',
+    consultation: 'Planning and advisory request',
+    build: 'Custom implementation work',
+    support: 'Help, fixes, or service issue',
+    other: 'General project container',
+  }[type] || 'Project workspace';
 }
 
 function ProductCta({ icon, title, body, cta, onClick }) {

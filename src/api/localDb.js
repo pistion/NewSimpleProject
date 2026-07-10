@@ -7,6 +7,17 @@ const HTML_TEMPLATES = {
 };
 
 const LOCAL_DB_KEY = "glondia.localDb.v1";
+const PROJECT_SERVICE_TYPES = [
+  { id: 'website', label: 'Website / Site Builder', nextView: 'builder-gallery' },
+  { id: 'hosting', label: 'Hosting', nextView: 'hosting-list' },
+  { id: 'domain', label: 'Domain', nextView: 'domains' },
+  { id: 'email', label: 'Business Email', nextView: 'email' },
+  { id: 'vps', label: 'VPS Hosting', nextView: 'vps' },
+  { id: 'consultation', label: 'Consultation', nextView: 'service-requests' },
+  { id: 'build', label: 'Custom Build', nextView: 'service-requests' },
+  { id: 'support', label: 'Support', nextView: 'tickets' },
+  { id: 'other', label: 'Other', nextView: 'overview' },
+];
 
 export function createLocalDbRuntime({ makeSession, ttlToSeconds }) {
   function handleLocalApi(path, options = {}) {
@@ -16,6 +27,7 @@ export function createLocalDbRuntime({ makeSession, ttlToSeconds }) {
     const cleanPath = path.split('?')[0];
 
     if (cleanPath === '/auth/login' || cleanPath === '/auth/register') return makeSession(body);
+    if (cleanPath === '/projects/service-types') return PROJECT_SERVICE_TYPES;
     if (cleanPath === '/projects') {
       if (method === 'POST') {
         const project = makeProject(body);
@@ -311,12 +323,24 @@ function seedLocalDb() {
 }
 
 function makeProject(body = {}) {
+  const serviceType = body.serviceType || body.type || 'website';
+  const serviceMeta = PROJECT_SERVICE_TYPES.find((item) => item.id === serviceType) || PROJECT_SERVICE_TYPES.at(-1);
+  const name = body.name || `${serviceMeta.label} project`;
+  const createdAt = new Date().toISOString();
   return {
     id: createId('proj'),
-    name: body.name || 'Untitled project',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    projectId: createId('glp'),
+    projectCode: `GLP-${Date.now().toString(36).toUpperCase()}`,
+    name,
+    slug: slugify(name),
+    serviceType,
+    serviceTypeLabel: serviceMeta.label,
+    status: body.status || 'draft',
+    priority: body.priority || 'normal',
+    description: body.description || '',
+    nextView: serviceMeta.nextView,
+    createdAt,
+    updatedAt: createdAt,
   };
 }
 

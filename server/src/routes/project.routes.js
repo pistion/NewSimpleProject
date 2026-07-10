@@ -2,10 +2,14 @@ import express from 'express';
 import ProjectController from '../controllers/project.controller.js';
 import DeploymentController from '../controllers/deployment.controller.js';
 import EnvVarController from '../controllers/env-var.controller.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router({ mergeParams: true });
 
+router.use(authMiddleware);
+
 // Project core
+router.get('/service-types', ProjectController.listServiceTypes);
 router.get('/', ProjectController.listProjects);
 router.post('/', ProjectController.createProject);
 router.get('/:projectId', ProjectController.getProject);

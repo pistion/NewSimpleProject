@@ -116,6 +116,7 @@ function TicketDetailPanel({ ticket, onClose, onAction }) {
 
 function TicketsView() {
   const [filter, setFilter] = React.useState("open");
+  const [search, setSearch] = React.useState("");
   const [items, setItems] = React.useState([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
@@ -157,24 +158,34 @@ function TicketsView() {
     { key: "updatedAt", label: "Updated",   render: (v) => <FmtDate value={v} /> },
   ];
 
+  const SearchToolbar = window.AdminSearchToolbar;
+  const filteredItems = items.filter((item) => window.adminTextMatchesRow(item, search));
+
   return (
     <AdminPage title="Support Tickets" subtitle={`${total} ticket${total !== 1 ? "s" : ""} · ${filter === "all" ? "all statuses" : filter.replace("_", " ")}`}
       actions={<button className="btn ghost sm" onClick={load}>Refresh</button>}
     >
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {FILTERS.map((f) => (
-          <button key={f.key} className={"btn sm" + (filter === f.key ? "" : " ghost")} onClick={() => setFilter(f.key)}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <SearchToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search tickets by subject, customer, category, priority..."
+        count={filteredItems.length}
+        busy={loading}
+        filters={[{
+          key: "status",
+          label: "Status",
+          value: filter,
+          onChange: setFilter,
+          options: FILTERS.map((f) => ({ value: f.key, label: f.label })),
+        }]}
+      />
 
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
       {!loading && !error && (
         <DataTable
           columns={columns}
-          rows={items}
+          rows={filteredItems}
           onRowClick={(row) => loadTicketDetail(row.id)}
         />
       )}

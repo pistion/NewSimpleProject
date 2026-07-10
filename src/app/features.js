@@ -18,7 +18,7 @@ const DEFAULTS = {
   // Live purchase still requires Spaceship + PayPal on the server.
   domains: true,
 
-  vps: false,
+  vps: true,
   aiBuilder: false,
   templateMarketplace: false,
   analytics: false,

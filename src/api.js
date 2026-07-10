@@ -96,7 +96,7 @@ const builderApi = createBuilderActions({
 });
 
 const projectApi = createProjectActions({
-  apiRequest,
+  apiRequest: isLiveMode() ? liveApiRequest : apiRequest,
   mapApiDeployment,
   mapApiEnvVar,
   mapApiProject,
@@ -185,6 +185,7 @@ export function notifyDataChanged() {
   window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
 }
 
+export async function listProjectServiceTypes() { return projectApi.listProjectServiceTypes(); }
 export async function createProject(input) { return projectApi.createProject(input); }
 export async function updateProject(projectId, input) { return projectApi.updateProject(projectId, input); }
 export async function archiveProject(projectId) { return projectApi.archiveProject(projectId); }

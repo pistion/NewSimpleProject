@@ -99,5 +99,7 @@ router.get('/profile/id-photo', authMiddleware, AuthController.viewIdPhoto);
 router.post('/profile/avatar', authMiddleware, avatarUpload.single('avatar'), AuthController.uploadAvatar);
 router.get('/profile/avatar', authMiddleware, AuthController.viewAvatar);
 router.patch('/profile/password', authMiddleware, AuthController.changePassword);
+router.patch('/profile/email', authMiddleware, AuthController.updateEmail);
+router.post('/profile/delete', authMiddleware, AuthController.deleteAccount);
 
 export default router;

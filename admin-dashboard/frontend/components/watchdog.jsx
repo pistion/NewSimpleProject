@@ -24,6 +24,7 @@ function WatchdogStatusBadge({ status }) {
 
 function WatchdogView() {
   const [filter, setFilter] = React.useState("open");
+  const [search, setSearch] = React.useState("");
   const [items, setItems] = React.useState([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
@@ -93,24 +94,34 @@ function WatchdogView() {
     },
   ];
 
+  const SearchToolbar = window.AdminSearchToolbar;
+  const filteredItems = items.filter((item) => window.adminTextMatchesRow(item, search));
+
   return (
     <AdminPage
       title="Watchdog"
       subtitle={`${total} event${total !== 1 ? "s" : ""} · monitoring alerts requiring review`}
       actions={<button className="btn ghost sm" onClick={load}>Refresh</button>}
     >
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {FILTERS.map((f) => (
-          <button key={f.key} className={"btn sm" + (filter === f.key ? "" : " ghost")} onClick={() => setFilter(f.key)}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <SearchToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search watchdog events by type, severity, status, message..."
+        count={filteredItems.length}
+        busy={loading}
+        filters={[{
+          key: "status",
+          label: "Status",
+          value: filter,
+          onChange: setFilter,
+          options: FILTERS.map((f) => ({ value: f.key, label: f.label })),
+        }]}
+      />
 
       {actionErr && <ErrorCard message={actionErr} />}
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={items} />}
+      {!loading && !error && <DataTable columns={columns} rows={filteredItems} />}
     </AdminPage>
   );
 }
@@ -119,6 +130,7 @@ function WatchdogView() {
 
 function WarningsView() {
   const [filter, setFilter] = React.useState("open");
+  const [search, setSearch] = React.useState("");
   const [items, setItems] = React.useState([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
@@ -189,24 +201,34 @@ function WarningsView() {
     },
   ];
 
+  const SearchToolbar = window.AdminSearchToolbar;
+  const filteredItems = items.filter((item) => window.adminTextMatchesRow(item, search));
+
   return (
     <AdminPage
       title="Warnings"
       subtitle={`${total} warning${total !== 1 ? "s" : ""} · early operational signals`}
       actions={<button className="btn ghost sm" onClick={load}>Refresh</button>}
     >
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {FILTERS.map((f) => (
-          <button key={f.key} className={"btn sm" + (filter === f.key ? "" : " ghost")} onClick={() => setFilter(f.key)}>
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <SearchToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search warnings by type, route, severity, status..."
+        count={filteredItems.length}
+        busy={loading}
+        filters={[{
+          key: "status",
+          label: "Status",
+          value: filter,
+          onChange: setFilter,
+          options: FILTERS.map((f) => ({ value: f.key, label: f.label })),
+        }]}
+      />
 
       {actionErr && <ErrorCard message={actionErr} />}
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={items} />}
+      {!loading && !error && <DataTable columns={columns} rows={filteredItems} />}
     </AdminPage>
   );
 }

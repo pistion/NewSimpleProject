@@ -7,6 +7,10 @@ export function createProjectActions({
   readLocalDb,
 }) {
   return {
+    async listProjectServiceTypes() {
+      return apiRequest('/projects/service-types');
+    },
+
     async createProject(input) {
       const project = await apiRequest('/projects', { method: 'POST', body: JSON.stringify(input) });
       notifyDataChanged();

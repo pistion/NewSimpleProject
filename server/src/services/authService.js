@@ -94,6 +94,7 @@ function toPublicUser(user) {
   const details = safeJson(user.profileDetails);
   return {
     id: user.id,
+    clientId: user.clientId || null,
     email: user.email,
     name: user.name,
     organizationName: details.organizationName || null,
@@ -116,9 +117,41 @@ async function buildSession(user) {
   };
 }
 
+// ─── Client IDs (glondiac-XXXX customer reference) ─────────────────────────────
+
+function randomClientId(digits = 4) {
+  const max = 10 ** digits;
+  const n = Math.floor(Math.random() * max);
+  return `glondiac-${String(n).padStart(digits, '0')}`;
+}
+
+/**
+ * Assign a unique glondiac-XXXX client ID (and, first time only, the signup IP)
+ * to a user that doesn't have one yet. Safe to call on every sign-in — it is a
+ * no-op when the ID already exists. Retries on collisions and widens to more
+ * digits when the 4-digit space gets crowded.
+ */
+export async function ensureClientId(user, ip = null) {
+  if (!user || user.clientId) return user;
+  const extra = ip && !user.signupIp ? { signupIp: String(ip).slice(0, 64) } : {};
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const digits = attempt < 15 ? 4 : attempt < 25 ? 6 : 8;
+    try {
+      return await prisma.user.update({
+        where: { id: user.id },
+        data: { clientId: randomClientId(digits), ...extra },
+      });
+    } catch {
+      // Unique collision — try another random ID.
+    }
+  }
+  console.error(`[auth] Could not assign a client ID to user ${user.id} after 30 attempts.`);
+  return user;
+}
+
 // ─── Public operations ──────────────────────────────────────────────────────────
 
-export async function registerUser({ email, password, name, organizationName }) {
+export async function registerUser({ email, password, name, organizationName, signupIp }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) {
     throw httpError('A valid email address is required.', 400);
@@ -135,7 +168,7 @@ export async function registerUser({ email, password, name, organizationName }) 
   // the rank consistent under concurrent registrations. Promo eligibility is a
   // registration-order property — the first PROMO_SIGNUP_LIMIT users qualify —
   // NOT a function of paid orders.
-  const user = await prisma.$transaction(async (tx) => {
+  let user = await prisma.$transaction(async (tx) => {
     const priorCount = await tx.user.count();
     const signupRank = priorCount + 1;
     const promoEligible = signupRank <= PROMO_SIGNUP_LIMIT;
@@ -151,12 +184,32 @@ export async function registerUser({ email, password, name, organizationName }) 
       },
     });
   });
+
+  // Every new account gets a glondiac-XXXX client reference tied to signup IP.
+  user = await ensureClientId(user, signupIp);
+
+  // Capture account email into CRM Client Accounts list (name + database user id).
+  try {
+    const { captureContactEmail } = await import('./crmContactsService.js');
+    await captureContactEmail({
+      email: user.email,
+      name: user.name || user.email.split('@')[0],
+      userId: user.id,
+      source: 'registration',
+      listType: 'client_accounts',
+      role: user.role,
+      accountStatus: user.accountStatus || 'active',
+    });
+  } catch (err) {
+    console.warn('[auth] CRM contact capture skipped:', err.message);
+  }
+
   return buildSession(user);
 }
 
-export async function loginUser({ email, password }) {
+export async function loginUser({ email, password, ip }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   // Always run a compare to reduce user-enumeration timing differences.
   const ok = await verifyPassword(password, user?.passwordHash);
   if (!user || !ok) throw httpError('Invalid email or password.', 401);
@@ -165,16 +218,13 @@ export async function loginUser({ email, password }) {
   if (status !== 'active') {
     throw httpError('This account is not active. Please contact support.', 403);
   }
+  // Backfill a client ID for accounts created before client IDs existed.
+  user = await ensureClientId(user, ip);
   return buildSession(user);
 }
 
 export async function refreshSession(rawToken) {
   const { user, refreshToken } = await rotateRefreshToken(rawToken);
-  const status = user.accountStatus || 'active';
-  if (status !== 'active') {
-    await logoutUser(refreshToken);
-    throw httpError('This account is not active. Please contact support.', 403);
-  }
   const accessToken = signAccessToken(user);
   return {
     user: toPublicUser(user),
@@ -207,6 +257,7 @@ function toProfile(user) {
   const details = safeJson(user.profileDetails);
   return {
     id: user.id,
+    clientId: user.clientId || null,
     email: user.email,
     name: user.name || null,
     organizationName: details.organizationName || null,
@@ -231,13 +282,49 @@ export async function getUserProfile(userId) {
 /** Update the caller's own editable profile fields (name, phone, personal details). */
 export async function updateUserProfile(userId, patch = {}) {
   if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+
+  const existing = await prisma.user.findUnique({ where: { id: userId } });
+  if (!existing) throw httpError('User not found.', 404);
+
   const data = {};
-  if (patch.name !== undefined) data.name = patch.name ? String(patch.name).slice(0, 200) : null;
-  if (patch.phone !== undefined) data.phone = patch.phone ? String(patch.phone).slice(0, 50) : null;
+  if (patch.name !== undefined) data.name = patch.name ? String(patch.name).trim().slice(0, 200) : null;
+  if (patch.phone !== undefined) data.phone = patch.phone ? String(patch.phone).trim().slice(0, 50) : null;
+
+  // Merge profileDetails so partial saves never wipe organizationName / address fields.
+  const prevDetails = safeJson(existing.profileDetails);
+  let nextDetails = { ...prevDetails };
+  let detailsDirty = false;
+
   if (patch.profileDetails !== undefined) {
-    const details = typeof patch.profileDetails === 'string' ? safeJson(patch.profileDetails) : patch.profileDetails;
-    data.profileDetails = JSON.stringify(details || {});
+    const incoming = typeof patch.profileDetails === 'string'
+      ? safeJson(patch.profileDetails)
+      : (patch.profileDetails || {});
+    nextDetails = { ...prevDetails, ...incoming };
+    // Deep-merge nested displayPreferences so a theme save never wipes other prefs.
+    if (incoming.displayPreferences && typeof incoming.displayPreferences === 'object') {
+      nextDetails.displayPreferences = {
+        ...(prevDetails.displayPreferences && typeof prevDetails.displayPreferences === 'object' ? prevDetails.displayPreferences : {}),
+        ...incoming.displayPreferences,
+      };
+    }
+    detailsDirty = true;
   }
+  if (patch.organizationName !== undefined) {
+    nextDetails.organizationName = patch.organizationName
+      ? String(patch.organizationName).trim().slice(0, 200)
+      : null;
+    detailsDirty = true;
+  }
+  if (detailsDirty) {
+    // Normalize empty strings to null for known detail keys
+    for (const key of Object.keys(nextDetails)) {
+      if (typeof nextDetails[key] === 'string' && !nextDetails[key].trim()) nextDetails[key] = null;
+    }
+    data.profileDetails = JSON.stringify(nextDetails);
+  }
+
+  if (!Object.keys(data).length) return toProfile(existing);
+
   const user = await prisma.user.update({ where: { id: userId }, data });
   return toProfile(user);
 }
@@ -264,6 +351,54 @@ export async function changePassword(userId, currentPassword, newPassword) {
   }
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  return { success: true };
+}
+
+/**
+ * Change the caller's own sign-in email. Requires the current password.
+ * Normalizes to lowercase and rejects addresses already in use.
+ */
+export async function updateUserEmail(userId, newEmail, currentPassword) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  const normalized = String(newEmail || '').trim().toLowerCase();
+  if (!normalized || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized)) {
+    throw httpError('A valid email address is required.', 400);
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+  if (user.passwordHash) {
+    if (!currentPassword) throw httpError('Current password is required.', 400);
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) throw httpError('Current password is incorrect.', 401);
+  }
+  if (normalized === user.email) return toProfile(user);
+  const taken = await prisma.user.findUnique({ where: { email: normalized } });
+  if (taken) throw httpError('An account with this email already exists.', 409);
+  const updated = await prisma.user.update({ where: { id: userId }, data: { email: normalized } });
+  return toProfile(updated);
+}
+
+/**
+ * Self-service soft delete. Requires the current password, marks the account
+ * deleted, and revokes every refresh token so all sessions end.
+ */
+export async function deleteOwnAccount(userId, currentPassword) {
+  if (!userId || userId === 'local-user') throw httpError('A real account is required.', 401);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw httpError('User not found.', 404);
+  if (user.passwordHash) {
+    if (!currentPassword) throw httpError('Current password is required.', 400);
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) throw httpError('Current password is incorrect.', 401);
+  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { accountStatus: 'deleted', deletedAt: new Date() },
+  });
+  await prisma.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
   return { success: true };
 }
 

@@ -1,7 +1,8 @@
 // components.jsx — shared UI primitives: Logo, Badge, Topbar, Sidebar
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { ICN } from './icons';
-import { getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
+import { clearAuthSession, getStoredAuth, login, register, AUTH_CHANGED_EVENT } from './api';
 import { logout } from './api/auth.js';
 import { getAvatarUrl } from './api/profile.js';
 import {
@@ -48,10 +49,10 @@ export function Logo({ compact = false, onClick }) {
   const subtitle = isFeatureEnabled("domains") ? "Hosting · Domains · Sites" : "Hosting · Sites";
   return (
     <a className="logo" href="#" onClick={(e) => { e.preventDefault(); onClick && onClick(); }}
-       style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "inherit" }}>
-      <BrandMark size={compact ? 28 : 32} />
+       style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "inherit" }}>
+      <BrandMark size={compact ? 32 : 36} />
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
-        <span style={{ fontWeight: 700, fontSize: compact ? 14 : 15, letterSpacing: "-0.005em" }}>Glondia</span>
+        <span style={{ fontWeight: 700, fontSize: compact ? 14 : 15, letterSpacing: 0 }}>Glondia</span>
         {!compact && <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{subtitle}</span>}
       </span>
     </a>
@@ -134,7 +135,6 @@ export const DASH_NAV = [
       { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" }, feature: "domains" },
       { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },
       { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true, feature: "domains" },
-      { key: "email",        label: "Email",          icon: "Mail",            route: { view: "email" },        feature: "email" },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
@@ -149,6 +149,7 @@ export const DASH_NAV = [
     title: "Account",
     items: [
       { key: "billing",    label: "Billing",        icon: "CreditCard",      route: { view: "billing" } },
+      { key: "email",      label: "Email",          icon: "Mail",            route: { view: "email" }, feature: "email" },
       { key: "settings",   label: "Settings",       icon: "Settings",        route: { view: "settings" }, feature: "settings" },
     ],
   },
@@ -169,8 +170,6 @@ function visibleNavGroups() {
 }
 
 export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
-  const [helpOpen, setHelpOpen] = useState(false);
-
   return (
     <aside className={`dash-side ${mobileOpen ? 'is-open' : ''}`}>
       <div className="dash-side-head">
@@ -200,31 +199,31 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
           </div>
         ))}
       </nav>
-      <div className={`dash-side-foot ${helpOpen ? 'is-open' : ''}`}>
-        <div className="help">
-          <button
-            type="button"
-            className="dash-help-toggle"
-            aria-expanded={helpOpen}
-            onClick={() => setHelpOpen((open) => !open)}
+      <div className="dash-side-foot">
+        <div className="side-utils">
+          <a href="#" className="side-util-link" onClick={(e) => { e.preventDefault(); navigate({ view: "activity" }); }}>
+            <ICN.Newspaper size={15} /> Changelog
+          </a>
+          <a
+            className="side-util-link"
+            href={`mailto:?subject=${encodeURIComponent("Join me on Glondia")}&body=${encodeURIComponent("I use Glondia for hosting, domains, and sites — check it out: https://glondia.co")}`}
           >
-            <b>Need a hand?</b>
-            <span aria-hidden="true">{helpOpen ? '/\\' : '\\/'}</span>
-          </button>
-          <div className="dash-help-body" hidden={!helpOpen}>
-            <div style={{ color: "var(--text-muted)" }}>Docs, status page, and live support are one click away.</div>
-            <a href="mailto:johnweslytawa@gmail.com"
-               className="btn btn-outline btn-sm"
-               style={{ width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}>
-              <ICN.HelpCircle size={14} /> Help center
-            </a>
-            {/* LinkedIn */}
-            <a href="https://www.linkedin.com/company/111230074/" target="_blank" rel="noopener noreferrer"
-               className="btn btn-outline btn-sm"
-               style={{ width: "100%", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--text-muted)", textDecoration: "none" }}>
-              <ICN.LinkedIn size={13} /> Follow on LinkedIn
-            </a>
-          </div>
+            <ICN.Send size={15} /> Invite a friend
+          </a>
+          <a href="mailto:johnweslytawa@gmail.com" className="side-util-link">
+            <ICN.ExternalLink size={15} /> Contact support
+          </a>
+          <div className="side-utils-sep" />
+          <a href="https://status.render.com" target="_blank" rel="noopener noreferrer" className="side-util-link">
+            <ICN.Activity size={15} /> Glondia Status
+          </a>
+        </div>
+        <div className="help">
+          <a href="https://www.linkedin.com/company/111230074/" target="_blank" rel="noopener noreferrer"
+             className="btn btn-outline btn-sm"
+             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--text-muted)", textDecoration: "none" }}>
+            <ICN.LinkedIn size={13} /> Follow on LinkedIn
+          </a>
         </div>
       </div>
     </aside>
@@ -370,6 +369,25 @@ function NotificationBell({ navigate }) {
 }
 
 export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme, onOpenNav }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const searchInputRef = React.useRef(null);
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 60);
+  };
+
+  const submitSearch = (e) => {
+    e.preventDefault();
+    const value = searchValue.trim();
+    if (!searchOpen) {
+      openSearch();
+      return;
+    }
+    if (value && onSearch) onSearch(value);
+  };
+
   return (
     <div className="dash-top">
       <button className="btn btn-icon btn-ghost dash-menu-btn" onClick={onOpenNav} aria-label="Open menu">
@@ -385,10 +403,33 @@ export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme
           </React.Fragment>
         ))}
       </div>
-      <div className="row dash-search" style={{ position: "relative" }}>
+      <form className={`dash-search ${searchOpen ? "is-open" : ""} ${searchValue ? "has-value" : ""}`} onSubmit={submitSearch}>
+        <button className="dash-search-trigger" type="button" onClick={openSearch} aria-label="Open search">
+          <ICN.Search size={18} />
+        </button>
+        <input
+          ref={searchInputRef}
+          className="input dash-search-input"
+          placeholder="Search projects, domains..."
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          onFocus={() => setSearchOpen(true)}
+          onBlur={() => {
+            if (!searchValue.trim()) window.setTimeout(() => setSearchOpen(false), 120);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setSearchValue("");
+              setSearchOpen(false);
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      </form>
+      {/*
         <ICN.Search size={14} style={{ position: "absolute", left: 12, top: 12, color: "var(--text-faint)" }} />
         <input className="input" placeholder="Search projects, domains…" style={{ paddingLeft: 34, width: 280, height: 36 }} />
-      </div>
+      */}
       <button className="btn btn-icon btn-ghost" onClick={toggleTheme} title="Toggle theme">
         {theme === "dark" ? <ICN.Sun size={16} /> : <ICN.Moon size={16} />}
       </button>
@@ -436,6 +477,7 @@ function useCurrentUserAvatar(auth) {
   return url;
 }
 
+/** Topbar account menu — clean rebuild (portal + simple fixed box). */
 function AuthMenu({ navigate }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState("login");
@@ -443,6 +485,9 @@ function AuthMenu({ navigate }) {
   const [form, setForm] = React.useState({ name: "", organizationName: "", email: "", password: "" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const [pos, setPos] = React.useState({ top: 0, left: 0 });
+  const rootRef = React.useRef(null);
+  const triggerRef = React.useRef(null);
 
   React.useEffect(() => {
     const sync = () => setAuth(getStoredAuth());
@@ -453,6 +498,40 @@ function AuthMenu({ navigate }) {
   const signedIn = !!auth.accessToken;
   const displayName = auth.user?.name || auth.user?.email || "Account";
   const avatarUrl = useCurrentUserAvatar(signedIn ? auth : null);
+  const email = auth.user?.email || "";
+
+  const MENU_W = 252;
+
+  const place = React.useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(MENU_W, window.innerWidth - 16);
+    let left = r.right - w;
+    if (left < 8) left = 8;
+    setPos({ top: Math.round(r.bottom + 8), left: Math.round(left) });
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!open) return undefined;
+    place();
+    const close = (e) => {
+      if (rootRef.current?.contains(e.target)) return;
+      if (e.target?.closest?.("[data-auth-menu-panel]")) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, place]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -470,60 +549,90 @@ function AuthMenu({ navigate }) {
     }
   };
 
-  return (
-    <div className="auth-menu">
-      <button className="btn btn-ghost auth-menu-trigger" onClick={() => signedIn ? setOpen(!open) : navigate && navigate({ view: 'login' })}>
-        <Avatar name={signedIn ? displayName : ""} imageUrl={avatarUrl} size={28} fallbackIcon={!signedIn} />
-        <span className="auth-menu-name">{signedIn ? displayName : "Sign in"}</span>
-      </button>
-      {open && (
-        <div className={`card auth-menu-panel ${signedIn ? 'auth-menu-panel--signed-in' : 'auth-menu-panel--signed-out'}`}>
-          {signedIn ? (
-            <div>
-              <div className="auth-user-block">
-                <span className="auth-user-label">Signed in</span>
-                <span className="auth-user-name">{displayName}</span>
-                <span className="auth-user-email">{auth.user?.email}</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <button
-                  type="button"
-                  className="auth-panel-btn"
-                  onClick={() => { setOpen(false); navigate && navigate({ view: 'profile' }); }}
-                  title="View and edit your account details"
-                >
-                  <ICN.Briefcase size={18} />
-                  <span className="auth-panel-btn-inner">
-                    <span className="auth-panel-btn-label">Account details</span>
-                    <span className="auth-panel-btn-sub">Business profile and contact details</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="auth-panel-signout"
-                  onClick={async () => {
-                    await logout();
-                    setAuth(getStoredAuth());
-                    setOpen(false);
-                    window.location.href = "/";
-                  }}
-                >
-                  Sign out
-                </button>
-              </div>
+  const panel = open && typeof document !== "undefined" && createPortal(
+    <div
+      data-auth-menu-panel
+      className="am-panel"
+      role="menu"
+      style={{ top: pos.top, left: pos.left, width: Math.min(MENU_W, typeof window !== "undefined" ? window.innerWidth - 16 : MENU_W) }}
+    >
+      {signedIn ? (
+        <>
+          <div className="am-head">
+            <Avatar name={displayName} imageUrl={avatarUrl} size={36} />
+            <div className="am-head-text">
+              <div className="am-name" title={displayName}>{displayName}</div>
+              {email ? <div className="am-email" title={email}>{email}</div> : null}
             </div>
-          ) : (
-            <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div className="row between"><h2 style={{ margin: 0 }}>{mode === "login" ? "Sign in" : "Create account"}</h2><button type="button" className="btn btn-sm btn-ghost" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>{mode === "login" ? "Register" : "Login"}</button></div>
-              {mode === "register" && <><div><label className="label">Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div><div><label className="label">Organization</label><input className="input" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required /></div></>}
-              <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
-              <div><label className="label">Password</label><input className="input" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
-              {error && <div style={{ color: "var(--danger)", fontSize: 13 }}>{error}</div>}
-              <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}</button>
-            </form>
+          </div>
+          <div className="am-list">
+            <button
+              type="button"
+              className="am-item"
+              role="menuitem"
+              onClick={() => { setOpen(false); navigate?.({ view: "profile" }); }}
+            >
+              <ICN.Briefcase size={15} />
+              Account details
+            </button>
+          </div>
+          <div className="am-foot">
+            <button
+              type="button"
+              className="am-signout"
+              role="menuitem"
+              onClick={async () => {
+                try { await logout(); } catch { clearAuthSession(); }
+                setAuth(getStoredAuth());
+                setOpen(false);
+                window.location.href = "/";
+              }}
+            >
+              <ICN.Power size={15} />
+              Sign out
+            </button>
+          </div>
+        </>
+      ) : (
+        <form className="am-guest" onSubmit={submit}>
+          <div className="am-guest-top">
+            <strong>{mode === "login" ? "Sign in" : "Create account"}</strong>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>
+              {mode === "login" ? "Register" : "Login"}
+            </button>
+          </div>
+          {mode === "register" && (
+            <>
+              <div><label className="label">Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
+              <div><label className="label">Organization</label><input className="input" value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required /></div>
+            </>
           )}
-        </div>
+          <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
+          <div><label className="label">Password</label><input className="input" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
+          {error && <div className="am-error">{error}</div>}
+          <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: "100%" }}>
+            {busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}
+          </button>
+        </form>
       )}
+    </div>,
+    document.body,
+  );
+
+  return (
+    <div className="am" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="btn btn-ghost am-trigger"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => (signedIn ? setOpen((v) => !v) : navigate?.({ view: "login" }))}
+      >
+        <Avatar name={signedIn ? displayName : ""} imageUrl={avatarUrl} size={28} fallbackIcon={!signedIn} />
+        <span className="am-trigger-label">{signedIn ? displayName : "Sign in"}</span>
+      </button>
+      {panel}
     </div>
   );
 }

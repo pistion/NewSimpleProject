@@ -7,6 +7,7 @@ function ServiceAccessView() {
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState("");
   const [actionErr, setActionErr] = React.useState("");
+  const [search, setSearch] = React.useState("");
   const [filterType, setFilterType] = React.useState("");
   const [filterAccess, setFilterAccess] = React.useState("");
 
@@ -92,6 +93,8 @@ function ServiceAccessView() {
 
   const SERVICE_TYPES = ["hosting", "vps", "domain", "email", "builder"];
   const ACCESS_STATUSES = ["active", "pending", "suspended", "expired", "cancelled", "deleted"];
+  const SearchToolbar = window.AdminSearchToolbar;
+  const filteredItems = items.filter((item) => window.adminTextMatchesRow(item, search));
 
   return (
     <div className="page">
@@ -101,27 +104,33 @@ function ServiceAccessView() {
           <div className="page-sub">Monthly access passes — {total} record{total !== 1 ? "s" : ""}.</div>
         </div>
         <div className="cluster">
-          <select
-            className="btn ghost sm"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            style={{ padding: "6px 10px", cursor: "pointer" }}
-          >
-            <option value="">All types</option>
-            {SERVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select
-            className="btn ghost sm"
-            value={filterAccess}
-            onChange={(e) => setFilterAccess(e.target.value)}
-            style={{ padding: "6px 10px", cursor: "pointer" }}
-          >
-            <option value="">All statuses</option>
-            {ACCESS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
           <button className="btn ghost sm" onClick={load}>Refresh</button>
         </div>
       </div>
+
+      <SearchToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search service access by customer, type, service ID, status..."
+        count={filteredItems.length}
+        busy={loading}
+        filters={[
+          {
+            key: "serviceType",
+            label: "Type",
+            value: filterType,
+            onChange: setFilterType,
+            options: [{ value: "", label: "All types" }].concat(SERVICE_TYPES.map((t) => ({ value: t, label: t }))),
+          },
+          {
+            key: "accessStatus",
+            label: "Access",
+            value: filterAccess,
+            onChange: setFilterAccess,
+            options: [{ value: "", label: "All statuses" }].concat(ACCESS_STATUSES.map((s) => ({ value: s, label: s }))),
+          },
+        ]}
+      />
 
       {actionErr && (
         <div style={{ marginBottom: 12, padding: "10px 16px", background: "var(--danger-bg, #fef2f2)", color: "var(--danger)", borderRadius: 6, fontSize: 13 }}>
@@ -137,13 +146,13 @@ function ServiceAccessView() {
         <div className="card" style={{ padding: "20px 24px", color: "var(--danger)" }}>{error}</div>
       )}
 
-      {!loading && !error && items.length === 0 && (
+      {!loading && !error && filteredItems.length === 0 && (
         <div className="card" style={{ padding: "36px 24px", textAlign: "center", color: "var(--muted)" }}>
           No service access records found.
         </div>
       )}
 
-      {!loading && !error && items.length > 0 && (
+      {!loading && !error && filteredItems.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -156,8 +165,8 @@ function ServiceAccessView() {
               </tr>
             </thead>
             <tbody>
-              {items.map((row, idx) => {
-                const isLast = idx === items.length - 1;
+              {filteredItems.map((row, idx) => {
+                const isLast = idx === filteredItems.length - 1;
                 const userLabel = row.user?.email || row.userId || "—";
                 return (
                   <tr key={row.id} style={{ borderBottom: isLast ? "none" : "1px solid var(--line-2)" }}>

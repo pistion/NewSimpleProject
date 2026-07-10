@@ -4,6 +4,7 @@
 
 import { prisma } from './db.js';
 import { writeAuditLog } from './auditLogService.js';
+import { createAdminNotification, createUserNotification } from './notificationService.js';
 
 function httpError(msg, status = 400) {
   return Object.assign(new Error(msg), { status, expose: true });
@@ -41,6 +42,17 @@ export async function createTicket(userId, { subject, category = 'general', prio
   }
 
   await writeAuditLog({ actorUserId: userId, action: 'ticket.created', entityType: 'ticket', entityId: ticket.id, status: 'success' });
+
+  // Surface the new ticket in the admin dashboard Bell (best-effort, never throws).
+  await createAdminNotification({
+    type: 'ticket',
+    title: 'New support ticket',
+    message: `[${category}/${priority}] ${ticket.subject}`,
+    entityType: 'ticket',
+    entityId: ticket.id,
+    actionUrl: '/dashboard#tickets',
+  });
+
   return ticket;
 }
 
@@ -82,6 +94,27 @@ export async function addTicketMessage(ticketId, userId, body, isAdmin = false) 
   ]);
 
   await writeAuditLog({ actorUserId: userId, action: 'ticket.message_added', entityType: 'ticket', entityId: ticketId, status: 'success' });
+
+  // Notify the other side of the conversation (best-effort).
+  if (isAdmin) {
+    await createUserNotification(ticket.userId, {
+      type: 'ticket',
+      title: 'Support replied to your ticket',
+      message: ticket.subject,
+      entityType: 'ticket',
+      entityId: ticketId,
+    });
+  } else {
+    await createAdminNotification({
+      type: 'ticket',
+      title: 'Customer replied to a ticket',
+      message: ticket.subject,
+      entityType: 'ticket',
+      entityId: ticketId,
+      actionUrl: '/dashboard#tickets',
+    });
+  }
+
   return message;
 }
 
@@ -112,5 +145,17 @@ export async function adminUpdateTicket(ticketId, adminUserId, { status, priorit
 
   const updated = await prisma.ticket.update({ where: { id: ticketId }, data });
   await writeAuditLog({ actorUserId: adminUserId, action: 'admin.ticket_updated', entityType: 'ticket', entityId: ticketId, status: 'success', metadata: JSON.stringify(data) });
+
+  // Tell the customer when their ticket's status changes (best-effort).
+  if (status && status !== ticket.status) {
+    await createUserNotification(ticket.userId, {
+      type: 'ticket',
+      title: status === 'closed' ? 'Your ticket was closed' : `Ticket status: ${status.replace(/_/g, ' ')}`,
+      message: ticket.subject,
+      entityType: 'ticket',
+      entityId: ticketId,
+    });
+  }
+
   return updated;
 }

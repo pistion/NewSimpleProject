@@ -381,15 +381,95 @@
     },
 
     // ── Global search — no dedicated endpoint yet; return empty gracefully ─────
-    getCrmServiceRequests() {
-      return apiRequest("/api/admin/crm/service-requests")
-        .catch(() => ({ serviceRequests: [] }));
+    // ── CRM Service Requests (intake — not support tickets) ─────────────────
+    getCrmServiceRequests(params = {}) {
+      const qs = new URLSearchParams();
+      Object.entries(params || {}).forEach(([k, v]) => {
+        if (v != null && v !== "" && v !== "all") qs.set(k, v);
+      });
+      const path = "/api/admin/crm/service-requests" + (qs.toString() ? "?" + qs.toString() : "");
+      return apiRequest(path).then((d) => ({
+        serviceRequests: Array.isArray(d?.serviceRequests) ? d.serviceRequests : [],
+        total: d?.total ?? 0,
+        limit: d?.limit,
+        offset: d?.offset,
+      }));
     },
-    bulkCrmServiceRequests() {
-      return Promise.resolve({ updated: 0 });
+    getCrmServiceRequest(id) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id))
+        .then((d) => d?.serviceRequest || d);
+    },
+    createCrmServiceRequest(payload) {
+      return apiRequest("/api/admin/crm/service-requests", {
+        method: "POST",
+        body: JSON.stringify(payload || {}),
+      }).then((d) => d?.serviceRequest || d);
+    },
+    updateCrmServiceRequest(id, patch) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id), {
+        method: "PATCH",
+        body: JSON.stringify(patch || {}),
+      }).then((d) => d?.serviceRequest || d);
+    },
+    markCrmServiceRequestContacted(id, note) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id) + "/contacted", {
+        method: "POST",
+        body: JSON.stringify({ note: note || "" }),
+      }).then((d) => d?.serviceRequest || d);
+    },
+    convertCrmServiceRequestToLead(id) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id) + "/convert-to-lead", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }).then((d) => d?.serviceRequest || d);
+    },
+    convertCrmServiceRequestToTicket(id) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id) + "/convert-to-ticket", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }).then((d) => d?.serviceRequest || d);
+    },
+    deleteCrmServiceRequest(id) {
+      return apiRequest("/api/admin/crm/service-requests/" + encodeURIComponent(id), {
+        method: "DELETE",
+      });
+    },
+    bulkCrmServiceRequests({ ids = [], action } = {}) {
+      // Soft bulk: sequential updates (no dedicated bulk route required)
+      const list = Array.isArray(ids) ? ids : [];
+      if (action === "delete") {
+        return Promise.allSettled(list.map((id) => window.HEYA_API.deleteCrmServiceRequest(id)))
+          .then((results) => ({
+            processed: results.filter((r) => r.status === "fulfilled").length,
+            failed: results.filter((r) => r.status === "rejected"),
+          }));
+      }
+      return Promise.resolve({ processed: 0, updated: 0 });
     },
     getCrmEmailHealth() {
       return Promise.resolve({ configured: false, ok: false, message: "CRM email backend is not connected yet." });
+    },
+    // ── CRM contact emails (client accounts + captured contacts) ─────────────
+    listCrmContacts(params = {}) {
+      const qs = new URLSearchParams();
+      if (params.listType) qs.set("listType", params.listType);
+      if (params.q) qs.set("q", params.q);
+      if (params.limit) qs.set("limit", String(params.limit));
+      const path = "/api/admin/crm/contacts" + (qs.toString() ? "?" + qs.toString() : "");
+      return apiRequest(path).then((d) => d?.contacts || d?.items || d || []);
+    },
+    getCrmContactsOverview() {
+      return apiRequest("/api/admin/crm/contacts/overview").then((d) => d || {});
+    },
+    listCrmEmailLists() {
+      return apiRequest("/api/admin/crm/email-lists").then((d) => d?.lists || d || []);
+    },
+    syncCrmContacts() {
+      return apiRequest("/api/admin/crm/contacts/sync", { method: "POST" });
+    },
+    captureCrmContact(payload = {}) {
+      return apiRequest("/api/admin/crm/contacts", { method: "POST", body: payload })
+        .then((d) => d?.contact || d);
     },
     listCrmEmailMessages() {
       return Promise.resolve({ messages: [], items: [], summary: { total: 0, unread: 0 } });

@@ -1,9 +1,12 @@
 export function mapApiProject(project) {
-  const framework = project.framework || "Vite + React";
+  const framework = project.framework || project.serviceTypeLabel || serviceTypeLabel(project.serviceType) || "Project";
   const repo = [project.repositoryOwner, project.repositoryName].filter(Boolean).join("/") || "Local workspace";
-  const status = project.status === "active" ? "Ready" : project.status === "paused" ? "Paused" : "Archived";
+  const status = project.status === "active" ? "Ready" : project.status === "draft" ? "Draft" : project.status === "paused" ? "Paused" : project.status === "completed" ? "Completed" : "Archived";
   return {
     id: project.id,
+    projectCode: project.projectCode || project.projectId || project.id,
+    serviceType: project.serviceType || "website",
+    serviceTypeLabel: project.serviceTypeLabel || serviceTypeLabel(project.serviceType),
     name: project.name,
     framework,
     status,
@@ -19,6 +22,20 @@ export function mapApiProject(project) {
     bandwidth30d: project.bandwidth30d || "0 GB",
     requests30d: project.requests30d || "0",
   };
+}
+
+function serviceTypeLabel(serviceType) {
+  return {
+    website: "Website / Site Builder",
+    hosting: "Hosting",
+    domain: "Domain",
+    email: "Business Email",
+    vps: "VPS Hosting",
+    consultation: "Consultation",
+    build: "Custom Build",
+    support: "Support",
+    other: "Other",
+  }[serviceType] || null;
 }
 
 export function mapApiDeployment(deployment) {

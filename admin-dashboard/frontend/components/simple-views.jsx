@@ -81,14 +81,109 @@ function ErrorCard({ message }) {
   return <div className="card" style={{ padding: "20px 24px", color: "var(--danger)" }}>{message || "An error occurred."}</div>;
 }
 
-function PendingDataCard({ tab }) {
+function SearchIcon() {
   return (
-    <div className="card" style={{ padding: "36px 24px", textAlign: "center" }}>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 20, marginBottom: 8 }}>Data path pending</div>
-      <div style={{ color: "var(--muted)", fontSize: 13 }}>
-        The <strong>{tab}</strong> tab is shaped and ready for backend integration. No data source has been connected yet.
+    <svg className="talent-search__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="2"></circle>
+      <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" strokeWidth="2" strokeLinecap="round"></line>
+    </svg>
+  );
+}
+
+function rowSearchHaystack(row) {
+  const values = [];
+  const visit = (value) => {
+    if (value == null) return;
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (typeof value === "object") return Object.values(value).forEach(visit);
+    values.push(String(value));
+  };
+  visit(row);
+  return values.filter(Boolean).join("  ").toLowerCase();
+}
+
+function textMatchesRow(row, query) {
+  const q = String(query || "").trim().toLowerCase();
+  return !q || rowSearchHaystack(row).includes(q);
+}
+
+function statusOf(row) {
+  return String(row?.status || row?.accountStatus || row?.billingStatus || "unknown").toLowerCase();
+}
+
+function countByStatus(rows) {
+  return rows.reduce((acc, row) => {
+    const status = statusOf(row);
+    acc.all += 1;
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, { all: 0 });
+}
+
+function AdminSearchToolbar({
+  search,
+  onSearch,
+  placeholder = "Search records...",
+  count = 0,
+  busy = false,
+  filters = [],
+  right,
+}) {
+  return (
+    <div className="card talent-toolbar talent-toolbar--search" style={{ marginBottom: 16 }}>
+      <form className="talent-search" onSubmit={(e) => e.preventDefault()}>
+        <div className="talent-search__field">
+          <SearchIcon />
+          <input
+            className="talent-search__input"
+            type="text"
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder={placeholder}
+            aria-label={placeholder}
+          />
+        </div>
+        <button type="submit" className="talent-search__submit">Search</button>
+      </form>
+      <div className="talent-toolbar-actions">
+        {right}
+      </div>
+      <div className="talent-filter-row">
+        <span className="talent-search__count mono">
+          {busy ? "Searching..." : `${count} result${count === 1 ? "" : "s"}`}
+        </span>
+        {filters.map((filter) => (
+          <label key={filter.key} className="talent-filter-control">
+            <span className="mono" style={{ fontSize: 10, textTransform: "uppercase" }}>{filter.label}</span>
+            <select value={filter.value} onChange={(e) => filter.onChange(e.target.value)}>
+              {filter.options.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+        ))}
       </div>
     </div>
+  );
+}
+
+function PendingDataCard({ tab }) {
+  return (
+    <>
+      <AdminSearchToolbar
+        search=""
+        onSearch={() => {}}
+        placeholder={`Search ${tab.toLowerCase()} records...`}
+        count={0}
+        filters={[{ key: "status", label: "Status", value: "all", onChange: () => {}, options: [{ value: "all", label: "All statuses" }] }]}
+      />
+      <div className="card" style={{ padding: "36px 24px", textAlign: "center" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, marginBottom: 8 }}>Data path pending</div>
+        <div style={{ color: "var(--muted)", fontSize: 13 }}>
+          The <strong>{tab}</strong> tab is shaped and ready for backend integration. No data source has been connected yet.
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -113,10 +208,17 @@ function useAdminData(fetcher) {
 function CustomersView() {
   const { data, loading, error, reload } = useAdminData(() => window.HEYA_API.listCustomers());
   const [selected, setSelected] = React.useState(null);
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
   const [busy, setBusy] = React.useState("");
   const [actionError, setActionError] = React.useState("");
 
   const users = Array.isArray(data) ? data : (data?.users || []);
+  const statusCounts = countByStatus(users);
+  const filteredUsers = users.filter((user) => {
+    const status = statusOf(user);
+    return textMatchesRow(user, search) && (statusFilter === "all" || status === statusFilter);
+  });
 
   async function handleAction(action, userId) {
     setBusy(action + userId);
@@ -129,7 +231,7 @@ function CustomersView() {
       } else if (action === "reactivate") {
         await window.HEYA_API.reactivateCustomer(userId);
       } else if (action === "delete") {
-        if (!window.confirm("Permanently delete this customer account?")) { setBusy(""); return; }
+        if (!window.confirm("PERMANENTLY delete this customer from the main database?\n\nThis removes their login, profile, and related account rows. This cannot be undone.")) { setBusy(""); return; }
         await window.HEYA_API.deleteCustomer(userId, "Admin deleted");
       }
       setSelected(null);
@@ -141,6 +243,34 @@ function CustomersView() {
     }
   }
 
+  async function handleDeleteAllClients() {
+    const clients = users.filter((u) => String(u.role || "").toLowerCase() !== "admin");
+    if (!clients.length) {
+      setActionError("No client accounts to delete.");
+      return;
+    }
+    if (!window.confirm(`PERMANENTLY delete ALL ${clients.length} client account(s) from the main database?\n\nAdmin accounts are kept. This cannot be undone.`)) return;
+    const typed = window.prompt('Type DELETE ALL to confirm hard-delete of every client account:');
+    if (typed !== "DELETE ALL") {
+      setActionError("Bulk delete cancelled — confirmation text did not match.");
+      return;
+    }
+    setBusy("delete-all");
+    setActionError("");
+    const failures = [];
+    for (const u of clients) {
+      try {
+        await window.HEYA_API.deleteCustomer(u.id, "Admin bulk deleted all clients");
+      } catch (err) {
+        failures.push(`${u.email || u.id}: ${err.message || "failed"}`);
+      }
+    }
+    setSelected(null);
+    reload();
+    if (failures.length) setActionError(`Deleted with ${failures.length} error(s): ${failures.slice(0, 3).join("; ")}`);
+    setBusy("");
+  }
+
   const columns = [
     { key: "username",  label: "Username",  render: (v, r) => v || r.email || r.id },
     { key: "email",     label: "Email" },
@@ -150,12 +280,42 @@ function CustomersView() {
   ];
 
   return (
-    <AdminPage title="Customers" subtitle="All registered GlondiaSites customer accounts."
-      actions={<button className="btn ghost sm" onClick={reload}>Refresh</button>}
+    <AdminPage title="Customers" subtitle="All registered GlondiaSites customer accounts. Delete permanently removes the row from the main database."
+      actions={
+        <div className="cluster">
+          <button className="btn ghost sm" style={{ color: "var(--danger)" }} disabled={!!busy} onClick={handleDeleteAllClients}>
+            {busy === "delete-all" ? "Deleting all…" : "Delete all clients"}
+          </button>
+          <button className="btn ghost sm" onClick={reload}>Refresh</button>
+        </div>
+      }
     >
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={users} onRowClick={setSelected} />}
+      {!loading && !error && (
+        <>
+          <AdminSearchToolbar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search customers, email, plan, status, phone, or organization..."
+            count={filteredUsers.length}
+            filters={[{
+              key: "status",
+              label: "Status",
+              value: statusFilter,
+              onChange: setStatusFilter,
+              options: [
+                { value: "all", label: `All (${statusCounts.all || 0})` },
+                { value: "active", label: `Active (${statusCounts.active || 0})` },
+                { value: "suspended", label: `Suspended (${statusCounts.suspended || 0})` },
+                { value: "disabled", label: `Disabled (${statusCounts.disabled || 0})` },
+                { value: "deleted", label: `Deleted (${statusCounts.deleted || 0})` },
+              ],
+            }]}
+          />
+          <DataTable columns={columns} rows={filteredUsers} onRowClick={setSelected} />
+        </>
+      )}
 
       {selected && (
         <div className="publish-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
@@ -212,17 +372,10 @@ function CustomerAccountsView() {
   const [actionError, setActionError] = React.useState("");
 
   const users = Array.isArray(data) ? data : (data?.users || []);
-  const statusCounts = users.reduce((acc, user) => {
-    const status = String(user.status || "active").toLowerCase();
-    acc.all += 1;
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, { all: 0 });
+  const statusCounts = countByStatus(users);
   const filteredUsers = users.filter((user) => {
-    const status = String(user.status || "active").toLowerCase();
-    const query = search.trim().toLowerCase();
-    const haystack = [user.username, user.email, user.id, user.plan, status].filter(Boolean).join(" ").toLowerCase();
-    return (!query || haystack.includes(query)) && (statusFilter === "all" || status === statusFilter);
+    const status = statusOf(user);
+    return textMatchesRow(user, search) && (statusFilter === "all" || status === statusFilter);
   });
 
   async function openCustomer(user) {
@@ -254,7 +407,7 @@ function CustomerAccountsView() {
       } else if (action === "reactivate") {
         await window.HEYA_API.reactivateCustomer(userId);
       } else if (action === "delete") {
-        if (!window.confirm("Permanently delete this customer account?")) { setBusy(""); return; }
+        if (!window.confirm("PERMANENTLY delete this customer from the main database?\n\nThis removes their login, profile, and related account rows. This cannot be undone.")) { setBusy(""); return; }
         await window.HEYA_API.deleteCustomer(userId, "Admin deleted");
       }
       setSelected(null);
@@ -267,10 +420,46 @@ function CustomerAccountsView() {
     }
   }
 
+  async function handleDeleteAllClients() {
+    const targets = users.filter((u) => String(u.role || "").toLowerCase() !== "admin");
+    if (!targets.length) {
+      setActionError("No client accounts to delete.");
+      return;
+    }
+    if (!window.confirm(`PERMANENTLY delete ALL ${targets.length} client account(s) from the main database?\n\nAdmin accounts are kept. This cannot be undone.`)) return;
+    const typed = window.prompt("Type DELETE ALL to confirm hard-delete of every client account:");
+    if (typed !== "DELETE ALL") {
+      setActionError("Bulk delete cancelled — confirmation text did not match.");
+      return;
+    }
+    setBusy("delete-all");
+    setActionError("");
+    const failures = [];
+    for (const u of targets) {
+      try {
+        await window.HEYA_API.deleteCustomer(u.id, "Admin bulk deleted all clients");
+      } catch (err) {
+        failures.push(`${u.email || u.id}: ${err.message || "failed"}`);
+      }
+    }
+    setSelected(null);
+    setSelectedDetail(null);
+    reload();
+    if (failures.length) setActionError(`Deleted with ${failures.length} error(s): ${failures.slice(0, 3).join("; ")}`);
+    setBusy("");
+  }
+
   const tabs = [["all", "All customers"], ["active", "Active"], ["suspended", "Suspended"], ["disabled", "Disabled"], ["deleted", "Deleted"]];
 
   return (
-    <AdminPage title="Customers" subtitle="Customer account cards, service ownership, analytics, and access status." actions={<button className="btn ghost sm" onClick={reload}>Refresh</button>}>
+    <AdminPage title="Customers" subtitle="Customer accounts created from the client app. Delete permanently removes them from the main database." actions={
+      <div className="cluster">
+        <button className="btn ghost sm" style={{ color: "var(--danger)" }} disabled={!!busy} onClick={handleDeleteAllClients}>
+          {busy === "delete-all" ? "Deleting all…" : "Delete all clients"}
+        </button>
+        <button className="btn ghost sm" onClick={reload}>Refresh</button>
+      </div>
+    }>
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
       {!loading && !error && (
@@ -303,10 +492,19 @@ function CustomerAccountsView() {
                 </button>
               ))}
             </div>
-            <div className="customer-pool-toolbar">
-              <input className="customer-pool-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customers, email, plan, or status" />
-              <div className="customer-pool-meta">{filteredUsers.length} shown</div>
-            </div>
+            <AdminSearchToolbar
+              search={search}
+              onSearch={setSearch}
+              placeholder="Search customers, email, plan, status, phone, organization, or database ID..."
+              count={filteredUsers.length}
+              filters={[{
+                key: "status",
+                label: "Status",
+                value: statusFilter,
+                onChange: setStatusFilter,
+                options: tabs.map(([key, label]) => ({ value: key, label: `${label} (${statusCounts[key] || 0})` })),
+              }]}
+            />
             <div className="talent-grid">
               {filteredUsers.length === 0 && <div className="card talent-empty-card">No customer accounts match this view.</div>}
               {filteredUsers.map((user) => <CustomerProfileCard key={user.id} user={user} onOpen={() => openCustomer(user)} />)}
@@ -638,10 +836,27 @@ function initialsForCustomer(name) {
 function DeploymentsView() {
   const { data, loading, error, reload } = useAdminData(() => window.HEYA_API.listDeployments());
   const [selected, setSelected] = React.useState(null);
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [billingFilter, setBillingFilter] = React.useState("all");
   const [busy, setBusy] = React.useState("");
   const [actionError, setActionError] = React.useState("");
 
   const deployments = Array.isArray(data) ? data : (data?.deployments || []);
+  const statusCounts = countByStatus(deployments);
+  const billingCounts = deployments.reduce((acc, item) => {
+    const status = String(item.billingStatus || "unknown").toLowerCase();
+    acc.all += 1;
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, { all: 0 });
+  const filteredDeployments = deployments.filter((dep) => {
+    const status = statusOf(dep);
+    const billing = String(dep.billingStatus || "unknown").toLowerCase();
+    return textMatchesRow(dep, search)
+      && (statusFilter === "all" || status === statusFilter)
+      && (billingFilter === "all" || billing === billingFilter);
+  });
 
   async function handleAction(action, dep) {
     setBusy(action + dep.id);
@@ -678,7 +893,45 @@ function DeploymentsView() {
     >
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={deployments} onRowClick={setSelected} />}
+      {!loading && !error && (
+        <>
+          <AdminSearchToolbar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search deployments, customer IDs, plans, domains, status, or billing..."
+            count={filteredDeployments.length}
+            filters={[
+              {
+                key: "status",
+                label: "Status",
+                value: statusFilter,
+                onChange: setStatusFilter,
+                options: [
+                  { value: "all", label: `All (${statusCounts.all || 0})` },
+                  { value: "active", label: `Active (${statusCounts.active || 0})` },
+                  { value: "pending", label: `Pending (${statusCounts.pending || 0})` },
+                  { value: "suspended", label: `Suspended (${statusCounts.suspended || 0})` },
+                  { value: "deleted", label: `Deleted (${statusCounts.deleted || 0})` },
+                ],
+              },
+              {
+                key: "billing",
+                label: "Billing",
+                value: billingFilter,
+                onChange: setBillingFilter,
+                options: [
+                  { value: "all", label: `All billing (${billingCounts.all || 0})` },
+                  { value: "paid", label: `Paid (${billingCounts.paid || 0})` },
+                  { value: "pending", label: `Pending (${billingCounts.pending || 0})` },
+                  { value: "approved", label: `Approved (${billingCounts.approved || 0})` },
+                  { value: "unknown", label: `Unknown (${billingCounts.unknown || 0})` },
+                ],
+              },
+            ]}
+          />
+          <DataTable columns={columns} rows={filteredDeployments} onRowClick={setSelected} />
+        </>
+      )}
 
       {selected && (
         <div className="publish-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) { setSelected(null); setActionError(""); } }}>
@@ -730,7 +983,14 @@ function DeploymentsView() {
 
 function BillingView() {
   const { data, loading, error, reload } = useAdminData(() => window.HEYA_API.listOrders());
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
   const orders = Array.isArray(data) ? data : (data?.orders || []);
+  const statusCounts = countByStatus(orders);
+  const filteredOrders = orders.filter((order) => {
+    const status = statusOf(order);
+    return textMatchesRow(order, search) && (statusFilter === "all" || status === statusFilter);
+  });
 
   const columns = [
     { key: "id",          label: "Order ID",    render: (v) => <span className="mono" style={{ fontSize: 12 }}>{String(v).slice(0, 12)}</span> },
@@ -747,7 +1007,30 @@ function BillingView() {
     >
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={orders} />}
+      {!loading && !error && (
+        <>
+          <AdminSearchToolbar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search orders, customers, descriptions, amounts, or status..."
+            count={filteredOrders.length}
+            filters={[{
+              key: "status",
+              label: "Status",
+              value: statusFilter,
+              onChange: setStatusFilter,
+              options: [
+                { value: "all", label: `All (${statusCounts.all || 0})` },
+                { value: "paid", label: `Paid (${statusCounts.paid || 0})` },
+                { value: "pending", label: `Pending (${statusCounts.pending || 0})` },
+                { value: "approved", label: `Approved (${statusCounts.approved || 0})` },
+                { value: "rejected", label: `Rejected (${statusCounts.rejected || 0})` },
+              ],
+            }]}
+          />
+          <DataTable columns={columns} rows={filteredOrders} />
+        </>
+      )}
     </AdminPage>
   );
 }
@@ -756,10 +1039,17 @@ function BillingView() {
 
 function ReceiptsView() {
   const { data, loading, error, reload } = useAdminData(() => window.HEYA_API.listReceipts());
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
   const [busy, setBusy] = React.useState("");
   const [actionError, setActionError] = React.useState("");
 
   const receipts = Array.isArray(data) ? data : (data?.receipts || []);
+  const statusCounts = countByStatus(receipts);
+  const filteredReceipts = receipts.filter((receipt) => {
+    const status = statusOf(receipt);
+    return textMatchesRow(receipt, search) && (statusFilter === "all" || status === statusFilter);
+  });
 
   async function handleAction(action, receiptId) {
     setBusy(action + receiptId);
@@ -808,7 +1098,30 @@ function ReceiptsView() {
       {actionError && <ErrorCard message={actionError} />}
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={receipts} />}
+      {!loading && !error && (
+        <>
+          <AdminSearchToolbar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search receipts, customers, references, amounts, or status..."
+            count={filteredReceipts.length}
+            filters={[{
+              key: "status",
+              label: "Status",
+              value: statusFilter,
+              onChange: setStatusFilter,
+              options: [
+                { value: "all", label: `All (${statusCounts.all || 0})` },
+                { value: "pending", label: `Pending (${statusCounts.pending || 0})` },
+                { value: "approved", label: `Approved (${statusCounts.approved || 0})` },
+                { value: "rejected", label: `Rejected (${statusCounts.rejected || 0})` },
+                { value: "paid", label: `Paid (${statusCounts.paid || 0})` },
+              ],
+            }]}
+          />
+          <DataTable columns={columns} rows={filteredReceipts} />
+        </>
+      )}
     </AdminPage>
   );
 }
@@ -817,7 +1130,27 @@ function ReceiptsView() {
 
 function ActivityView() {
   const { data, loading, error, reload } = useAdminData(() => window.HEYA_API.getActivity({ limit: 50 }));
+  const [search, setSearch] = React.useState("");
+  const [actionFilter, setActionFilter] = React.useState("all");
   const items = Array.isArray(data) ? data : (data?.activity || data?.items || []);
+  const actionOptions = React.useMemo(() => {
+    const counts = items.reduce((acc, item) => {
+      const action = String(item.action || "unknown");
+      acc[action] = (acc[action] || 0) + 1;
+      return acc;
+    }, {});
+    return [
+      { value: "all", label: `All actions (${items.length})` },
+      ...Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([action, count]) => ({
+        value: action,
+        label: `${action} (${count})`,
+      })),
+    ];
+  }, [items]);
+  const filteredItems = items.filter((item) => {
+    const action = String(item.action || "unknown");
+    return textMatchesRow(item, search) && (actionFilter === "all" || action === actionFilter);
+  });
 
   const columns = [
     { key: "action",    label: "Action" },
@@ -833,7 +1166,24 @@ function ActivityView() {
     >
       {loading && <LoadingCard />}
       {error && <ErrorCard message={error} />}
-      {!loading && !error && <DataTable columns={columns} rows={items} />}
+      {!loading && !error && (
+        <>
+          <AdminSearchToolbar
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search activity, users, IP addresses, details, or actions..."
+            count={filteredItems.length}
+            filters={[{
+              key: "action",
+              label: "Action",
+              value: actionFilter,
+              onChange: setActionFilter,
+              options: actionOptions,
+            }]}
+          />
+          <DataTable columns={columns} rows={filteredItems} />
+        </>
+      )}
     </AdminPage>
   );
 }
@@ -925,6 +1275,11 @@ function AdminSettingsView({ settings, onSaveSettings, onSaveAccountSettings }) 
     </AdminPage>
   );
 }
+
+window.AdminSearchToolbar = AdminSearchToolbar;
+window.adminTextMatchesRow = textMatchesRow;
+window.adminCountByStatus = countByStatus;
+window.adminStatusOf = statusOf;
 
 window.CustomersView     = CustomerAccountsView;
 window.DeploymentsView   = DeploymentsView;

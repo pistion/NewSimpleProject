@@ -8,12 +8,14 @@ import './ProfilePage.css';
 import {
   getProfile,
   updateProfile,
+  updateEmail,
+  deleteAccount,
   uploadAvatar,
   getAvatarUrl,
   uploadIdPhoto,
   changePassword,
 } from '../../api/profile.js';
-import { updateStoredAuthUser } from '../../api/auth.js';
+import { updateStoredAuthUser, logout } from '../../api/auth.js';
 
 const { useState, useEffect, useCallback } = React;
 
@@ -24,6 +26,11 @@ const DETAIL_FIELDS = [
   { key: 'country',  label: 'Country' },
   { key: 'idType',   label: 'ID Type (e.g. Passport)' },
   { key: 'idNumber', label: 'ID Number' },
+  { key: 'companyName',            label: 'Company Name' },
+  { key: 'billingEmail',           label: 'Billing Email' },
+  { key: 'taxId',                  label: 'Tax ID (optional)' },
+  { key: 'preferredContactMethod', label: 'Preferred Contact (email / phone)' },
+  { key: 'timezone',               label: 'Timezone (e.g. Pacific/Port_Moresby)' },
 ];
 
 function initials(name) {
@@ -52,6 +59,10 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
 
   // password form
   const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' });
+
+  // email change + delete-account forms
+  const [emailForm, setEmailForm] = useState({ newEmail: '', password: '' });
+  const [deleteForm, setDeleteForm] = useState({ confirm: '', password: '' });
 
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
@@ -89,8 +100,11 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
     setMsg(''); setErr('');
     if (field === 'name') setFieldVal(profile?.name || '');
     if (field === 'phone') setFieldVal(profile?.phone || '');
+    if (field === 'org') setFieldVal(profile?.organizationName || profile?.profileDetails?.organizationName || '');
     if (field === 'details') setDetailsVal({ ...(profile?.profileDetails || {}) });
     if (field === 'password') setPwForm({ current: '', newPw: '', confirm: '' });
+    if (field === 'email') setEmailForm({ newEmail: '', password: '' });
+    if (field === 'delete') setDeleteForm({ confirm: '', password: '' });
     if (field === 'avatar') setAvatarFile(null);
     if (field === 'idphoto') setIdFile(null);
   };
@@ -122,6 +136,50 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
       setEditing(null);
       flash(true, 'Phone number updated.');
     } catch (e) { flash(false, e.message || 'Could not save phone.'); }
+    finally { setBusy(''); }
+  };
+
+  const saveOrg = async () => {
+    setBusy('org'); setErr('');
+    try {
+      const p = await updateProfile({ organizationName: fieldVal });
+      setProfile(p);
+      updateStoredAuthUser({ organizationName: p.organizationName });
+      setEditing(null);
+      flash(true, 'Organization name updated.');
+    } catch (e) { flash(false, e.message || 'Could not save organization name.'); }
+    finally { setBusy(''); }
+  };
+
+  const saveEmail = async () => {
+    if (!emailForm.newEmail.trim()) { setErr('Enter your new email address.'); return; }
+    if (!emailForm.password) { setErr('Enter your current password to confirm the change.'); return; }
+    setBusy('email'); setErr('');
+    try {
+      const p = await updateEmail(emailForm.newEmail.trim(), emailForm.password);
+      setProfile(p);
+      updateStoredAuthUser({ email: p.email });
+      setEditing(null);
+      setEmailForm({ newEmail: '', password: '' });
+      flash(true, 'Email address updated. Use the new address next time you sign in.');
+    } catch (e) { flash(false, e.message || 'Could not update email.'); }
+    finally { setBusy(''); }
+  };
+
+  const confirmDelete = async () => {
+    const typed = deleteForm.confirm.trim();
+    const confirmed = typed === 'DELETE' || typed.toLowerCase() === (profile?.email || '').toLowerCase();
+    if (!confirmed) {
+      setErr('Type DELETE or your account email to confirm.');
+      return;
+    }
+    if (!deleteForm.password) { setErr('Enter your password to confirm deletion.'); return; }
+    setBusy('delete'); setErr('');
+    try {
+      await deleteAccount(deleteForm.password);
+      await logout();
+      window.location.href = '/';
+    } catch (e) { flash(false, e.message || 'Could not delete account.'); }
     finally { setBusy(''); }
   };
 
@@ -175,10 +233,20 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
     finally { setBusy(''); }
   };
 
-  const applyTheme = (v) => {
+  const applyTheme = async (v) => {
     onThemeChange?.(v);
     setEditing(null);
-    flash(true, `Theme set to ${v}.`);
+    // Persist alongside other display preferences (merged so nothing is wiped).
+    try {
+      const prevPrefs = profile?.profileDetails?.displayPreferences || {};
+      const p = await updateProfile({
+        profileDetails: { displayPreferences: { ...prevPrefs, theme: v } },
+      });
+      setProfile(p);
+      flash(true, `Theme set to ${v}.`);
+    } catch {
+      flash(true, `Theme set to ${v} (saved locally; could not sync to your account).`);
+    }
   };
 
   // ── Address summary ───────────────────────────────────────────────────────────
@@ -263,15 +331,87 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
               )}
             </div>
 
-            {/* Email (read-only) */}
+            {/* Organization / Business Name */}
+            <div className="acct-row">
+              <div className="acct-row-label">Organization</div>
+              {editing === 'org' ? (
+                <>
+                  <input
+                    className="acct-input"
+                    value={fieldVal}
+                    onChange={(e) => setFieldVal(e.target.value)}
+                    placeholder="Your business or organization name"
+                    onKeyDown={(e) => e.key === 'Enter' && saveOrg()}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="acct-btn primary" disabled={busy === 'org'} onClick={saveOrg}>
+                      {busy === 'org' ? 'Saving…' : 'Save'}
+                    </button>
+                    <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{fmt(profile?.organizationName || profile?.profileDetails?.organizationName) || '—'}</strong>
+                    <div className="acct-row-hint">Shown on invoices and workspace branding.</div>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('org')}>Edit</button>
+                </>
+              )}
+            </div>
+
+            {/* Email */}
             <div className="acct-row">
               <div className="acct-row-label">Email</div>
-              <div className="acct-row-value">
-                <strong>{profile?.email}</strong>
-                <div className="acct-row-hint">Used to sign in to your account.</div>
-              </div>
-              <button className="acct-btn" disabled title="Email changes are not supported yet">Edit</button>
+              {editing !== 'email' && (
+                <>
+                  <div className="acct-row-value">
+                    <strong>{profile?.email}</strong>
+                    <div className="acct-row-hint">Used to sign in. Changes require password confirmation.</div>
+                  </div>
+                  <button className="acct-btn" onClick={() => startEdit('email')}>Edit</button>
+                </>
+              )}
             </div>
+
+            {/* Email expanded form */}
+            {editing === 'email' && (
+              <div className="acct-form-block">
+                <div className="acct-row-label">Change Email</div>
+                <div className="acct-form-grid">
+                  <div className="acct-field">
+                    <label>New Email Address</label>
+                    <input
+                      type="email"
+                      className="acct-input"
+                      value={emailForm.newEmail}
+                      onChange={(e) => setEmailForm({ ...emailForm, newEmail: e.target.value })}
+                      placeholder="you@newdomain.com"
+                      autoFocus
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="acct-field">
+                    <label>Current Password</label>
+                    <input
+                      type="password"
+                      className="acct-input"
+                      value={emailForm.password}
+                      onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                </div>
+                <div className="acct-form-actions">
+                  <button className="acct-btn primary" disabled={busy === 'email'} onClick={saveEmail}>
+                    {busy === 'email' ? 'Saving…' : 'Update Email'}
+                  </button>
+                  <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+                </div>
+              </div>
+            )}
 
             {/* Avatar */}
             <div className="acct-row">
@@ -603,12 +743,48 @@ export default function ProfilePage({ navigate, theme: themeProp = 'dark', onThe
         <div className="acct-section-head">
           <div>
             <h2>Delete Account</h2>
-            <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
+            <p>Deactivates your account and signs you out everywhere. Contact support to restore it.</p>
           </div>
-          <button className="acct-btn danger" disabled title="Contact support to delete your account">
-            Delete Account
-          </button>
+          {editing !== 'delete' && (
+            <button className="acct-btn danger" onClick={() => startEdit('delete')}>
+              Delete Account
+            </button>
+          )}
         </div>
+
+        {editing === 'delete' && (
+          <div className="acct-form-block">
+            <div className="acct-row-label">Confirm Account Deletion</div>
+            <div className="acct-form-grid">
+              <div className="acct-field">
+                <label>Type DELETE or your account email</label>
+                <input
+                  className="acct-input"
+                  value={deleteForm.confirm}
+                  onChange={(e) => setDeleteForm({ ...deleteForm, confirm: e.target.value })}
+                  placeholder="DELETE"
+                  autoFocus
+                />
+              </div>
+              <div className="acct-field">
+                <label>Current Password</label>
+                <input
+                  type="password"
+                  className="acct-input"
+                  value={deleteForm.password}
+                  onChange={(e) => setDeleteForm({ ...deleteForm, password: e.target.value })}
+                  autoComplete="current-password"
+                />
+              </div>
+            </div>
+            <div className="acct-form-actions">
+              <button className="acct-btn danger" disabled={busy === 'delete'} onClick={confirmDelete}>
+                {busy === 'delete' ? 'Deleting…' : 'Permanently Delete'}
+              </button>
+              <button className="acct-btn" onClick={cancelEdit}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

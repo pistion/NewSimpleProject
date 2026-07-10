@@ -4,12 +4,34 @@
 import { liveApiRequest, liveApiUrl } from '../api.js';
 import { authHeaders } from './auth.js';
 
-/** Fetch the caller's own profile (name, phone, personal details, ID photo flag). */
-export const getProfile = () => liveApiRequest('/v1/auth/profile');
+/**
+ * The backend wraps profile responses as { data: { profile } } and
+ * liveApiRequest already strips the outer { data }. Unwrap the remaining
+ * { profile } layer so callers always receive the profile object itself.
+ */
+const unwrapProfile = (result) => result?.profile || result?.data?.profile || result;
 
-/** Update editable profile fields: { name, phone, profileDetails }. */
+/** Fetch the caller's own profile (name, phone, personal details, ID photo flag). */
+export const getProfile = () =>
+  liveApiRequest('/v1/auth/profile').then(unwrapProfile);
+
+/** Update editable profile fields: { name, phone, organizationName, profileDetails }. */
 export const updateProfile = (patch) =>
-  liveApiRequest('/v1/auth/profile', { method: 'PATCH', body: patch });
+  liveApiRequest('/v1/auth/profile', { method: 'PATCH', body: patch }).then(unwrapProfile);
+
+/** Change the sign-in email. Requires the current password. */
+export const updateEmail = (newEmail, currentPassword) =>
+  liveApiRequest('/v1/auth/profile/email', {
+    method: 'PATCH',
+    body: { newEmail, currentPassword },
+  }).then(unwrapProfile);
+
+/** Soft-delete the caller's own account. Requires the current password. */
+export const deleteAccount = (currentPassword) =>
+  liveApiRequest('/v1/auth/profile/delete', {
+    method: 'POST',
+    body: { currentPassword },
+  });
 
 /** Upload the caller's ID photo (PNG/JPG/JPEG, ≤5MB). */
 export async function uploadIdPhoto(file) {
@@ -23,7 +45,7 @@ export async function uploadIdPhoto(file) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result?.error?.message || `Upload failed (${response.status}).`);
-  return result?.data ?? result;
+  return unwrapProfile(result?.data ?? result);
 }
 
 /** Returns an object URL for the caller's own ID photo (caller revokes when done). */
@@ -50,7 +72,7 @@ export async function uploadAvatar(file) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result?.error?.message || `Upload failed (${response.status}).`);
-  return result?.data ?? result;
+  return unwrapProfile(result?.data ?? result);
 }
 
 /** Change the caller's own password. Requires currentPassword unless account has no password yet. */

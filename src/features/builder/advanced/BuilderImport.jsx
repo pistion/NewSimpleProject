@@ -287,10 +287,26 @@ function PricingTierSelector({ pricing, value, onChange }) {
               style={{
                 textAlign: 'left', padding: '12px 14px', borderRadius: 'var(--r-md)', cursor: disabled ? 'not-allowed' : 'pointer',
                 border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                background: active ? 'var(--accent-soft)' : 'var(--bg-deep)', opacity: disabled ? 0.5 : 1,
+                background: 'var(--bg-deep)',
+                color: 'var(--text)',
+                opacity: disabled ? 0.5 : 1,
+                transform: active ? 'translateY(-1px)' : 'none',
+                boxShadow: active ? 'inset 0 0 0 1px var(--border)' : 'none',
+                transition: 'border-color .18s ease, transform .18s ease, background .18s ease',
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 16 }}>{t.displayAmount} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{t.label}</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 999,
+                  border: '2px solid var(--accent)',
+                  boxShadow: 'inset 0 0 0 3px var(--bg-deep)',
+                  background: active ? 'var(--accent)' : 'transparent',
+                  flex: '0 0 14px',
+                }} />
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{t.displayAmount} <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{t.label}</span></div>
+              </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Upgrades to the <b>{t.renderPlanAfterPayment}</b> Glondia hosting plan after payment{disabled ? ' · sold out' : ''}</div>
             </button>
           );
@@ -553,16 +569,8 @@ export function BuilderImport({ mode = 'github', navigate }) {
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>Hosting handoff status</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div><span style={{ color: zipConfig.renderApiConfigured ? 'var(--accent)' : 'var(--danger)' }}>{zipConfig.renderApiConfigured ? '✓' : '✗'}</span> Hosting API: {zipConfig.renderApiConfigured ? 'configured' : 'not configured'}</div>
-                  <div><span style={{ color: (zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? 'var(--accent)' : 'var(--danger)' }}>{(zipConfig.renderSourceRepoConfigured || renderConfig.repoUrl.trim()) ? '✓' : '✗'}</span> Source repo: {zipConfig.renderSourceRepoConfigured ? 'configured' : renderConfig.repoUrl.trim() ? 'set below' : 'not configured'}</div>
                 </div>
                 {zipConfig.missing?.length > 0 && <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>Missing: {zipConfig.missing.join(', ')}</div>}
-              </div>
-            )}
-            {zipConfig && !zipConfig.renderSourceRepoConfigured && !renderConfig.repoUrl.trim() && (
-              <div style={{ marginTop: 12, padding: 12, border: '2px solid var(--warning, #e6a817)', borderRadius: 'var(--r-md)', background: 'var(--bg-deep)' }}>
-                <div className="label" style={{ fontWeight: 600, color: 'var(--warning, #e6a817)' }}>Generated-sites source repo URL *</div>
-                <input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" style={{ marginTop: 6 }} />
-                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Required for Hosting handoff. Hosting deploys from this repo, not from uploaded files directly.</div>
               </div>
             )}
             {zipNotice && <div style={{ marginTop: 10, color: 'var(--accent)', fontSize: 13 }}>{zipNotice}</div>}
@@ -607,7 +615,6 @@ export function BuilderImport({ mode = 'github', navigate }) {
           {settingsMode === 'advanced' && (<>
             <h3 style={{ margin: '12px 0 8px', fontSize: 13 }}>Source Settings</h3>
             <div className="render-config-grid">
-              {activeMode === 'zip' && <label><span>Source repository</span><input className="input mono" value={renderConfig.repoUrl} onChange={(e) => updateRenderConfig('repoUrl', e.target.value)} placeholder="https://github.com/your-org/generated-sites" /><span className="muted" style={{ fontSize: 11 }}>Hosting deploys from this repo. Leave blank to use server default.</span></label>}
               {activeMode === 'github' && <label><span>Source repository</span><input className="input mono" value={repoUrl} disabled style={{ opacity: 0.7 }} /></label>}
               <label><span>Branch</span><input className="input mono" value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} placeholder="main" /></label>
               <label><span>Root directory</span><input className="input mono" value={isStaticSite ? renderConfig.frontendRootDirectory : renderConfig.backendRootDirectory} onChange={(e) => updateRenderConfig(isStaticSite ? 'frontendRootDirectory' : 'backendRootDirectory', e.target.value)} placeholder={isStaticSite ? './' : 'server'} /><span className="muted" style={{ fontSize: 11 }}>Must be a repo path, not an absolute server path.</span></label>

@@ -22,7 +22,7 @@ const FLAG_DEFINITIONS = {
   // Set FEATURE_DOMAINS=false to hide. Live purchase still needs Spaceship + PayPal env.
   DOMAINS:              { env: 'FEATURE_DOMAINS',              default: true,  label: 'Domains' },
 
-  VPS:                  { env: 'FEATURE_VPS',                  default: false, label: 'Cloud Servers' },
+  VPS:                  { env: 'FEATURE_VPS',                  default: true,  label: 'Cloud Servers' },
   AI_BUILDER:           { env: 'FEATURE_AI_BUILDER',           default: false, label: 'RoxanneAI advanced builder' },
   TEMPLATE_MARKETPLACE: { env: 'FEATURE_TEMPLATE_MARKETPLACE', default: false, label: 'Template marketplace' },
   ANALYTICS:            { env: 'FEATURE_ANALYTICS',            default: false, label: 'Analytics' },

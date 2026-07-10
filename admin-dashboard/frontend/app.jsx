@@ -253,15 +253,21 @@ function App() {
 
   const [warningCount, setWarningCount] = React.useState(0);
   const [watchdogCount, setWatchdogCount] = React.useState(0);
+  const [ticketCount, setTicketCount] = React.useState(0);
 
   React.useEffect(() => {
     if (loading || authState !== "authenticated") return;
     Promise.allSettled([
       window.HEYA_API.listWarnings({ limit: 1 }),
       window.HEYA_API.listWatchdog({ limit: 1 }),
-    ]).then(([w, wd]) => {
+      window.HEYA_API.listAdminTickets({ limit: 1, status: "open" }),
+      window.HEYA_API.listAdminTickets({ limit: 1, status: "pending_admin" }),
+    ]).then(([w, wd, tOpen, tPending]) => {
       if (w.status === "fulfilled")  setWarningCount(w.value.total || 0);
       if (wd.status === "fulfilled") setWatchdogCount(wd.value.total || 0);
+      const open    = tOpen.status === "fulfilled"    ? (tOpen.value.total || 0)    : 0;
+      const pending = tPending.status === "fulfilled" ? (tPending.value.total || 0) : 0;
+      setTicketCount(open + pending);
     });
   }, [loading, authState]);
 
@@ -270,12 +276,12 @@ function App() {
     deployments: overview?.deployments?.total    || 0,
     orders:      overview?.orders?.pending       || 0,
     receipts:    overview?.receipts?.pending     || 0,
-    tickets:     0,
+    tickets:     ticketCount,
     warnings:    warningCount,
     watchdog:    watchdogCount,
     unreadMessages: messageSummary.unread || 0,
     _crmTab: crmTab,
-  }), [overview, messageSummary, crmTab, warningCount, watchdogCount]);
+  }), [overview, messageSummary, crmTab, warningCount, watchdogCount, ticketCount]);
 
   if (authState === "login") {
     return <DashboardLogin message={authMessage} onLogin={loadInitialData} />;

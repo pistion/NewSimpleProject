@@ -1,5 +1,5 @@
 import { prisma } from './db.js';
-import { signAccessToken, issueRefreshToken } from './authService.js';
+import { signAccessToken, issueRefreshToken, ensureClientId } from './authService.js';
 import { randomBytes } from 'node:crypto';
 
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
@@ -56,27 +56,55 @@ export async function handleGoogleCallback(code) {
     throw Object.assign(new Error('Your Google account has no verified email address.'), { status: 400 });
   }
 
+  // Store emails the same way as password register: trim + lowercase.
+  const email = String(gUser.email || '').trim().toLowerCase();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw Object.assign(new Error('A valid Google email address is required.'), { status: 400 });
+  }
+
   let user = await prisma.user.findFirst({ where: { profileDetails: { contains: `"googleId":"${gUser.id}"` } } })
-          ?? await prisma.user.findUnique({ where: { email: gUser.email } });
+          ?? await prisma.user.findUnique({ where: { email } });
 
   if (user) {
     const details = safeJson(user.profileDetails);
+    const patch = {};
     if (!details.googleId) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { profileDetails: JSON.stringify({ ...details, googleId: gUser.id }) },
-      });
+      patch.profileDetails = JSON.stringify({ ...details, googleId: gUser.id });
+    }
+    // Heal legacy mixed-case emails so uniqueness/login stay consistent.
+    if (user.email !== email) patch.email = email;
+    if (Object.keys(patch).length) {
+      user = await prisma.user.update({ where: { id: user.id }, data: patch });
     }
   } else {
     const details = JSON.stringify({ googleId: gUser.id });
     user = await prisma.user.create({
       data: {
-        email:        gUser.email,
+        email,
         name:         gUser.name,
         passwordHash: randomBytes(32).toString('hex'),
         profileDetails: details,
       },
     });
+  }
+
+  // Assign the glondiac-XXXX client reference (no-op when already set).
+  user = await ensureClientId(user);
+
+  // Capture OAuth account email into CRM Client Accounts (name + database id).
+  try {
+    const { captureContactEmail } = await import('./crmContactsService.js');
+    await captureContactEmail({
+      email: user.email,
+      name: user.name || user.email?.split('@')[0],
+      userId: user.id,
+      source: 'google_oauth',
+      listType: 'client_accounts',
+      role: user.role,
+      accountStatus: user.accountStatus || 'active',
+    });
+  } catch (err) {
+    console.warn('[google-oauth] CRM contact capture skipped:', err.message);
   }
 
   const accessToken  = signAccessToken(user);
