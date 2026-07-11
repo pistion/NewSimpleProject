@@ -18,8 +18,8 @@ export default function SignupPage({ navigate }) {
     }
     setLoading(true)
     try {
-      await register(form)
-      navigate({ view: 'overview' })
+      const session = await register(form)
+      navigate({ view: 'overview' }, { user: session?.user, replace: true })
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.')
     } finally {

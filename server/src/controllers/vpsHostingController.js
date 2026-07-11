@@ -4,27 +4,25 @@ import * as paypal from '../services/paypalBillingService.js';
 import * as svc from '../services/vpsHostingService.js';
 
 /**
- * Extract userId + organizationId from the request's JWT.
- * Kept in the controller layer because it reads from req.headers — services
- * must never receive HTTP req/res objects.
+ * Build the acting identity from the verified `req.user` set by authMiddleware.
+ * Every route that calls this sits behind authMiddleware, so an unset user
+ * means a wiring bug — reject rather than fall back to a shared tenant.
+ * Tokens carry no organizationId, so each user is their own tenant; the
+ * dev-fallback 'local-user' keeps its historical 'local-org' bucket.
  */
 function extractActor(req) {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token || token === 'local-demo-token') {
-    return { userId: 'local-user', organizationId: 'local-org' };
+  const user = req.user;
+  if (!user?.id) {
+    throw Object.assign(new Error('Authentication required.'), { status: 401 });
   }
-  try {
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      return {
-        userId:         payload.sub || payload.userId || 'local-user',
-        organizationId: payload.organizationId || payload.org_id || 'local-org',
-      };
-    }
-  } catch { /* fall through */ }
-  return { userId: 'local-user', organizationId: 'local-org' };
+  const organizationId = user.organizationId
+    || (user.id === 'local-user' ? 'local-org' : user.id);
+  return {
+    userId: user.id,
+    organizationId,
+    role: user.role || 'owner',
+    isAdmin: user.role === 'admin',
+  };
 }
 
 function wrap(fn) {
@@ -117,7 +115,7 @@ export const listSshKeys = wrap(async (req, res) => {
 });
 
 export const deleteSshKey = wrap(async (req, res) => {
-  await svc.deleteSshKey(req.params.keyId);
+  await svc.deleteSshKey(req.params.keyId, extractActor(req));
   res.json({ ok: true });
 });
 
@@ -130,22 +128,22 @@ export const getBandwidth = wrap(async (req, res) => {
 
 // ─── Snapshots ────────────────────────────────────────────────────────────────
 
-export const listSnapshots = wrap(async (req, res) =>
-  res.json(await svc.listSnapshots()));
+export const listSnapshots = wrap(async (req, res) => {
+  const { organizationId } = extractActor(req);
+  res.json(await svc.listSnapshots(organizationId));
+});
 
 export const createSnapshot = wrap(async (req, res) => {
-  const { organizationId } = extractActor(req);
-  res.status(201).json(await svc.createSnapshot(req.params.id, organizationId, req.body?.description));
+  res.status(201).json(await svc.createSnapshot(req.params.id, extractActor(req), req.body?.description));
 });
 
 export const deleteSnapshot = wrap(async (req, res) => {
-  await svc.deleteSnapshot(req.params.snapshotId);
+  await svc.deleteSnapshot(req.params.snapshotId, extractActor(req));
   res.json({ ok: true });
 });
 
 export const restoreService = wrap(async (req, res) => {
-  const { organizationId } = extractActor(req);
-  await svc.restoreService(req.params.id, organizationId, req.body?.snapshotId);
+  await svc.restoreService(req.params.id, extractActor(req), req.body?.snapshotId);
   res.json({ ok: true });
 });
 

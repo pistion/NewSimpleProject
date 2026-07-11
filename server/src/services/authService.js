@@ -92,9 +92,11 @@ const OWN_AVATAR_URL = '/api/v1/auth/profile/avatar';
 
 function toPublicUser(user) {
   const details = safeJson(user.profileDetails);
+  const clientId = user.clientId || null;
   return {
     id: user.id,
-    clientId: user.clientId || null,
+    clientId,
+    accountUrl: clientId ? `/client/${clientId}` : null,
     email: user.email,
     name: user.name,
     organizationName: details.organizationName || null,

@@ -32,7 +32,7 @@ import GlondiaMailApp from './features/glondia-mail/GlondiaMailApp.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
 import { isFeatureEnabled } from './app/features.js';
 import { notifyDataChanged } from './api';
-import { isAuthenticated, clearAuthSession, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
+import { isAuthenticated, clearAuthSession, getStoredAuth, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
 import { isLiveMode } from './app/config.js';
 import { isViewComingSoon } from './app/features.js';
 import LoginPage from './features/auth/LoginPage.jsx';
@@ -52,6 +52,107 @@ const ACCENT_PRESETS = {
   "#2a4d9a": { hover: "#21407f", soft: "#e4ebf7",   ink: "#142555", glow: "rgba(42,77,154,.24)"  }, // royal
   "#1a1f1d": { hover: "#0a0e0c", soft: "#e6e8e6",   ink: "#070a09", glow: "rgba(26,31,29,.24)"   }, // mono
 };
+
+const CLIENT_ROUTE_PREFIX = 'client';
+const VIEW_TO_PATH = {
+  overview: '',
+  'hosting-list': 'hosting',
+  'domains-mine': 'domains',
+  'domains-buy': 'domains/buy',
+  'builder-gallery': 'site-builder',
+  activity: 'activity',
+  billing: 'billing',
+  email: 'email',
+  profile: 'profile',
+  settings: 'settings',
+  'vps-hosting': 'cloud-servers',
+  'vps-create': 'cloud-servers/new',
+};
+
+const PATH_TO_VIEW = {
+  '': 'overview',
+  hosting: 'hosting-list',
+  domains: 'domains-mine',
+  'domains/buy': 'domains-buy',
+  'site-builder': 'builder-gallery',
+  activity: 'activity',
+  billing: 'billing',
+  email: 'email',
+  profile: 'profile',
+  settings: 'settings',
+  'cloud-servers': 'vps-hosting',
+  'cloud-servers/new': 'vps-create',
+};
+
+function accountClientId(user = getStoredAuth().user) {
+  const raw = user?.clientId || user?.id || '';
+  return String(raw).trim().replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function accountPathFor(route, user = getStoredAuth().user) {
+  const clientId = accountClientId(user);
+  if (!clientId || !route || route.view === 'login' || route.view === 'signup') return null;
+
+  if (route.view === 'hosting-detail' && route.params?.id) {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/hosting/${encodeURIComponent(route.params.id)}`;
+  }
+  if (route.view === 'dns' && route.params?.domain) {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/domains/${encodeURIComponent(route.params.domain)}/dns`;
+  }
+  if (route.view === 'builder-editor' && (route.params?.siteId || route.params?.id)) {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/editor/${encodeURIComponent(route.params.siteId || route.params.id)}`;
+  }
+  if (route.view === 'builder-ai-intake') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/setup`;
+  }
+  if (route.view === 'builder-site-plan') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/plan`;
+  }
+  if (route.view === 'builder-deployment-settings') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/deploy`;
+  }
+  if (route.view === 'builder-templates') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/templates`;
+  }
+  if (route.view === 'builder-roxanne') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/roxanne`;
+  }
+  if (route.view === 'builder-import') {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/import`;
+  }
+  if (route.view === 'vps-detail' && route.params?.id) {
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/cloud-servers/${encodeURIComponent(route.params.id)}`;
+  }
+
+  const suffix = VIEW_TO_PATH[route.view];
+  if (suffix === undefined) return `/${CLIENT_ROUTE_PREFIX}/${clientId}`;
+  return suffix ? `/${CLIENT_ROUTE_PREFIX}/${clientId}/${suffix}` : `/${CLIENT_ROUTE_PREFIX}/${clientId}`;
+}
+
+function routeFromAccountPath(pathname = window.location.pathname) {
+  const parts = String(pathname || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  if (parts[0] !== CLIENT_ROUTE_PREFIX || !parts[1]) return null;
+  const rest = parts.slice(2).map((p) => decodeURIComponent(p));
+  const key = rest.join('/');
+
+  if (rest[0] === 'hosting' && rest[1]) return { view: 'hosting-detail', params: { id: rest[1] } };
+  if (rest[0] === 'domains' && rest[1] && rest[2] === 'dns') return { view: 'dns', params: { domain: rest[1] } };
+  if (key === 'site-builder/templates') return { view: 'builder-templates' };
+  if (key === 'site-builder/roxanne') return { view: 'builder-roxanne' };
+  if (key === 'site-builder/import') return { view: 'builder-import' };
+  if (key === 'site-builder/setup') return { view: 'builder-ai-intake' };
+  if (key === 'site-builder/plan') return { view: 'builder-site-plan' };
+  if (key === 'site-builder/deploy') return { view: 'builder-deployment-settings' };
+  if (rest[0] === 'site-builder' && rest[1] === 'editor' && rest[2]) return { view: 'builder-editor', params: { id: rest[2], siteId: rest[2] } };
+  if (rest[0] === 'cloud-servers' && rest[1] && rest[1] !== 'new') return { view: 'vps-detail', params: { id: rest[1] } };
+
+  return { view: PATH_TO_VIEW[key] || 'overview' };
+}
+
+function clientIdFromPath(pathname = window.location.pathname) {
+  const parts = String(pathname || '').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  return parts[0] === CLIENT_ROUTE_PREFIX ? parts[1] || '' : '';
+}
 
 class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -132,7 +233,7 @@ export default function App() {
 }
 
 function ClientDashboardApp() {
-  const [route, setRoute] = useStateApp({ view: "login" });
+  const [route, setRoute] = useStateApp(() => routeFromAccountPath() || { view: "login" });
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [githubBanner, setGithubBanner] = useStateApp(null);
   const [authed, setAuthed] = useStateApp(isAuthenticated());
@@ -145,6 +246,23 @@ function ClientDashboardApp() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, sync);
   }, []);
 
+  useEffectApp(() => {
+    const onPop = () => setRoute(routeFromAccountPath() || (isAuthenticated() ? { view: 'overview' } : { view: 'login' }));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffectApp(() => {
+    if (!authed) return;
+    const user = getStoredAuth().user;
+    const expectedClientId = accountClientId(user);
+    if (!expectedClientId) return;
+    const pathClientId = clientIdFromPath();
+    if (!pathClientId || pathClientId !== expectedClientId) {
+      navigate(route.view === 'login' || route.view === 'signup' ? { view: 'overview' } : route, { user, replace: true });
+    }
+  }, [authed, route.view, route.params?.id, route.params?.domain]);
+
   // ── Demo-mode auto-login ────────────────────────────────────────────────────
   // In local dev (non-live mode) skip the login screen entirely.
   // Any credentials work in demo mode — this just saves the click.
@@ -152,10 +270,10 @@ function ClientDashboardApp() {
     if (!isLiveMode() && !isAuthenticated()) {
       authLogin('dev@glondia.local', 'devpass').then(() => {
         setAuthed(true);
-        setRoute({ view: 'builder-gallery' });
+        navigate({ view: 'builder-gallery' }, { replace: true });
       }).catch(() => {});
     } else if (!isLiveMode() && isAuthenticated()) {
-      setRoute({ view: 'builder-gallery' });
+      navigate(routeFromAccountPath() || { view: 'builder-gallery' }, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -183,7 +301,7 @@ function ClientDashboardApp() {
       if (accessToken) {
         storeAuthSession({ tokens: { accessToken, refreshToken }, user });
         setGithubBanner(ghLogin ? `Signed in with GitHub as @${ghLogin}` : 'Signed in with GitHub');
-        setRoute({ view: 'overview' });
+        navigate({ view: 'overview' }, { user, replace: true });
         const t = setTimeout(() => setGithubBanner(null), 5000);
         return () => clearTimeout(t);
       }
@@ -199,7 +317,7 @@ function ClientDashboardApp() {
       if (accessToken) {
         storeAuthSession({ tokens: { accessToken, refreshToken }, user });
         setGithubBanner(`Signed in with Google${user?.name ? ` as ${user.name}` : ''}`);
-        setRoute({ view: 'overview' });
+        navigate({ view: 'overview' }, { user, replace: true });
         const t = setTimeout(() => setGithubBanner(null), 5000);
         return () => clearTimeout(t);
       }
@@ -228,7 +346,15 @@ function ClientDashboardApp() {
 
   useEffectApp(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [route.view, route.params?.id]);
 
-  const navigate = (r) => setRoute(r);
+  const navigate = (r, options = {}) => {
+    setRoute(r);
+    const nextPath = accountPathFor(r, options.user);
+    if (nextPath && nextPath !== window.location.pathname) {
+      const nextUrl = `${nextPath}${window.location.search || ''}`;
+      if (options.replace) window.history.replaceState({}, '', nextUrl);
+      else window.history.pushState({}, '', nextUrl);
+    }
+  };
   const toggleTheme = () => setTweak("theme", t.theme === "dark" ? "light" : "dark");
 
   const DASHBOARD_VIEWS = new Set([
@@ -247,8 +373,8 @@ function ClientDashboardApp() {
     if (isViewComingSoon(route.view)) return <ComingSoon navigate={navigate} />;
 
     switch (route.view) {
-      case "login":             return authed ? (() => { navigate({ view: 'overview' }); return null; })() : <LoginPage navigate={navigate} />;
-      case "signup":            return authed ? (() => { navigate({ view: 'overview' }); return null; })() : <SignupPage navigate={navigate} />;
+      case "login":             return authed ? (() => { navigate({ view: 'overview' }, { replace: true }); return null; })() : <LoginPage navigate={navigate} />;
+      case "signup":            return authed ? (() => { navigate({ view: 'overview' }, { replace: true }); return null; })() : <SignupPage navigate={navigate} />;
       case "overview":          return <Overview navigate={navigate} />;
       case "hosting-list":      return <HostingList navigate={navigate} />;
       case "hosting-detail":    return <HostingDetail id={route.params?.id} navigate={navigate} />;

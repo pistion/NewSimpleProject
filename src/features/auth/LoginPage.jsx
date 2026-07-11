@@ -13,8 +13,8 @@ export default function LoginPage({ navigate }) {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
-      navigate({ view: 'overview' })
+      const session = await login(email, password)
+      navigate({ view: 'overview' }, { user: session?.user, replace: true })
     } catch (err) {
       setError(err.message || 'Sign in failed. Please check your credentials.')
     } finally {

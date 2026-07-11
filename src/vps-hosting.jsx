@@ -901,6 +901,7 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
   const [busy, setBusy]       = useState('');
   const [error, setError]     = useState('');
   const [confirm, setConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const load = (showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -944,9 +945,16 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
   };
 
   // Render page shell immediately — fill with skeletons while loading
-  const isActive  = server?.status === 'active';
+  const isActive  = ['active', 'running'].includes(server?.status ?? '');
   const isStopped = ['stopped', 'halted'].includes(server?.status ?? '');
   const isProvisioning = ['pending', 'provisioning'].includes(server?.status ?? '');
+  const locationLabel = server?.region || '...';
+  const sshUser = server?.connectionUsername || 'root';
+  const sshPassword = server?.connectionPassword || '';
+  const monthlyTotal = server ? `$${fmtCents(server.totalPriceCents)}` : '...';
+  const copyText = async (value) => {
+    try { await navigator.clipboard?.writeText(String(value || '')); } catch {}
+  };
 
   if (!loading && !server) return (
     <Empty icon="Server" title="Server not found"
@@ -987,7 +995,90 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
         <div className="card" style={{ padding: '10px 16px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>
       )}
 
-      <div className="grid-side" style={{ '--side-width': '300px' }}>
+      <div className="vps-overview-metrics">
+        <div className="vps-metric-card">
+          <span>Bandwidth Usage</span>
+          <strong>{loading ? <Skel w="84px" h={34} /> : '0.05GB'}</strong>
+        </div>
+        <div className="vps-metric-card">
+          <span>vCPU Usage</span>
+          <strong>{loading ? <Skel w="60px" h={34} /> : '0%'}</strong>
+        </div>
+        <div className="vps-metric-card">
+          <span>Current Charges</span>
+          <strong>{loading ? <Skel w="90px" h={34} /> : monthlyTotal}</strong>
+        </div>
+      </div>
+
+      <div className="vps-overview-grid">
+        <div className="vps-info-list">
+          <div className="vps-info-row">
+            <span>Location:</span>
+            <strong>{loading ? <Skel w="90px" /> : locationLabel}</strong>
+          </div>
+          <div className="vps-info-row">
+            <span>IP Address:</span>
+            <strong className="mono">{loading ? <Skel w="120px" /> : (server.mainIp || 'Pending')}</strong>
+            {!loading && server.mainIp && <button className="btn btn-icon btn-ghost" onClick={() => copyText(server.mainIp)} title="Copy IP"><ICN.Copy size={16} /></button>}
+          </div>
+          <div className="vps-info-row">
+            <span>Username:</span>
+            <strong className="mono">{loading ? <Skel w="56px" /> : sshUser}</strong>
+            {!loading && <button className="btn btn-icon btn-ghost" onClick={() => copyText(sshUser)} title="Copy username"><ICN.Copy size={16} /></button>}
+          </div>
+          <div className="vps-info-row">
+            <span>Password:</span>
+            <strong className="mono">{loading ? <Skel w="90px" /> : sshPassword ? (showPassword ? sshPassword : '••••••••••••') : 'Unavailable'}</strong>
+            {sshPassword && (
+              <>
+                <button className="btn btn-icon btn-ghost" onClick={() => setShowPassword((v) => !v)} title={showPassword ? 'Hide password' : 'Show password'}><ICN.Eye size={16} /></button>
+                <button className="btn btn-icon btn-ghost" onClick={() => copyText(sshPassword)} title="Copy password"><ICN.Copy size={16} /></button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="vps-info-list">
+          <div className="vps-info-row"><span>vCPU/s:</span><strong>{loading ? <Skel w="70px" /> : `${server.vcpuCount || 0} vCPUs`}</strong></div>
+          <div className="vps-info-row"><span>RAM:</span><strong>{loading ? <Skel w="90px" /> : server.ramMb ? `${server.ramMb.toLocaleString()} MB` : '...'}</strong></div>
+          <div className="vps-info-row"><span>Storage:</span><strong>{loading ? <Skel w="80px" /> : server.diskGb ? `${server.diskGb} GB SSD` : '...'}</strong></div>
+          <div className="vps-info-row"><span>Bandwidth:</span><strong className="mono">0.05 GB</strong></div>
+        </div>
+
+        <div className="vps-info-list">
+          <div className="vps-info-row"><span>Label:</span><strong>{loading ? <Skel w="110px" /> : server.label}</strong></div>
+          <div className="vps-info-row"><span>OS:</span><strong>{loading ? <Skel w="130px" /> : (server.osName || `ID ${server.osId}`)}</strong></div>
+          <div className="vps-info-row"><span>Plan:</span><strong className="mono">{loading ? <Skel w="100px" /> : server.plan}</strong></div>
+          <div className="vps-info-row"><span>Auto Backups:</span><strong>{loading ? <Skel w="70px" /> : 'Disabled'}</strong></div>
+        </div>
+      </div>
+
+      {!loading && server.mainIp && (
+        <div className="vps-ssh-card">
+          <div>
+            <span>SSH command</span>
+            <code>ssh {sshUser}@{server.mainIp}</code>
+          </div>
+          <button className="btn btn-outline" onClick={() => copyText(`ssh ${sshUser}@${server.mainIp}`)}>
+            <ICN.Copy size={14} /> Copy
+          </button>
+        </div>
+      )}
+
+      {confirm === 'destroy' && (
+        <div className="card" style={{ padding: 16, borderColor: 'var(--danger)', color: 'var(--text)' }}>
+          <strong>Destroy this server?</strong>
+          <p className="muted" style={{ margin: '6px 0 12px' }}>This permanently deletes the server record and cannot be undone.</p>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-danger btn-sm" disabled={!!busy} onClick={() => act('destroy', () => destroyVpsService(id))}>
+              {busy === 'destroy' ? 'Destroying...' : 'Yes, destroy'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setConfirm('')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid-side vps-detail-old-grid" style={{ '--side-width': '300px' }}>
 
         {/* Left: server info + connect */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

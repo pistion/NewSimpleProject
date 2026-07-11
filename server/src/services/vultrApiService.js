@@ -1,7 +1,34 @@
 const VULTR_BASE = process.env.VULTR_API_BASE_URL || 'https://api.vultr.com/v2';
 
+const TEST_REGIONS = [
+  { id: 'ewr', city: 'New Jersey', country: 'us', continent: 'North America', options: ['ddos_protection'] },
+  { id: 'ord', city: 'Chicago', country: 'us', continent: 'North America', options: ['ddos_protection'] },
+  { id: 'lhr', city: 'London', country: 'gb', continent: 'Europe', options: [] },
+  { id: 'sgp', city: 'Singapore', country: 'sg', continent: 'Asia', options: [] },
+  { id: 'syd', city: 'Sydney', country: 'au', continent: 'Oceania', options: [] },
+];
+
+const TEST_PLANS = [
+  { id: 'vc2-1c-1gb', type: 'vc2', vcpu_count: 1, ram: 1024, disk: 25, bandwidth: 1, monthly_cost: 6, locations: ['ewr', 'ord', 'lhr', 'sgp', 'syd'] },
+  { id: 'vc2-2c-2gb', type: 'vc2', vcpu_count: 2, ram: 2048, disk: 55, bandwidth: 2, monthly_cost: 12, locations: ['ewr', 'ord', 'lhr', 'sgp', 'syd'] },
+  { id: 'vhf-1c-2gb', type: 'vhf', vcpu_count: 1, ram: 2048, disk: 64, bandwidth: 2, monthly_cost: 18, locations: ['ewr', 'ord', 'lhr', 'sgp'] },
+  { id: 'vhp-2c-4gb-amd', type: 'vhp', vcpu_count: 2, ram: 4096, disk: 100, bandwidth: 3, monthly_cost: 24, locations: ['ewr', 'ord', 'lhr'] },
+  { id: 'voc-g-2c-8gb', type: 'voc-g', vcpu_count: 2, ram: 8192, disk: 160, bandwidth: 4, monthly_cost: 48, locations: ['ewr', 'ord', 'sgp'] },
+];
+
+const TEST_OS = [
+  { id: 2284, name: 'Ubuntu 24.04 LTS x64', arch: 'x64', family: 'ubuntu' },
+  { id: 2136, name: 'Debian 12 x64', arch: 'x64', family: 'debian' },
+  { id: 2138, name: 'AlmaLinux 9 x64', arch: 'x64', family: 'almalinux' },
+  { id: 2150, name: 'Rocky Linux 9 x64', arch: 'x64', family: 'rocky' },
+];
+
 export function isConfigured() {
   return Boolean(process.env.VULTR_API_KEY);
+}
+
+export function isTestMode() {
+  return String(process.env.VPS_TEST_MODE ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() === 'true';
 }
 
 async function vultrReq(path, init = {}) {
@@ -32,22 +59,28 @@ async function vultrReq(path, init = {}) {
 }
 
 export async function listRegions() {
+  if (!isConfigured() && isTestMode()) return TEST_REGIONS;
   const d = await vultrReq('/regions?per_page=500');
   return d.regions ?? [];
 }
 
 export async function listPlans(type) {
+  if (!isConfigured() && isTestMode()) {
+    return type ? TEST_PLANS.filter((p) => p.type === type) : TEST_PLANS;
+  }
   const qs = type ? `?type=${encodeURIComponent(type)}&per_page=500` : '?per_page=500';
   const d = await vultrReq(`/plans${qs}`);
   return d.plans ?? [];
 }
 
 export async function listOs() {
+  if (!isConfigured() && isTestMode()) return TEST_OS;
   const d = await vultrReq('/os?per_page=500');
   return d.os ?? [];
 }
 
 export async function createSshKey(name, publicKey) {
+  if (!isConfigured() && isTestMode()) return { id: `dummy-ssh-${Date.now()}`, name, ssh_key: publicKey };
   const d = await vultrReq('/ssh-keys', {
     method: 'POST',
     body: JSON.stringify({ name, ssh_key: publicKey }),
@@ -56,6 +89,21 @@ export async function createSshKey(name, publicKey) {
 }
 
 export async function createInstance(opts) {
+  if (!isConfigured() && isTestMode()) {
+    const plan = TEST_PLANS.find((p) => p.id === opts.plan) || TEST_PLANS[0];
+    return {
+      id: `dummy-vultr-${Date.now()}`,
+      status: 'running',
+      main_ip: `192.0.2.${Math.floor(Math.random() * 180) + 20}`,
+      vcpu_count: plan.vcpu_count,
+      ram: plan.ram,
+      disk: plan.disk,
+      region: opts.region,
+      plan: opts.plan,
+      os_id: opts.os_id,
+      label: opts.label,
+    };
+  }
   const d = await vultrReq('/instances', { method: 'POST', body: JSON.stringify(opts) });
   return d.instance;
 }

@@ -1,6 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import dotenv from 'dotenv';
+
+// Prisma reads env("DATABASE_URL") when the client is instantiated. Because ESM
+// imports run before server.js body code, load env here as the DB module boots.
+dotenv.config({ path: '.env.local' });
+dotenv.config();
+
+if (!process.env.DATABASE_URL && process.env.NODE_ENV !== 'production') {
+  process.env.DATABASE_URL = 'file:./prisma/dev.db';
+  console.warn('[db] DATABASE_URL was not set; using local SQLite fallback file:./prisma/dev.db.');
+}
 
 function ensureSqliteUrl(url) {
   if (!url || !url.startsWith('file:')) return url;
@@ -336,6 +347,110 @@ export async function ensureCrmEmailTables() {
     );
   } catch (err) {
     console.error('[db] ensureCrmEmailTables failed:', err.message);
+  }
+}
+
+/**
+ * Provider resource ownership map (VPS SSH keys, snapshots, backups…).
+ * Every provider-account-level resource a customer creates is recorded here so
+ * list/delete/restore can be scoped to the owning organization instead of
+ * exposing the shared Vultr account. Idempotent. SQLite only.
+ */
+export async function ensureProviderResourcesTable() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "provider_resources" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "organization_id" TEXT NOT NULL,
+        "user_id" TEXT,
+        "service_id" TEXT,
+        "provider" TEXT NOT NULL DEFAULT 'vultr',
+        "resource_type" TEXT NOT NULL,
+        "provider_resource_id" TEXT NOT NULL,
+        "name" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'active',
+        "metadata" TEXT NOT NULL DEFAULT '{}',
+        "deleted_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "provider_resources_provider_resource_type_provider_resource_id_key"
+       ON "provider_resources" ("provider", "resource_type", "provider_resource_id")`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE INDEX IF NOT EXISTS "provider_resources_organization_id_resource_type_idx"
+       ON "provider_resources" ("organization_id", "resource_type")`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE INDEX IF NOT EXISTS "provider_resources_service_id_idx"
+       ON "provider_resources" ("service_id")`,
+    );
+  } catch (err) {
+    console.error('[db] ensureProviderResourcesTable failed:', err.message);
+  }
+}
+
+/**
+ * One-time repair for VPS tenancy. JWTs never carried an organizationId, so the
+ * old VPS controller filed every record under the shared 'local-org' bucket —
+ * which made VPS listing effectively cross-tenant. The controller now uses the
+ * verified user id as the organization id; this backfills existing rows to
+ * match using the recorded creator/owner. Rows with no known owner (pre-auth
+ * dev data) are left untouched. Idempotent. SQLite only.
+ */
+export async function ensureVpsTenancyBackfill() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    const svc = await prisma.$executeRawUnsafe(
+      `UPDATE "vps_services" SET "organization_id" = "created_by_user_id"
+       WHERE "organization_id" = 'local-org' AND "created_by_user_id" IS NOT NULL`,
+    );
+    const access = await prisma.$executeRawUnsafe(
+      `UPDATE "service_access" SET "organization_id" = "user_id"
+       WHERE "service_type" = 'vps' AND "organization_id" = 'local-org' AND "user_id" IS NOT NULL`,
+    );
+    const orders = await prisma.$executeRawUnsafe(
+      `UPDATE "checkout_orders" SET "organization_id" = "user_id"
+       WHERE "type" = 'vps' AND "organization_id" = 'local-org' AND "user_id" IS NOT NULL`,
+    );
+    const logs = await prisma.$executeRawUnsafe(
+      `UPDATE "vps_action_logs" SET "organization_id" =
+         (SELECT s."organization_id" FROM "vps_services" s WHERE s."id" = "vps_action_logs"."vps_service_id")
+       WHERE "organization_id" = 'local-org'
+         AND EXISTS (SELECT 1 FROM "vps_services" s WHERE s."id" = "vps_action_logs"."vps_service_id")`,
+    );
+    // ServiceAccess rows were only created by the direct-deploy flow; PayPal
+    // provisioned services have none, which locks owners out of the management
+    // routes (they require an active row). Create the missing rows.
+    const accessCreated = await prisma.$executeRawUnsafe(
+      `INSERT INTO "service_access" (
+         "id", "user_id", "organization_id", "service_type", "service_id", "service_name",
+         "access_status", "billing_status", "admin_status", "plan_id", "starts_at",
+         "metadata", "created_at", "updated_at")
+       SELECT lower(hex(randomblob(16))), s."created_by_user_id", s."organization_id", 'vps', s."id", s."label",
+         'active',
+         CASE WHEN s."payment_status" IN ('completed', 'active') THEN 'paid'
+              WHEN s."payment_status" = 'free' THEN 'free'
+              ELSE 'pending' END,
+         'allowed', s."plan", s."created_at",
+         '{"createdVia":"startup_backfill"}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       FROM "vps_services" s
+       WHERE s."deleted_at" IS NULL
+         AND s."status" NOT IN ('error', 'destroyed')
+         AND NOT EXISTS (
+           SELECT 1 FROM "service_access" a
+           WHERE a."service_type" = 'vps' AND a."service_id" = s."id")`,
+    );
+    const total = Number(svc) + Number(access) + Number(orders) + Number(logs) + Number(accessCreated);
+    if (total > 0) {
+      console.log(`[db] VPS tenancy backfill: ${svc} services, ${access} access rows, ${orders} orders, ${logs} action logs re-homed from 'local-org'; ${accessCreated} missing ServiceAccess rows created.`);
+    }
+  } catch (err) {
+    console.error('[db] ensureVpsTenancyBackfill failed:', err.message);
   }
 }
 

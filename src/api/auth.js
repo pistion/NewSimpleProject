@@ -24,7 +24,9 @@ export function getStoredAuth() {
 }
 
 export function isAuthenticated() {
-  return Boolean(window.localStorage.getItem(TOKEN_KEY));
+  const token = window.localStorage.getItem(TOKEN_KEY);
+  if (isLiveMode() && token === 'local-demo-token') return false;
+  return Boolean(token);
 }
 
 export function storeAuthSession(session) {
@@ -149,6 +151,7 @@ export const SOCIAL_PROVIDERS = [
 export function authHeaders() {
   const { accessToken } = getStoredAuth();
   if (!accessToken) return {};
+  if (isLiveMode() && accessToken === 'local-demo-token') return {};
   return { Authorization: `Bearer ${accessToken}` };
 }
 
@@ -179,6 +182,8 @@ export async function authFetch(input, options = {}) {
 export function makeSession(input = {}) {
   const user = {
     id:    'local-user',
+    clientId: 'local-client',
+    accountUrl: '/client/local-client',
     name:  input.name || input.email?.split('@')[0] || 'Glondia User',
     email: input.email || 'local@glondia.app',
   };

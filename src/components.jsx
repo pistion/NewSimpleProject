@@ -13,6 +13,7 @@ import {
   deleteNotification as apiDeleteNotification,
 } from './api/notifications.js';
 import { isFeatureEnabled } from './app/features.js';
+import { DashboardSearch } from './dashboard-search';
 
 const { useState } = React;
 
@@ -368,73 +369,34 @@ function NotificationBell({ navigate }) {
   );
 }
 
-export function DashTopbar({ crumbs = [], onSearch, navigate, theme, toggleTheme, onOpenNav }) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState("");
-  const searchInputRef = React.useRef(null);
-
-  const openSearch = () => {
-    setSearchOpen(true);
-    window.setTimeout(() => searchInputRef.current?.focus(), 60);
-  };
-
-  const submitSearch = (e) => {
-    e.preventDefault();
-    const value = searchValue.trim();
-    if (!searchOpen) {
-      openSearch();
-      return;
-    }
-    if (value && onSearch) onSearch(value);
-  };
-
+export function DashTopbar({ crumbs = [], navigate, theme, toggleTheme, onOpenNav }) {
   return (
     <div className="dash-top">
-      <button className="btn btn-icon btn-ghost dash-menu-btn" onClick={onOpenNav} aria-label="Open menu">
-        <ICN.Menu size={16} />
-      </button>
-      <div className="crumb" style={{ flex: 1 }}>
-        {crumbs.map((c, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="sep">/</span>}
-            {c.onClick
-              ? <a href="#" onClick={(e) => { e.preventDefault(); c.onClick(); }} style={{ color: "inherit" }}>{c.label}</a>
-              : <b>{c.label}</b>}
-          </React.Fragment>
-        ))}
-      </div>
-      <form className={`dash-search ${searchOpen ? "is-open" : ""} ${searchValue ? "has-value" : ""}`} onSubmit={submitSearch}>
-        <button className="dash-search-trigger" type="button" onClick={openSearch} aria-label="Open search">
-          <ICN.Search size={18} />
+      <div className="dash-top-left">
+        <button type="button" className="btn btn-icon btn-ghost dash-menu-btn" onClick={onOpenNav} aria-label="Open menu">
+          <ICN.Menu size={16} />
         </button>
-        <input
-          ref={searchInputRef}
-          className="input dash-search-input"
-          placeholder="Search projects, domains..."
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          onFocus={() => setSearchOpen(true)}
-          onBlur={() => {
-            if (!searchValue.trim()) window.setTimeout(() => setSearchOpen(false), 120);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setSearchValue("");
-              setSearchOpen(false);
-              e.currentTarget.blur();
-            }
-          }}
-        />
-      </form>
-      {/*
-        <ICN.Search size={14} style={{ position: "absolute", left: 12, top: 12, color: "var(--text-faint)" }} />
-        <input className="input" placeholder="Search projects, domains…" style={{ paddingLeft: 34, width: 280, height: 36 }} />
-      */}
-      <button className="btn btn-icon btn-ghost" onClick={toggleTheme} title="Toggle theme">
-        {theme === "dark" ? <ICN.Sun size={16} /> : <ICN.Moon size={16} />}
-      </button>
-      <NotificationBell navigate={navigate} />
-      <AuthMenu navigate={navigate} />
+        <div className="crumb">
+          {crumbs.map((c, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="sep">/</span>}
+              {c.onClick
+                ? <a href="#" onClick={(e) => { e.preventDefault(); c.onClick(); }} style={{ color: "inherit" }}>{c.label}</a>
+                : <b>{c.label}</b>}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+      <div className="dash-top-center">
+        <DashboardSearch navigate={navigate} />
+      </div>
+      <div className="dash-top-actions">
+        <button type="button" className="btn btn-icon btn-ghost" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
+          {theme === "dark" ? <ICN.Sun size={16} /> : <ICN.Moon size={16} />}
+        </button>
+        <NotificationBell navigate={navigate} />
+        <AuthMenu navigate={navigate} />
+      </div>
     </div>
   );
 }

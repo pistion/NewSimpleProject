@@ -63,6 +63,8 @@ import {
   ensureDeploymentSubscriptionsTable,
   ensureServiceRequestsTable,
   ensureCrmEmailTables,
+  ensureProviderResourcesTable,
+  ensureVpsTenancyBackfill,
 } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import renderApiService from './services/renderApiService.js';
@@ -416,6 +418,8 @@ async function boot() {
       .then(() => ensureDeploymentSubscriptionsTable())
       .then(() => ensureServiceRequestsTable())
       .then(() => ensureCrmEmailTables())
+      .then(() => ensureProviderResourcesTable())
+      .then(() => ensureVpsTenancyBackfill())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
 
