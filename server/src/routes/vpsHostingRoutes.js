@@ -30,6 +30,12 @@ router.get('/services/:id',
   requireServiceAccess('vps', vpsServiceId),
   ctrl.getService);
 
+// Protected reveal: root credentials are never included in list/get payloads.
+router.get('/services/:id/credentials',
+  authMiddleware,
+  requireServiceAccess('vps', vpsServiceId),
+  ctrl.getServiceCredentials);
+
 // Mutating actions: auth + access check
 router.post('/services/:id/start',
   authMiddleware,

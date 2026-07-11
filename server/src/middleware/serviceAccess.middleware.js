@@ -1,8 +1,11 @@
 /**
  * serviceAccess.middleware.js
  *
- * Verifies that the authenticated user has an active ServiceAccess row for
- * the requested service before the service controller runs.
+ * HTTP guard that verifies the authenticated user has an active ServiceAccess
+ * row for the requested service before the controller runs.
+ *
+ * Layering — this file speaks HTTP only:
+ *   middleware → serviceAccessService (rules) → serviceAccess.repository (Prisma)
  *
  * Usage:
  *   router.use(authMiddleware, requireServiceAccess('hosting', getServiceId))
@@ -11,57 +14,10 @@
  * If the service is blocked/expired, tags the attempt and returns 403.
  */
 
-import { prisma } from '../services/db.js';
+import { checkServiceAccess } from '../services/serviceAccessService.js';
 
-/**
- * Core access check — can be called directly from service controllers too.
- *
- * Returns { allowed: true } or { allowed: false, reason, code }
- */
-export async function checkServiceAccess(userId, serviceType, serviceId, { adminBypass = false } = {}) {
-  if (adminBypass) return { allowed: true, reason: 'admin_bypass' };
-
-  const row = await prisma.serviceAccess.findUnique({
-    where: { serviceType_serviceId: { serviceType, serviceId } },
-  });
-
-  if (!row) return { allowed: false, reason: 'no_access_record', code: 'SERVICE_NOT_FOUND' };
-
-  // Ownership check
-  if (row.userId && row.userId !== userId) {
-    return { allowed: false, reason: 'owner_mismatch', code: 'SERVICE_OWNER_MISMATCH' };
-  }
-
-  if (row.adminStatus === 'blocked') {
-    return { allowed: false, reason: 'admin_blocked', code: 'SERVICE_ADMIN_BLOCKED' };
-  }
-
-  if (row.adminStatus === 'review_required') {
-    return { allowed: false, reason: 'admin_review', code: 'SERVICE_UNDER_REVIEW' };
-  }
-
-  const accessAllowed = row.accessStatus === 'active';
-  if (!accessAllowed) {
-    return { allowed: false, reason: `access_status_${row.accessStatus}`, code: 'SERVICE_NOT_ACTIVE' };
-  }
-
-  const billingOk = ['paid', 'trial', 'free'].includes(row.billingStatus);
-  if (!billingOk) {
-    return { allowed: false, reason: `billing_${row.billingStatus}`, code: 'SERVICE_BILLING_ISSUE' };
-  }
-
-  if (row.expiresAt && new Date(row.expiresAt) < new Date()) {
-    return { allowed: false, reason: 'expired', code: 'SERVICE_EXPIRED' };
-  }
-
-  // Update last activity timestamp (non-blocking)
-  prisma.serviceAccess.update({
-    where: { id: row.id },
-    data:  { lastActivityAt: new Date() },
-  }).catch(() => {});
-
-  return { allowed: true, row };
-}
+// Re-exported for callers that check access outside the middleware chain.
+export { checkServiceAccess };
 
 /**
  * Express middleware factory.

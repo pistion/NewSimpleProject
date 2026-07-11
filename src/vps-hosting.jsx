@@ -4,6 +4,7 @@ import { Badge, Empty, StatusBadge, Tabs } from './components';
 import {
   deployVpsService,
   destroyVpsService,
+  getVpsCredentials,
   getVpsService,
   getVpsQuote,
   getVultrSettings,
@@ -795,18 +796,12 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
                   borderRadius: 'var(--r)', padding: '16px 20px',
                 }}>
                   <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>Usage-based billing</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Server cost</span>
-                    <span className="mono">{quote.breakdown?.vpsPrice}/mo</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, color: 'var(--text-muted)' }}>
-                    <span>Platform fee ({quote.markupPercent}%)</span>
-                    <span className="mono">{quote.breakdown?.platformFee}/mo</span>
-                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800,
-                    fontSize: 16, borderTop: '1px solid var(--accent)', paddingTop: 12, marginTop: 6 }}>
+                    fontSize: 16, paddingTop: 6 }}>
                     <span>Total / month</span>
-                    <span className="mono" style={{ color: 'var(--accent)' }}>{quote.breakdown?.total}</span>
+                    <span className="mono" style={{ color: 'var(--accent)' }}>
+                      {quote.monthlyPrice || `$${fmtCents(quote.totalMonthlyCostCents)}`}
+                    </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12,
                     color: 'var(--text-muted)', marginTop: 6 }}>
@@ -902,6 +897,21 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
   const [error, setError]     = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // Credentials come from the protected reveal endpoint, fetched on demand —
+  // they are no longer included in the service payload.
+  const [creds, setCreds] = useState(null);
+  const [credsLoading, setCredsLoading] = useState(false);
+
+  const revealPassword = async () => {
+    if (showPassword) { setShowPassword(false); return; }
+    if (!creds && !credsLoading) {
+      setCredsLoading(true);
+      try { setCreds(await getVpsCredentials(id)); }
+      catch (err) { setError(err.message || 'Could not load credentials.'); }
+      finally { setCredsLoading(false); }
+    }
+    setShowPassword(true);
+  };
 
   const load = (showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -950,7 +960,7 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
   const isProvisioning = ['pending', 'provisioning'].includes(server?.status ?? '');
   const locationLabel = server?.region || '...';
   const sshUser = server?.connectionUsername || 'root';
-  const sshPassword = server?.connectionPassword || '';
+  const sshPassword = creds?.password || '';
   const monthlyTotal = server ? `$${fmtCents(server.totalPriceCents)}` : '...';
   const copyText = async (value) => {
     try { await navigator.clipboard?.writeText(String(value || '')); } catch {}
@@ -1028,11 +1038,16 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
           </div>
           <div className="vps-info-row">
             <span>Password:</span>
-            <strong className="mono">{loading ? <Skel w="90px" /> : sshPassword ? (showPassword ? sshPassword : '••••••••••••') : 'Unavailable'}</strong>
-            {sshPassword && (
+            <strong className="mono">
+              {loading || credsLoading ? <Skel w="90px" />
+                : showPassword ? (sshPassword || 'Unavailable') : '••••••••••••'}
+            </strong>
+            {!loading && (
               <>
-                <button className="btn btn-icon btn-ghost" onClick={() => setShowPassword((v) => !v)} title={showPassword ? 'Hide password' : 'Show password'}><ICN.Eye size={16} /></button>
-                <button className="btn btn-icon btn-ghost" onClick={() => copyText(sshPassword)} title="Copy password"><ICN.Copy size={16} /></button>
+                <button className="btn btn-icon btn-ghost" onClick={revealPassword} title={showPassword ? 'Hide password' : 'Show password'}><ICN.Eye size={16} /></button>
+                {showPassword && sshPassword && (
+                  <button className="btn btn-icon btn-ghost" onClick={() => copyText(sshPassword)} title="Copy password"><ICN.Copy size={16} /></button>
+                )}
               </>
             )}
           </div>
@@ -1129,12 +1144,8 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
             <div className="card-head"><h2>Billing</h2></div>
             <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Server cost</span>
-                <span className="mono">{loading ? <Skel w="60px" /> : `$${fmtCents(server.monthlyCostCents)}/mo`}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Platform fee ({loading ? '…' : `${server.markupPercent ?? 0}%`})</span>
-                <span className="mono">{loading ? <Skel w="55px" /> : `$${fmtCents(server.markupAmountCents)}/mo`}</span>
+                <span style={{ color: 'var(--text-muted)' }}>Plan</span>
+                <span className="mono">{loading ? <Skel w="60px" /> : server.plan}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700,
                 borderTop: '1px solid var(--border)', paddingTop: 10, fontSize: 15 }}>

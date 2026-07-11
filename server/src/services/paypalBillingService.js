@@ -109,10 +109,8 @@ export async function createOrder(organizationId, userId, dto) {
   return {
     orderId: order.id,
     approvalUrl,
+    // Customer-facing quote: price and currency only — cost and margin stay internal.
     quote: {
-      baseMonthlyCostCents:  baseCents,
-      markupPercent:         markup,
-      markupAmountCents:     mkupCents,
       totalMonthlyCostCents: totalCents,
       currency: 'USD',
     },
@@ -184,4 +182,19 @@ export async function captureOrder(organizationId, paypalOrderId) {
   });
 
   return { checkoutOrder: updated, captureRecord, provisionDetails: meta.provisionDetails };
+}
+
+/**
+ * Update a checkout order's lifecycle status (e.g. provision_failed, db_error).
+ * Owned by the billing service so feature services never touch the orders
+ * table directly. Never throws — order-state bookkeeping must not mask the
+ * originating failure.
+ */
+export async function updateOrderStatus(checkoutOrderId, status) {
+  try {
+    return await prisma.checkoutOrder.update({ where: { id: checkoutOrderId }, data: { status } });
+  } catch (err) {
+    console.error(`[paypal] Failed to set order ${checkoutOrderId} → ${status}:`, err.message);
+    return null;
+  }
 }

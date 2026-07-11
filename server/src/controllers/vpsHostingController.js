@@ -87,6 +87,10 @@ export const getService = wrap(async (req, res) => {
   res.json(await svc.getService(req.params.id, organizationId));
 });
 
+export const getServiceCredentials = wrap(async (req, res) => {
+  res.json(await svc.getServiceCredentials(req.params.id, extractActor(req)));
+});
+
 export const startService = wrap(async (req, res) => {
   await svc.startService(req.params.id, extractActor(req));
   res.json({ ok: true });

@@ -102,6 +102,11 @@ export function reinstallVpsService(id, osId) {
   });
 }
 
+// Protected reveal — root credentials are no longer part of the service payload.
+export function getVpsCredentials(id) {
+  return vpsRequest(`/v1/vps-hosting/services/${encodeURIComponent(id)}/credentials`);
+}
+
 // ─── SSH keys ──────────────────────────────────────────────────────────────────
 
 export function listVpsSshKeys() {

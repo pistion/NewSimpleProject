@@ -59,6 +59,29 @@ export async function writeAuditLog(input = {}, tx = prisma) {
   }
 }
 
+/**
+ * Record an admin command (before/after state) in the AdminCommand ledger.
+ * Lives in the audit infrastructure so feature services don't need Prisma to
+ * write admin-action history.
+ */
+export async function recordAdminCommand({ adminUserId, commandType, beforeState, afterState, reason = null, metadata = {} }) {
+  try {
+    return await prisma.adminCommand.create({
+      data: {
+        adminUserId,
+        commandType,
+        beforeState: typeof beforeState === 'string' ? beforeState : JSON.stringify(beforeState ?? {}),
+        afterState: typeof afterState === 'string' ? afterState : JSON.stringify(afterState ?? {}),
+        reason: reason || null,
+        metadata: JSON.stringify(metadata ?? {}),
+      },
+    });
+  } catch (err) {
+    console.error('[audit] recordAdminCommand failed:', err.message);
+    return null;
+  }
+}
+
 async function auditTableExists(tx) {
   if (auditLogTableAvailable !== null) return auditLogTableAvailable;
   if (typeof tx.$queryRawUnsafe !== 'function') return true;
