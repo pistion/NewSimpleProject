@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import * as repo from '../repositories/builder.repository.js';
-import { durableJobsEnabled, jobsUnavailableError } from '../builder/builderFlags.js';
+import { durableJobsEnabled, isolatedPreviewEnabled, jobsUnavailableError } from '../builder/builderFlags.js';
 import { hasFreshWorkerHeartbeat } from '../builder/builderReadiness.service.js';
 import { pinTemplate } from '../builder/generation/templateLoader.js';
 import {
@@ -213,10 +213,15 @@ export async function createPreviewGrant(user, projectId, revisionId) {
   const ttlMs = Number(process.env.BUILDER_PREVIEW_TTL_MS || 30 * 60 * 1000);
   const expiresAt = new Date(Date.now() + ttlMs);
   // Stored in SQLite CURRENT_TIMESTAMP shape so expiry comparisons stay sane.
-  await repo.createPreviewGrant({ projectId, revisionId, userId: user.id, tokenHash, expiresAt: repo.sqliteTimestamp(ttlMs) });
+  const grant = await repo.createPreviewGrant({ projectId, revisionId, userId: user.id, tokenHash, expiresAt: repo.sqliteTimestamp(ttlMs) });
+  // Opportunistic hygiene: drop long-expired grants.
+  repo.deleteExpiredPreviewGrants().catch(() => {});
   const previewBase = String(process.env.BUILDER_PREVIEW_ORIGIN || '').replace(/\/+$/, '');
-  const path = `/api/v1/builder/previews/${encodeURIComponent(revisionId)}?grant=${encodeURIComponent(token)}`;
+  const path = isolatedPreviewEnabled()
+    ? `/p/${encodeURIComponent(revisionId)}?grant=${encodeURIComponent(token)}`
+    : `/api/v1/builder/previews/${encodeURIComponent(revisionId)}?grant=${encodeURIComponent(token)}`;
   return {
+    grantId: grant.id,
     url: previewBase ? `${previewBase}${path}` : path,
     expiresAt: expiresAt.toISOString(),
   };

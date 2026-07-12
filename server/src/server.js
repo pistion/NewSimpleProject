@@ -75,6 +75,7 @@ import { mutateHostingStore, nowIso, readHostingStore } from './services/hosting
 import { readinessSnapshot } from './builder/builderReadiness.service.js';
 import { durableJobsEnabled } from './builder/builderFlags.js';
 import { createBuilderWorker } from './builder/jobs/builderWorker.js';
+import builderPreviewRoutes from './builder/preview/previewRoutes.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -236,6 +237,12 @@ app.use('/api/payments', paymentsProviderRoutes);
 
 // Sandbox preview routes (must come before SPA fallback)
 app.use('/sandbox', sandboxRoutes);
+
+// Canonical isolated Builder preview. Unauthenticated by design — access is
+// controlled by hashed, expiring database grants. In production this path is
+// reached via the dedicated preview origin (BUILDER_PREVIEW_ORIGIN), never
+// the authenticated dashboard origin.
+app.use('/p', builderPreviewRoutes);
 
 // ── API routes ───────────────────────────────────────────────────────────────
 
