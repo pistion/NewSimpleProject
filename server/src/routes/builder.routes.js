@@ -22,27 +22,37 @@ router.get('/projects/:projectId', wrap(async (req, res) => {
 }));
 
 router.patch('/projects/:projectId/plan', wrap(async (req, res) => {
-  const data = await builder.updatePlan(req.user, req.params.projectId, req.body || {});
+  const data = await builder.updatePlan(req.user, req.params.projectId, req.body || {}, req.id);
   send(res, data, 200, req);
 }));
 
 router.post('/projects/:projectId/answer-sheet/build', wrap(async (req, res) => {
-  const data = await builder.buildAnswerSheet(req.user, req.params.projectId);
+  const data = await builder.buildAnswerSheet(req.user, req.params.projectId, req.id);
   send(res, data, 200, req);
 }));
 
 router.patch('/projects/:projectId/answer-sheet', wrap(async (req, res) => {
-  const data = await builder.updateAnswerSheet(req.user, req.params.projectId, req.body || {});
+  const data = await builder.updateAnswerSheet(req.user, req.params.projectId, req.body || {}, req.id);
   send(res, data, 200, req);
 }));
 
 router.post('/projects/:projectId/generations', wrap(async (req, res) => {
-  const result = await builder.startGeneration(req.user, req.params.projectId, req.body || {}, req.headers['idempotency-key']);
+  const result = await builder.startGeneration(req.user, req.params.projectId, req.body || {}, req.headers['idempotency-key'], req.id);
   send(res, result.data, result.statusCode, req);
 }));
 
 router.get('/jobs/:jobId', wrap(async (req, res) => {
   const data = await builder.getJob(req.user, req.params.jobId);
+  send(res, data, 200, req);
+}));
+
+router.get('/jobs/:jobId/events', wrap(async (req, res) => {
+  const data = await builder.getJobEvents(req.user, req.params.jobId);
+  send(res, data, 200, req);
+}));
+
+router.delete('/preview-grants/:grantId', wrap(async (req, res) => {
+  const data = await builder.revokePreviewGrant(req.user, req.params.grantId);
   send(res, data, 200, req);
 }));
 

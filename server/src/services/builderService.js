@@ -1,17 +1,32 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import * as repo from '../repositories/builder.repository.js';
+import { durableJobsEnabled, jobsUnavailableError } from '../builder/builderFlags.js';
+import { hasFreshWorkerHeartbeat } from '../builder/builderReadiness.service.js';
+import { pinTemplate } from '../builder/generation/templateLoader.js';
+import {
+  requireExpectedVersion,
+  sanitizeCreateProjectInput,
+  validateAnswerSheet,
+  validatePlan,
+} from '../builder/builderValidationService.js';
 
 const IDEMPOTENCY_MAX = 160;
 
 export async function createProject(user, body = {}) {
-  const sourceType = String(body.sourceType || 'template').toLowerCase();
-  if (sourceType === 'template' && !String(body.templateId || '').trim()) {
+  const data = sanitizeCreateProjectInput(body);
+  if (data.sourceType === 'template' && !data.templateId) {
     throw httpError('BUILDER_TEMPLATE_REQUIRED', 'Choose a template before creating a builder project.', 400);
   }
-  if (!String(body.name || body.templateId || '').trim()) {
+  if (!String(data.name || data.templateId || '').trim()) {
     throw httpError('BUILDER_NAME_REQUIRED', 'Project name is required.', 400);
   }
-  return repo.createProject({ user, data: body });
+  // Template integrity is pinned HERE, from the server's own template files.
+  // Any templateVersion/commit/manifest hash in the request body is ignored.
+  let templatePin = null;
+  if (data.sourceType === 'template') {
+    templatePin = await pinTemplate(data.templateId);
+  }
+  return repo.createProject({ user, data, templatePin });
 }
 
 export async function listProjects(user, query = {}) {
@@ -27,27 +42,36 @@ export async function getProject(user, projectId) {
   return withSummaries(project);
 }
 
-export async function updatePlan(user, projectId, body = {}) {
-  if (!Number.isInteger(Number(body.expectedVersion))) {
-    throw httpError('BUILDER_EXPECTED_VERSION_REQUIRED', 'expectedVersion is required for safe plan updates.', 400);
-  }
-  const project = await repo.updateProjectPlan({
-    projectId,
-    userId: user.id,
-    expectedVersion: Number(body.expectedVersion),
-    plan: body.plan,
-  });
-  if (!project) {
-    const exists = await repo.getProjectForUser(projectId, user.id);
-    if (!exists) throw notFound();
+function unwrapDocumentUpdate(result) {
+  if (!result) throw notFound();
+  if (result.conflict) {
     throw httpError('BUILDER_VERSION_CONFLICT', 'This project changed since you opened it. Reload before saving.', 409, {
-      currentVersion: exists.version,
+      currentVersion: result.currentVersion,
     });
   }
+  if (result.illegal) {
+    throw httpError('BUILDER_ILLEGAL_TRANSITION', `This project cannot be edited while it is ${result.status}.`, 409, {
+      status: result.status,
+      target: result.target,
+    });
+  }
+  return result.project;
+}
+
+export async function updatePlan(user, projectId, body = {}, requestId = null) {
+  const expectedVersion = requireExpectedVersion(body, 'plan update');
+  const plan = validatePlan(body.plan);
+  const project = unwrapDocumentUpdate(await repo.updateProjectPlan({
+    projectId,
+    userId: user.id,
+    expectedVersion,
+    plan,
+    requestId,
+  }));
   return { projectId: project.id, version: project.version, savedAt: project.updatedAt, plan: project.plan };
 }
 
-export async function buildAnswerSheet(user, projectId) {
+export async function buildAnswerSheet(user, projectId, requestId = null) {
   const project = await getOwnedProject(user, projectId);
   const planData = project.plan?.data || project.plan || {};
   const brief = planData.brief || {};
@@ -62,21 +86,40 @@ export async function buildAnswerSheet(user, projectId) {
       style: planData.style || {},
     },
   };
-  const updated = await repo.updateProjectAnswerSheet({ projectId, userId: user.id, answerSheet });
+  const updated = unwrapDocumentUpdate(await repo.updateProjectAnswerSheet({
+    projectId,
+    userId: user.id,
+    expectedVersion: project.version,
+    answerSheet,
+    requestId,
+  }));
   return { projectId, version: updated.version, answerSheet: updated.answerSheet };
 }
 
-export async function updateAnswerSheet(user, projectId, body = {}) {
-  const project = await repo.updateProjectAnswerSheet({
+export async function updateAnswerSheet(user, projectId, body = {}, requestId = null) {
+  const expectedVersion = requireExpectedVersion(body, 'answer sheet update');
+  const answerSheet = validateAnswerSheet(body.answerSheet || body.data || {});
+  const project = unwrapDocumentUpdate(await repo.updateProjectAnswerSheet({
     projectId,
     userId: user.id,
-    answerSheet: body.answerSheet || body,
-  });
-  if (!project) throw notFound();
+    expectedVersion,
+    answerSheet,
+    requestId,
+  }));
   return { projectId, version: project.version, answerSheet: project.answerSheet };
 }
 
-export async function startGeneration(user, projectId, body = {}, idempotencyHeader) {
+/**
+ * Fail closed instead of queuing dead work: durable-job endpoints refuse when
+ * the flag is off or no worker is heartbeating.
+ */
+async function assertJobsAvailable() {
+  if (!durableJobsEnabled()) throw jobsUnavailableError('BUILDER_JOBS_DISABLED');
+  if (!(await hasFreshWorkerHeartbeat())) throw jobsUnavailableError('BUILDER_WORKER_UNAVAILABLE');
+}
+
+export async function startGeneration(user, projectId, body = {}, idempotencyHeader, requestId = null) {
+  await assertJobsAvailable();
   const project = await getOwnedProject(user, projectId);
   if (!hasUsefulDoc(project.plan)) {
     throw httpError('BUILDER_PLAN_INCOMPLETE', 'Save a project plan before starting generation.', 400);
@@ -89,9 +132,15 @@ export async function startGeneration(user, projectId, body = {}, idempotencyHea
     changeRequest: body.changeRequest || null,
   };
   const requestHash = repo.stableHash(payload);
-  const result = await repo.startGenerationJob({ project, userId: user.id, idempotencyKey: scopedKey, requestHash, payload });
+  const result = await repo.startGenerationJob({ project, userId: user.id, idempotencyKey: scopedKey, requestHash, payload, requestId });
   if (result.conflict) {
     throw httpError('IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with different input.', 409);
+  }
+  if (result.illegal) {
+    throw httpError('BUILDER_ILLEGAL_TRANSITION', `Generation cannot start while the project is ${result.status}.`, 409, {
+      status: result.status,
+      target: result.target,
+    });
   }
   return {
     statusCode: result.reused ? 200 : 202,
@@ -103,6 +152,12 @@ export async function startGeneration(user, projectId, body = {}, idempotencyHea
       reused: result.reused,
     },
   };
+}
+
+export async function getJobEvents(user, jobId) {
+  const job = await repo.getJobForUser(jobId, user.id);
+  if (!job) throw httpError('BUILDER_JOB_NOT_FOUND', 'Job not found.', 404);
+  return repo.listJobEventsForUser(jobId, user.id);
 }
 
 export async function getJob(user, jobId) {
@@ -130,6 +185,12 @@ export async function approveRevision(user, projectId, revisionId) {
       status: result.revision.status,
     });
   }
+  if (result.illegal) {
+    throw httpError('BUILDER_ILLEGAL_TRANSITION', `Approval is not allowed while the project is ${result.status}.`, 409, {
+      status: result.status,
+      target: result.target,
+    });
+  }
   return result.revision;
 }
 
@@ -149,8 +210,10 @@ export async function createPreviewGrant(user, projectId, revisionId) {
   }
   const token = randomBytes(32).toString('base64url');
   const tokenHash = createHash('sha256').update(token).digest('hex');
-  const expiresAt = new Date(Date.now() + Number(process.env.BUILDER_PREVIEW_TTL_MS || 30 * 60 * 1000));
-  await repo.createPreviewGrant({ projectId, revisionId, userId: user.id, tokenHash, expiresAt });
+  const ttlMs = Number(process.env.BUILDER_PREVIEW_TTL_MS || 30 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + ttlMs);
+  // Stored in SQLite CURRENT_TIMESTAMP shape so expiry comparisons stay sane.
+  await repo.createPreviewGrant({ projectId, revisionId, userId: user.id, tokenHash, expiresAt: repo.sqliteTimestamp(ttlMs) });
   const previewBase = String(process.env.BUILDER_PREVIEW_ORIGIN || '').replace(/\/+$/, '');
   const path = `/api/v1/builder/previews/${encodeURIComponent(revisionId)}?grant=${encodeURIComponent(token)}`;
   return {
@@ -159,7 +222,14 @@ export async function createPreviewGrant(user, projectId, revisionId) {
   };
 }
 
+export async function revokePreviewGrant(user, grantId) {
+  const revoked = await repo.revokePreviewGrant({ grantId, userId: user.id });
+  if (!revoked) throw httpError('BUILDER_PREVIEW_GRANT_NOT_FOUND', 'Preview grant not found or already revoked.', 404);
+  return { grantId, revoked: true };
+}
+
 export async function createDeployment(user, projectId, body = {}, idempotencyHeader) {
+  await assertJobsAvailable();
   const project = await getOwnedProject(user, projectId);
   const revisionId = body.revisionId || project.approvedRevisionId;
   if (!revisionId) throw httpError('BUILDER_APPROVED_REVISION_REQUIRED', 'Approve a revision before deployment.', 409);

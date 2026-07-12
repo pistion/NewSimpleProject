@@ -86,10 +86,11 @@ model BuilderProject {
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
   user            User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
-  revisions       BuilderRevision[]
-  jobs            BuilderJob[]
-  previewGrants   BuilderPreviewGrant[]
-  deploymentLinks BuilderDeploymentLink[]
+  revisions        BuilderRevision[]
+  jobs             BuilderJob[]
+  previewGrants    BuilderPreviewGrant[]
+  deploymentLinks  BuilderDeploymentLink[]
+  stateTransitions BuilderStateTransition[]
 
   @@unique([userId, slug])
   @@index([userId, status])
@@ -223,6 +224,35 @@ model BuilderDeploymentLink {
   @@index([revisionId])
   @@index([status])
   @@map("builder_deployment_links")
+}
+
+model BuilderStateTransition {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  fromStatus String   @map("from_status")
+  toStatus   String   @map("to_status")
+  actorType  String   @default("system") @map("actor_type")
+  actorId    String?  @map("actor_id")
+  reason     String?
+  requestId  String?  @map("request_id")
+  jobId      String?  @map("job_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project BuilderProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([jobId])
+  @@map("builder_state_transitions")
+}
+
+model BuilderWorkerHeartbeat {
+  workerId   String   @id @map("worker_id")
+  infoJson   String   @default("{}") @map("info_json")
+  startedAt  DateTime @default(now()) @map("started_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  @@index([lastSeenAt])
+  @@map("builder_worker_heartbeats")
 }
 
 model AiUsageEvent {

@@ -618,6 +618,34 @@ export async function ensureBuilderLifecycleTables() {
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_user_id_created_at_idx" ON "ai_usage_events" ("user_id", "created_at")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_project_id_created_at_idx" ON "ai_usage_events" ("project_id", "created_at")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_job_id_idx" ON "ai_usage_events" ("job_id")`);
+
+    // Audit log for every project status transition (builderStateMachine).
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_state_transitions" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "project_id" TEXT NOT NULL,
+        "from_status" TEXT NOT NULL,
+        "to_status" TEXT NOT NULL,
+        "actor_type" TEXT NOT NULL DEFAULT 'system',
+        "actor_id" TEXT,
+        "reason" TEXT,
+        "request_id" TEXT,
+        "job_id" TEXT,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_state_transitions_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "builder_projects" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_state_transitions_project_id_created_at_idx" ON "builder_state_transitions" ("project_id", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_state_transitions_job_id_idx" ON "builder_state_transitions" ("job_id")`);
+
+    // Durable worker heartbeats — /readyz and job-acceptance checks read this.
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_worker_heartbeats" (
+        "worker_id" TEXT NOT NULL PRIMARY KEY,
+        "info_json" TEXT NOT NULL DEFAULT '{}',
+        "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "last_seen_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_worker_heartbeats_last_seen_at_idx" ON "builder_worker_heartbeats" ("last_seen_at")`);
   } catch (err) {
     console.error('[db] ensureBuilderLifecycleTables failed:', err.message);
   }

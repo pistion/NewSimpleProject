@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '../services/db.js';
+import { transitionInTx, assertTransition, isLegalTransition } from '../builder/builderStateMachine.js';
 
 export function jsonText(value) {
   if (value == null) return '{}';
@@ -45,7 +46,12 @@ export async function ensureBuilderUser(user) {
   });
 }
 
-export async function createProject({ user, data }) {
+/**
+ * Create a project. Template integrity metadata (`templatePin`) is computed
+ * server-side by the service layer — customer-supplied integrity fields are
+ * never written.
+ */
+export async function createProject({ user, data, templatePin = null }) {
   await ensureBuilderUser(user);
   const id = randomUUID();
   const sourceType = validateSourceType(data.sourceType);
@@ -62,10 +68,10 @@ export async function createProject({ user, data }) {
     user.id,
     nullable(data.clientProjectId),
     sourceType,
-    nullable(data.templateId),
-    nullable(data.templateVersion || 'v1'),
-    nullable(data.templateSourceCommit),
-    nullable(data.templateManifestHash),
+    templatePin ? templatePin.templateId : null,
+    templatePin ? nullable(templatePin.templateVersion) : null,
+    templatePin ? nullable(templatePin.templateSourceCommit) : null,
+    templatePin ? nullable(templatePin.templateManifestHash) : null,
     name,
     slug,
     sourceType === 'template' ? 'TEMPLATE_SELECTED' : 'SOURCE_PENDING',
@@ -98,32 +104,88 @@ export async function getProjectForUser(projectId, userId) {
   return rows[0] ? mapProjectRow(rows[0]) : null;
 }
 
-export async function updateProjectPlan({ projectId, userId, expectedVersion, plan }) {
-  const normalized = normalizeDoc(plan);
-  const result = await prisma.$executeRawUnsafe(
-    `UPDATE "builder_projects"
-     SET "plan_json" = ?, "version" = "version" + 1, "status" = 'PLANNING', "updated_at" = CURRENT_TIMESTAMP
-     WHERE "id" = ? AND "user_id" = ? AND "version" = ? AND "deleted_at" IS NULL`,
-    jsonText(normalized), projectId, userId, Number(expectedVersion),
-  );
-  return Number(result) === 1 ? getProjectForUser(projectId, userId) : null;
+/**
+ * Optimistically update a versioned project document (plan / answer sheet)
+ * and move the project to `targetStatus` through the state machine.
+ *
+ * Returns:  { project }             on success
+ *           { conflict: true, ... } when expectedVersion is stale
+ *           { illegal: true, ... }  when the status transition is not legal
+ *           null                    when the project does not exist for the user
+ */
+async function updateProjectDocument({
+  projectId, userId, expectedVersion, column, doc, targetStatus,
+  actorId, requestId, reason,
+}) {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT * FROM "builder_projects" WHERE "id" = ? AND "user_id" = ? AND "deleted_at" IS NULL LIMIT 1`,
+      projectId, userId,
+    );
+    if (!rows[0]) return null;
+    const current = mapProjectRow(rows[0]);
+
+    if (!isLegalTransition(current.status, targetStatus)) {
+      return { illegal: true, status: current.status, target: targetStatus };
+    }
+    const result = await tx.$executeRawUnsafe(
+      `UPDATE "builder_projects"
+       SET "${column}" = ?, "version" = "version" + 1, "updated_at" = CURRENT_TIMESTAMP
+       WHERE "id" = ? AND "user_id" = ? AND "version" = ? AND "deleted_at" IS NULL`,
+      jsonText(doc), projectId, userId, Number(expectedVersion),
+    );
+    if (Number(result) !== 1) return { conflict: true, currentVersion: current.version };
+
+    if (current.status !== targetStatus) {
+      await transitionInTx(tx, {
+        projectId,
+        from: current.status,
+        to: targetStatus,
+        actorType: 'user',
+        actorId,
+        reason,
+        requestId,
+      });
+    }
+    const updated = await tx.$queryRawUnsafe(
+      `SELECT * FROM "builder_projects" WHERE "id" = ? LIMIT 1`, projectId,
+    );
+    return { project: mapProjectRow(updated[0]) };
+  });
 }
 
-export async function updateProjectAnswerSheet({ projectId, userId, answerSheet }) {
-  const normalized = normalizeDoc(answerSheet);
-  const result = await prisma.$executeRawUnsafe(
-    `UPDATE "builder_projects"
-     SET "answer_sheet_json" = ?, "version" = "version" + 1, "updated_at" = CURRENT_TIMESTAMP
-     WHERE "id" = ? AND "user_id" = ? AND "deleted_at" IS NULL`,
-    jsonText(normalized), projectId, userId,
-  );
-  return Number(result) === 1 ? getProjectForUser(projectId, userId) : null;
+export async function updateProjectPlan({ projectId, userId, expectedVersion, plan, requestId }) {
+  return updateProjectDocument({
+    projectId, userId, expectedVersion,
+    column: 'plan_json',
+    doc: normalizeDoc(plan),
+    targetStatus: 'PLANNING',
+    actorId: userId,
+    requestId,
+    reason: 'plan_saved',
+  });
 }
 
-export async function startGenerationJob({ project, userId, idempotencyKey, requestHash, payload }) {
+export async function updateProjectAnswerSheet({ projectId, userId, expectedVersion, answerSheet, requestId }) {
+  return updateProjectDocument({
+    projectId, userId, expectedVersion,
+    column: 'answer_sheet_json',
+    doc: normalizeDoc(answerSheet),
+    targetStatus: 'ANSWER_SHEET_REVIEW',
+    actorId: userId,
+    requestId,
+    reason: 'answer_sheet_saved',
+  });
+}
+
+export async function startGenerationJob({ project, userId, idempotencyKey, requestHash, payload, requestId }) {
   return prisma.$transaction(async (tx) => {
     const existing = await findJobByIdempotencyKey(tx, idempotencyKey);
     if (existing) return { reused: true, conflict: existing.request_hash !== requestHash, job: mapJobRow(existing) };
+
+    if (!isLegalTransition(project.status, 'GENERATION_QUEUED')) {
+      return { illegal: true, status: project.status, target: 'GENERATION_QUEUED' };
+    }
 
     const nextRows = await tx.$queryRawUnsafe(
       `SELECT COALESCE(MAX("revision_number"), 0) + 1 AS "next" FROM "builder_revisions" WHERE "project_id" = ?`,
@@ -164,9 +226,28 @@ export async function startGenerationJob({ project, userId, idempotencyKey, requ
       randomUUID(), jobId, jsonText({ schemaVersion: 1, data: { revisionId } }),
     );
     await tx.$executeRawUnsafe(
-      `UPDATE "builder_projects" SET "status" = 'GENERATION_QUEUED', "current_revision_id" = ?, "updated_at" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+      `UPDATE "builder_projects" SET "current_revision_id" = ?, "updated_at" = CURRENT_TIMESTAMP WHERE "id" = ?`,
       revisionId, project.id,
     );
+    if (project.status !== 'GENERATION_QUEUED') {
+      const moved = await transitionInTx(tx, {
+        projectId: project.id,
+        from: project.status,
+        to: 'GENERATION_QUEUED',
+        actorType: 'user',
+        actorId: userId,
+        reason: 'generation_requested',
+        requestId,
+        jobId,
+      });
+      if (!moved) {
+        // Status changed underneath us — abort so the revision/job rows roll back.
+        const err = new Error('Project status changed while queuing generation.');
+        err.status = 409;
+        err.code = 'BUILDER_STATUS_RACE';
+        throw err;
+      }
+    }
     return { reused: false, conflict: false, job: mapJobRow({ id: jobId, project_id: project.id, revision_id: revisionId, job_type: 'BUILDER_GENERATE_REVISION', status: 'QUEUED', stage: 'queued', idempotency_key: idempotencyKey, request_hash: requestHash, payload_json: jsonText(payload), result_json: '{}', progress_json: jsonText({ schemaVersion: 1, data: { stage: 'queued', percent: 0 } }), attempt: 0, max_attempts: 3 }) };
   });
 }
@@ -213,6 +294,15 @@ export async function approveRevision({ projectId, revisionId, userId }) {
     const revision = rows[0];
     if (!revision) return { missing: true };
     if (revision.status !== 'READY') return { invalid: true, revision: mapRevisionRow(revision) };
+
+    const projectRows = await tx.$queryRawUnsafe(
+      `SELECT "status" FROM "builder_projects" WHERE "id" = ? LIMIT 1`, projectId,
+    );
+    const projectStatus = projectRows[0]?.status;
+    if (!isLegalTransition(projectStatus, 'APPROVED')) {
+      return { illegal: true, status: projectStatus, target: 'APPROVED' };
+    }
+
     await tx.$executeRawUnsafe(
       `UPDATE "builder_revisions"
        SET "status" = 'APPROVED', "approved_by_user_id" = ?, "approved_at" = CURRENT_TIMESTAMP, "updated_at" = CURRENT_TIMESTAMP
@@ -221,10 +311,20 @@ export async function approveRevision({ projectId, revisionId, userId }) {
     );
     await tx.$executeRawUnsafe(
       `UPDATE "builder_projects"
-       SET "status" = 'APPROVED', "approved_revision_id" = ?, "updated_at" = CURRENT_TIMESTAMP
+       SET "approved_revision_id" = ?, "updated_at" = CURRENT_TIMESTAMP
        WHERE "id" = ?`,
       revisionId, projectId,
     );
+    if (projectStatus !== 'APPROVED') {
+      await transitionInTx(tx, {
+        projectId,
+        from: projectStatus,
+        to: 'APPROVED',
+        actorType: 'user',
+        actorId: userId,
+        reason: 'revision_approved',
+      });
+    }
     return { revision: { ...mapRevisionRow(revision), status: 'APPROVED' } };
   });
 }
@@ -261,6 +361,343 @@ export async function findDeploymentByIdempotencyKey(idempotencyKey) {
     idempotencyKey,
   );
   return rows[0] ? mapDeploymentRow(rows[0]) : null;
+}
+
+// ── Durable worker: timestamps ───────────────────────────────────────────────
+// SQLite CURRENT_TIMESTAMP produces 'YYYY-MM-DD HH:MM:SS' (UTC, no zone
+// suffix). Every timestamp we write for lease/backoff/heartbeat comparisons
+// must use the same shape or lexicographic comparison silently breaks — and
+// Prisma's raw-query deserializer only accepts this shape without millis.
+export function sqliteTimestamp(offsetMs = 0) {
+  return new Date(Date.now() + offsetMs).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}
+
+// ── Durable worker: heartbeats ───────────────────────────────────────────────
+
+export async function upsertWorkerHeartbeat({ workerId, info = {} }) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "builder_worker_heartbeats" ("worker_id", "info_json", "started_at", "last_seen_at")
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT("worker_id") DO UPDATE SET "last_seen_at" = excluded."last_seen_at"`,
+    workerId, jsonText({ schemaVersion: 1, data: info }), sqliteTimestamp(), sqliteTimestamp(),
+  );
+}
+
+export async function deleteWorkerHeartbeat(workerId) {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM "builder_worker_heartbeats" WHERE "worker_id" = ?`, workerId,
+  );
+}
+
+export async function hasFreshHeartbeat(maxAgeMs) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT "worker_id" FROM "builder_worker_heartbeats" WHERE "last_seen_at" >= ? LIMIT 1`,
+    sqliteTimestamp(-Math.abs(maxAgeMs)),
+  );
+  return rows.length > 0;
+}
+
+// ── Durable worker: job leasing ──────────────────────────────────────────────
+
+/**
+ * Atomically claim the next eligible job for this worker. Eligible:
+ * status QUEUED/RETRY, availableAt due, no live lease, attempts remaining.
+ * Returns the claimed job (mapped) or null.
+ */
+export async function claimNextJob({ workerId, jobTypes, leaseMs }) {
+  const typeList = jobTypes.map(() => '?').join(', ');
+  return prisma.$transaction(async (tx) => {
+    const now = sqliteTimestamp();
+    const candidates = await tx.$queryRawUnsafe(
+      `SELECT "id", "status" FROM "builder_jobs"
+       WHERE "status" IN ('QUEUED', 'RETRY')
+         AND "available_at" <= ?
+         AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ?)
+         AND "attempt" < "max_attempts"
+         AND "job_type" IN (${typeList})
+       ORDER BY "available_at" ASC, "created_at" ASC
+       LIMIT 1`,
+      now, now, ...jobTypes,
+    );
+    if (!candidates[0]) return null;
+    const changed = await tx.$executeRawUnsafe(
+      `UPDATE "builder_jobs"
+       SET "status" = 'RUNNING', "attempt" = "attempt" + 1,
+           "lease_owner" = ?, "lease_expires_at" = ?,
+           "started_at" = COALESCE("started_at", CURRENT_TIMESTAMP),
+           "updated_at" = CURRENT_TIMESTAMP
+       WHERE "id" = ? AND "status" = ?
+         AND ("lease_expires_at" IS NULL OR "lease_expires_at" <= ?)`,
+      workerId, sqliteTimestamp(leaseMs), candidates[0].id, candidates[0].status, now,
+    );
+    if (Number(changed) !== 1) return null; // lost the race — caller polls again
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT * FROM "builder_jobs" WHERE "id" = ? LIMIT 1`, candidates[0].id,
+    );
+    return mapJobRow(rows[0]);
+  });
+}
+
+/** Renew the lease mid-run. Returns false when the lease was lost. */
+export async function renewJobLease({ jobId, workerId, leaseMs }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "lease_expires_at" = ?, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "lease_owner" = ? AND "status" = 'RUNNING'`,
+    sqliteTimestamp(leaseMs), jobId, workerId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function completeJob({ jobId, workerId, result = {} }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "status" = 'SUCCEEDED', "stage" = 'complete', "result_json" = ?,
+         "finished_at" = CURRENT_TIMESTAMP, "lease_owner" = NULL, "lease_expires_at" = NULL,
+         "error_code" = NULL, "error_message" = NULL, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "lease_owner" = ? AND "status" = 'RUNNING'`,
+    jsonText({ schemaVersion: 1, data: result }), jobId, workerId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function retryJob({ jobId, workerId, errorCode, errorMessage, backoffMs }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "status" = 'RETRY', "available_at" = ?, "error_code" = ?, "error_message" = ?,
+         "lease_owner" = NULL, "lease_expires_at" = NULL, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "lease_owner" = ? AND "status" = 'RUNNING'`,
+    sqliteTimestamp(backoffMs), errorCode || 'RETRYABLE_ERROR', truncate(errorMessage, 500), jobId, workerId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function failJob({ jobId, workerId, errorCode, errorMessage }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "status" = 'FAILED', "error_code" = ?, "error_message" = ?,
+         "finished_at" = CURRENT_TIMESTAMP, "lease_owner" = NULL, "lease_expires_at" = NULL,
+         "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "lease_owner" = ? AND "status" = 'RUNNING'`,
+    errorCode || 'JOB_FAILED', truncate(errorMessage, 500), jobId, workerId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function updateJobStage({ jobId, workerId, stage, percent = null, details = {} }) {
+  const progress = { schemaVersion: 1, data: { stage, ...(percent != null ? { percent } : {}), ...details } };
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "stage" = ?, "progress_json" = ?, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "lease_owner" = ? AND "status" = 'RUNNING'`,
+    stage, jsonText(progress), jobId, workerId,
+  );
+  return Number(changed) === 1;
+}
+
+/**
+ * Recover jobs whose worker died: RUNNING with an expired lease becomes RETRY
+ * (attempts remaining) or FAILED (attempts exhausted). Safe to run at startup
+ * and on an interval from any worker.
+ */
+export async function recoverExpiredLeases() {
+  const now = sqliteTimestamp();
+  const retried = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "status" = 'RETRY', "available_at" = CURRENT_TIMESTAMP,
+         "lease_owner" = NULL, "lease_expires_at" = NULL,
+         "error_code" = COALESCE("error_code", 'LEASE_EXPIRED'),
+         "updated_at" = CURRENT_TIMESTAMP
+     WHERE "status" = 'RUNNING' AND "lease_expires_at" IS NOT NULL AND "lease_expires_at" <= ?
+       AND "attempt" < "max_attempts"`,
+    now,
+  );
+  const failed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_jobs"
+     SET "status" = 'FAILED', "error_code" = 'LEASE_EXPIRED', "error_message" = 'Worker lease expired with no attempts remaining.',
+         "finished_at" = CURRENT_TIMESTAMP, "lease_owner" = NULL, "lease_expires_at" = NULL,
+         "updated_at" = CURRENT_TIMESTAMP
+     WHERE "status" = 'RUNNING' AND "lease_expires_at" IS NOT NULL AND "lease_expires_at" <= ?`,
+    now,
+  );
+  return { retried: Number(retried), failed: Number(failed) };
+}
+
+export async function appendJobEvent({ jobId, stage = null, level = 'info', message, details = {} }) {
+  await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(MAX("sequence"), 0) + 1 AS "next" FROM "builder_job_events" WHERE "job_id" = ?`,
+      jobId,
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "builder_job_events" ("id", "job_id", "sequence", "stage", "level", "message", "details_json")
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), jobId, Number(rows[0]?.next || 1), stage, level, truncate(message, 500),
+      jsonText({ schemaVersion: 1, data: details }),
+    );
+  });
+}
+
+export async function listJobEventsForUser(jobId, userId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT e.* FROM "builder_job_events" e
+     JOIN "builder_jobs" j ON j."id" = e."job_id"
+     JOIN "builder_projects" p ON p."id" = j."project_id"
+     WHERE e."job_id" = ? AND p."user_id" = ?
+     ORDER BY e."sequence" ASC`,
+    jobId, userId,
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    jobId: row.job_id,
+    sequence: Number(row.sequence),
+    stage: row.stage,
+    level: row.level,
+    message: row.message,
+    details: parseJsonText(row.details_json),
+    createdAt: row.created_at,
+  }));
+}
+
+// ── Worker-side (unscoped) reads and writes ──────────────────────────────────
+
+export async function getJobById(jobId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM "builder_jobs" WHERE "id" = ? LIMIT 1`, jobId,
+  );
+  return rows[0] ? mapJobRow(rows[0]) : null;
+}
+
+export async function getProjectById(projectId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM "builder_projects" WHERE "id" = ? AND "deleted_at" IS NULL LIMIT 1`, projectId,
+  );
+  return rows[0] ? mapProjectRow(rows[0]) : null;
+}
+
+export async function getRevisionById(revisionId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM "builder_revisions" WHERE "id" = ? LIMIT 1`, revisionId,
+  );
+  return rows[0] ? mapRevisionRow(rows[0]) : null;
+}
+
+/** Worker: audited project transition. Returns false when the guard misses. */
+export async function transitionProject({ projectId, from, to, actorType = 'worker', actorId = null, reason = null, jobId = null }) {
+  return prisma.$transaction((tx) => transitionInTx(tx, {
+    projectId, from, to, actorType, actorId, reason, jobId,
+  }));
+}
+
+/** Worker: mark a revision GENERATING while its job runs. */
+export async function markRevisionGenerating(revisionId) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE "builder_revisions" SET "status" = 'GENERATING', "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "status" IN ('DRAFT', 'GENERATING')`,
+    revisionId,
+  );
+}
+
+/**
+ * Worker: finalize a successful generation. Refuses to touch APPROVED
+ * revisions — approved artifacts are immutable.
+ */
+export async function markRevisionReady({
+  revisionId, artifactLocation, artifactChecksum, sourceCommit = null,
+  generatedSite = {}, generationModel = null, generationUsage = {}, validation = {},
+}) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_revisions"
+     SET "status" = 'READY', "artifact_location" = ?, "artifact_checksum" = ?, "source_commit" = ?,
+         "generated_site_json" = ?, "generation_model" = ?, "generation_usage_json" = ?, "validation_json" = ?,
+         "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "status" NOT IN ('APPROVED')`,
+    artifactLocation, artifactChecksum, sourceCommit,
+    jsonText({ schemaVersion: 1, data: generatedSite }),
+    generationModel,
+    jsonText({ schemaVersion: 1, data: generationUsage }),
+    jsonText({ schemaVersion: 1, data: validation }),
+    revisionId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function markRevisionFailed({ revisionId, validation = {} }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_revisions"
+     SET "status" = 'FAILED', "validation_json" = ?, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "status" NOT IN ('APPROVED')`,
+    jsonText({ schemaVersion: 1, data: validation }), revisionId,
+  );
+  return Number(changed) === 1;
+}
+
+// ── Preview grants ───────────────────────────────────────────────────────────
+
+export async function findPreviewGrantByTokenHash(tokenHash) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM "builder_preview_grants" WHERE "token_hash" = ? LIMIT 1`, tokenHash,
+  );
+  if (!rows[0]) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    revisionId: row.revision_id,
+    tokenHash: row.token_hash,
+    audience: row.audience,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    lastUsedAt: row.last_used_at,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+  };
+}
+
+export async function touchPreviewGrant(grantId) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE "builder_preview_grants" SET "last_used_at" = CURRENT_TIMESTAMP WHERE "id" = ?`, grantId,
+  );
+}
+
+/** Revoke a grant the calling user owns (via project ownership). */
+export async function revokePreviewGrant({ grantId, userId }) {
+  const changed = await prisma.$executeRawUnsafe(
+    `UPDATE "builder_preview_grants" SET "revoked_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ? AND "revoked_at" IS NULL
+       AND "project_id" IN (SELECT "id" FROM "builder_projects" WHERE "user_id" = ?)`,
+    grantId, userId,
+  );
+  return Number(changed) === 1;
+}
+
+export async function deleteExpiredPreviewGrants() {
+  const removed = await prisma.$executeRawUnsafe(
+    `DELETE FROM "builder_preview_grants" WHERE "expires_at" <= ?`,
+    sqliteTimestamp(),
+  );
+  return Number(removed);
+}
+
+/** Worker-side AI usage/audit record (route-level usage uses middleware). */
+export async function recordAiUsageEvent({
+  userId = null, projectId = null, jobId = null, provider, model, operation,
+  promptTokens = 0, completionTokens = 0, estimatedCostMicros = 0, status, requestId = null, metadata = {},
+}) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "ai_usage_events" (
+      "id", "user_id", "project_id", "job_id", "provider", "model", "operation",
+      "prompt_tokens", "completion_tokens", "estimated_cost_micros", "status", "request_id", "metadata")
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), userId, projectId, jobId, provider, model, operation,
+    Number(promptTokens) || 0, Number(completionTokens) || 0, Number(estimatedCostMicros) || 0,
+    status, requestId, jsonText({ schemaVersion: 1, data: metadata }),
+  );
+}
+
+function truncate(value, max) {
+  const text = String(value ?? '');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 async function findJobByIdempotencyKey(tx, idempotencyKey) {
