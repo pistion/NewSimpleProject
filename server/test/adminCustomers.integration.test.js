@@ -67,7 +67,7 @@ before(async () => {
       await prisma.$disconnect();
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
-  execSync(`node -e "${seed.replaceAll('"', '\\"').replaceAll('\n', ' ')}"`, {
+  execSync(`node -e ${JSON.stringify(seed)}`, {
     cwd: projectRoot,
     env: { ...process.env, DATABASE_URL: dbUrl },
     stdio: 'inherit',
@@ -152,7 +152,7 @@ before(async () => {
       await prisma.$disconnect();
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
-  execSync(`node -e "${extraSeed.replaceAll('"', '\\"').replaceAll('\n', ' ')}"`, {
+  execSync(`node -e ${JSON.stringify(extraSeed)}`, {
     cwd: projectRoot,
     env: { ...process.env, DATABASE_URL: dbUrl },
     stdio: 'inherit',
