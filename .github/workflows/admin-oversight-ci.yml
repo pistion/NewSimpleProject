@@ -1,0 +1,57 @@
+name: Admin Oversight CI
+
+on:
+  pull_request:
+    paths:
+      - 'prisma/**'
+      - 'server/src/routes/admin.routes.js'
+      - 'server/src/controllers/adminCustomerController.js'
+      - 'server/src/services/adminCustomerOversightService.js'
+      - 'server/src/services/adminCustomerScope.js'
+      - 'server/src/services/adminService.js'
+      - 'server/src/repositories/**'
+      - 'server/test/adminCustomers.integration.test.js'
+      - 'server/test/architecture.test.js'
+      - 'src/api/adminCustomers.js'
+      - 'src/features/admin/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/admin-oversight-ci.yml'
+  push:
+    branches:
+      - 'fix/admin-oversight-completion'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: file:./ci.db
+      NODE_ENV: test
+      AUTH_DEV_FALLBACK: 'true'
+      VPS_TEST_MODE: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npm run db:validate
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
