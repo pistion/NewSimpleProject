@@ -46,6 +46,11 @@ before(async () => {
       NODE_ENV: 'development',
       AUTH_DEV_FALLBACK: 'true',
       FEATURE_SITE_BUILDER: 'true',
+      FEATURE_BUILDER_PROJECT_FLOW: 'true',
+      FEATURE_BUILDER_DB_STORAGE: 'true',
+      FEATURE_BUILDER_DURABLE_JOBS: 'true',
+      BUILDER_WORKER_POLL_MS: '250',
+      OPENAI_API_KEY: '',            // deterministic generation in tests
       DATA_DIR: join(tempDir, 'data'),
     },
     stdio: 'ignore',
@@ -54,10 +59,11 @@ before(async () => {
   const deadline = Date.now() + 30000;
   for (;;) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+      // /readyz (not /healthz): generation needs the worker heartbeat too.
+      const res = await fetch(`http://127.0.0.1:${PORT}/readyz`);
       if (res.ok) break;
     } catch { /* server still starting */ }
-    if (Date.now() > deadline) throw new Error('Server did not become healthy in 30s');
+    if (Date.now() > deadline) throw new Error('Server did not become ready in 30s');
     await new Promise((r) => setTimeout(r, 400));
   }
 }, { timeout: 120000 });

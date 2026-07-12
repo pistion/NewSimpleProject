@@ -72,6 +72,9 @@ import {
 import { auditWrites } from './middleware/audit.middleware.js';
 import renderApiService from './services/renderApiService.js';
 import { mutateHostingStore, nowIso, readHostingStore } from './services/hostingStore.js';
+import { readinessSnapshot } from './builder/builderReadiness.service.js';
+import { durableJobsEnabled } from './builder/builderFlags.js';
+import { createBuilderWorker } from './builder/jobs/builderWorker.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -187,6 +190,18 @@ app.get('/healthz', async (req, res) => {
   } catch (err) {
     console.error('[healthz] DB check failed:', err.message);
     res.status(503).type('text/plain').send(`db_error: ${err.message}`);
+  }
+});
+
+// Readiness: database + Builder tables + (when enabled) worker heartbeat and
+// preview configuration. Load balancers and the staged Builder cutover use
+// this to keep traffic away from an instance that would accept dead jobs.
+app.get('/readyz', async (req, res) => {
+  try {
+    const snapshot = await readinessSnapshot();
+    res.status(snapshot.ready ? 200 : 503).json(snapshot);
+  } catch (err) {
+    res.status(503).json({ ready: false, error: err.message });
   }
 });
 
@@ -397,6 +412,37 @@ function startPaymentEnforcementJob() {
   return setInterval(runEnforcement, INTERVAL_MS);
 }
 
+// ── Builder durable worker ────────────────────────────────────────────────────
+// Starts only after DB bootstrap succeeds; a job never runs against missing
+// tables. Set BUILDER_WORKER_ENABLED=false to run an API-only instance.
+let builderWorker = null;
+
+async function startBuilderWorkerIfEnabled() {
+  const enabled = durableJobsEnabled()
+    && String(process.env.BUILDER_WORKER_ENABLED || 'true').toLowerCase() !== 'false';
+  if (!enabled) return;
+  builderWorker = createBuilderWorker();
+  await builderWorker.start();
+}
+
+function attachGracefulShutdown() {
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[glondia] ${signal} received; shutting down gracefully.`);
+    try {
+      if (builderWorker) await builderWorker.stop();
+    } catch (err) {
+      console.error('[glondia] Worker shutdown error:', err.message);
+    }
+    try { await prisma.$disconnect(); } catch { /* already gone */ }
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
 async function boot() {
   await attachFrontend();
   attachErrorHandler();
@@ -426,9 +472,11 @@ async function boot() {
       .then(() => ensureProviderResourcesTable())
       .then(() => ensureVpsTenancyBackfill())
       .then(() => ensureTicketColumns())
+      .then(() => startBuilderWorkerIfEnabled())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
 
+  attachGracefulShutdown();
   startDeploymentCleanupJob();
   warmForexCache();
 }
