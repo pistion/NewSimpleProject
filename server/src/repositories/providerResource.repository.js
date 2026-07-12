@@ -57,6 +57,18 @@ export async function recordResource({
   });
 }
 
+/** Admin oversight: every resource (any type, incl. deleted) for a set of owners. */
+export async function listByOwners({ organizationIds = [], userId = null } = {}) {
+  const or = [];
+  if (organizationIds.length) or.push({ organizationId: { in: organizationIds } });
+  if (userId) or.push({ userId });
+  if (!or.length) return [];
+  return prisma.providerResource.findMany({
+    where: { OR: or },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 /** All live (not deleted) resources of one type owned by an organization. */
 export async function listOwnedResources(organizationId, resourceType, provider = 'vultr') {
   return prisma.providerResource.findMany({

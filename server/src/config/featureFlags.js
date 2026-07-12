@@ -22,11 +22,20 @@ const FLAG_DEFINITIONS = {
   // Set FEATURE_DOMAINS=false to hide. Live purchase still needs Spaceship + PayPal env.
   DOMAINS:              { env: 'FEATURE_DOMAINS',              default: true,  label: 'Domains' },
 
-  VPS:                  { env: 'FEATURE_VPS',                  default: true,  label: 'Cloud Servers' },
+  VPS:                  { env: 'FEATURE_VPS',                  default: true,  label: 'VPS Services' },
   AI_BUILDER:           { env: 'FEATURE_AI_BUILDER',           default: false, label: 'RoxanneAI advanced builder' },
   TEMPLATE_MARKETPLACE: { env: 'FEATURE_TEMPLATE_MARKETPLACE', default: false, label: 'Template marketplace' },
   ANALYTICS:            { env: 'FEATURE_ANALYTICS',            default: false, label: 'Analytics' },
   SETTINGS:             { env: 'FEATURE_SETTINGS',             default: false, label: 'Settings' },
+
+  // ── SiteBuilder production-hardening rollout flags ─────────────────────────
+  // Staged-cutover controls (docs/sitebuilder-production-plan). New behavior
+  // ships dark; legacy stays reachable until the observation window closes.
+  BUILDER_PROJECT_FLOW:     { env: 'FEATURE_BUILDER_PROJECT_FLOW',     default: false, label: 'Builder canonical project flow' },
+  BUILDER_DB_STORAGE:       { env: 'FEATURE_BUILDER_DB_STORAGE',       default: false, label: 'Builder database storage' },
+  BUILDER_ISOLATED_PREVIEW: { env: 'FEATURE_BUILDER_ISOLATED_PREVIEW', default: false, label: 'Builder isolated preview origin' },
+  BUILDER_DURABLE_JOBS:     { env: 'FEATURE_BUILDER_DURABLE_JOBS',     default: false, label: 'Builder durable job worker' },
+  BUILDER_LEGACY_ROUTES:    { env: 'FEATURE_BUILDER_LEGACY_ROUTES',    default: true,  label: 'Builder legacy route adapters' },
 };
 
 function readFlag(definition) {

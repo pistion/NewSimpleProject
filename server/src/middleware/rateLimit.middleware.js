@@ -94,14 +94,27 @@ export const receiptRateLimit = createRateLimit({
   message: 'Too many receipt uploads.',
 });
 
-// Tickets — moderate per user
-export const ticketRateLimit = createRateLimit({
-  group: 'support.tickets',
+// Ticket reads are polled by the dashboard for previews/unread badges, so they
+// need a wider bucket than ticket creation/replies.
+export const ticketReadRateLimit = createRateLimit({
+  group: 'support.tickets.read',
+  windowMs: 15 * 60 * 1000,
+  max: 240,
+  keyFn: (req) => req.user?.id || req.ip,
+  message: 'Too many ticket refreshes. Please wait a moment.',
+});
+
+// Ticket writes — stricter per user to protect support from spam.
+export const ticketWriteRateLimit = createRateLimit({
+  group: 'support.tickets.write',
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  max: 40,
   keyFn: (req) => req.user?.id || req.ip,
   message: 'Too many ticket requests.',
 });
+
+// Backwards-compatible export for older imports.
+export const ticketRateLimit = ticketWriteRateLimit;
 
 // Analytics events — high volume, sampled
 export const analyticsRateLimit = createRateLimit({
@@ -127,4 +140,35 @@ export const webhookRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   max: 120,
   message: 'Webhook rate limit exceeded.',
+});
+
+// ── AI cost protection (SiteBuilder hardening plan, Phase 1) ─────────────────
+// Every AI-spending endpoint sits behind one of these. Keyed per user when
+// authenticated, otherwise per IP, so anonymous probing is throttled too.
+
+// Lightweight AI calls: intake messages, per-field suggestions, autofill.
+export const aiSuggestRateLimit = createRateLimit({
+  group: 'ai_suggest',
+  windowMs: 60 * 1000,
+  max: Number(process.env.AI_SUGGESTIONS_PER_MINUTE || 10),
+  keyFn: (req) => req.user?.id || req.ip,
+  message: 'Too many AI requests. Please wait a minute and try again.',
+});
+
+// Heavy AI calls: full-site generation / tailoring.
+export const aiGenerationRateLimit = createRateLimit({
+  group: 'ai_generate',
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.AI_GENERATIONS_PER_HOUR || 10),
+  keyFn: (req) => req.user?.id || req.ip,
+  message: 'AI generation limit reached for this hour. Please try again later.',
+});
+
+// ZIP deploy/validate — expensive multipart handling.
+export const zipUploadRateLimit = createRateLimit({
+  group: 'zip_upload',
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.ZIP_UPLOADS_PER_HOUR || 20),
+  keyFn: (req) => req.user?.id || req.ip,
+  message: 'Too many ZIP uploads. Please try again later.',
 });

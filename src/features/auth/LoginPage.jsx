@@ -41,7 +41,7 @@ export default function LoginPage({ navigate }) {
               <em>control plane.</em>
             </h1>
             <p className="auth-brand-copy">
-              Hosting, domains, cloud servers, and sites — one dark desk, green on black.
+              Hosting, domains, VPS services, and sites — one dark desk, green on black.
             </p>
             <ul className="auth-brand-list">
               <li>Projects &amp; deploys</li>

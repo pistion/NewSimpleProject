@@ -52,6 +52,7 @@ model User {
 
   refreshTokens RefreshToken[]
   projects      ClientProject[]
+  builderProjects BuilderProject[]
 
   @@index([accountStatus])
   @@index([createdAt])
@@ -59,24 +60,211 @@ model User {
   @@map("users")
 }
 
+// ─── Canonical Site Builder lifecycle ────────────────────────────────────────
+
+model BuilderProject {
+  id                   String    @id @default(uuid())
+  userId               String    @map("user_id")
+  clientProjectId      String?   @map("client_project_id")
+  sourceType           String    @map("source_type") // template | github | zip
+  templateId           String?   @map("template_id")
+  templateVersion      String?   @map("template_version")
+  templateSourceCommit String?   @map("template_source_commit")
+  templateManifestHash String?   @map("template_manifest_hash")
+  name                 String
+  slug                 String
+  status               String    @default("DRAFT")
+  version              Int       @default(1)
+  currentRevisionId    String?   @map("current_revision_id")
+  approvedRevisionId   String?   @map("approved_revision_id")
+  planJson             String    @default("{}") @map("plan_json")
+  answerSheetJson      String    @default("{}") @map("answer_sheet_json")
+  metadata             String    @default("{}")
+  archivedAt           DateTime? @map("archived_at")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  revisions       BuilderRevision[]
+  jobs            BuilderJob[]
+  previewGrants   BuilderPreviewGrant[]
+  deploymentLinks BuilderDeploymentLink[]
+
+  @@unique([userId, slug])
+  @@index([userId, status])
+  @@index([clientProjectId])
+  @@index([templateId, templateVersion])
+  @@index([updatedAt])
+  @@map("builder_projects")
+}
+
+model BuilderRevision {
+  id                  String    @id @default(uuid())
+  projectId           String    @map("project_id")
+  revisionNumber      Int       @map("revision_number")
+  parentRevisionId    String?   @map("parent_revision_id")
+  status              String    @default("DRAFT")
+  planSnapshotJson    String    @default("{}") @map("plan_snapshot_json")
+  answerSheetJson     String    @default("{}") @map("answer_sheet_json")
+  generatedSiteJson   String    @default("{}") @map("generated_site_json")
+  artifactLocation    String?   @map("artifact_location")
+  artifactChecksum    String?   @map("artifact_checksum")
+  sourceCommit        String?   @map("source_commit")
+  generationModel     String?   @map("generation_model")
+  generationUsageJson String    @default("{}") @map("generation_usage_json")
+  validationJson      String    @default("{}") @map("validation_json")
+  changeRequestJson   String    @default("{}") @map("change_request_json")
+  createdByUserId     String?   @map("created_by_user_id")
+  approvedByUserId    String?   @map("approved_by_user_id")
+  approvedAt          DateTime? @map("approved_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  project         BuilderProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobs            BuilderJob[]
+  previewGrants   BuilderPreviewGrant[]
+  deploymentLinks BuilderDeploymentLink[]
+
+  @@unique([projectId, revisionNumber])
+  @@index([projectId, status])
+  @@index([artifactChecksum])
+  @@map("builder_revisions")
+}
+
+model BuilderJob {
+  id             String    @id @default(uuid())
+  projectId      String    @map("project_id")
+  revisionId     String?   @map("revision_id")
+  jobType        String    @map("job_type")
+  status         String    @default("QUEUED")
+  stage          String?
+  idempotencyKey String    @unique @map("idempotency_key")
+  requestHash    String?   @map("request_hash")
+  payloadJson    String    @default("{}") @map("payload_json")
+  resultJson     String    @default("{}") @map("result_json")
+  progressJson   String    @default("{}") @map("progress_json")
+  errorCode      String?   @map("error_code")
+  errorMessage   String?   @map("error_message")
+  attempt        Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  availableAt    DateTime  @default(now()) @map("available_at")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project  BuilderProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision BuilderRevision? @relation(fields: [revisionId], references: [id], onDelete: SetNull)
+  events   BuilderJobEvent[]
+
+  @@index([status, availableAt])
+  @@index([leaseExpiresAt])
+  @@index([projectId, createdAt])
+  @@index([revisionId])
+  @@map("builder_jobs")
+}
+
+model BuilderJobEvent {
+  id          String   @id @default(uuid())
+  jobId       String   @map("job_id")
+  sequence    Int
+  stage       String?
+  level       String   @default("info")
+  message     String
+  detailsJson String   @default("{}") @map("details_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  job BuilderJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, sequence])
+  @@index([jobId, createdAt])
+  @@map("builder_job_events")
+}
+
+model BuilderPreviewGrant {
+  id              String    @id @default(uuid())
+  projectId       String    @map("project_id")
+  revisionId      String    @map("revision_id")
+  tokenHash       String    @unique @map("token_hash")
+  audience        String    @default("owner")
+  expiresAt       DateTime  @map("expires_at")
+  revokedAt       DateTime? @map("revoked_at")
+  lastUsedAt      DateTime? @map("last_used_at")
+  createdByUserId String?   @map("created_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  project  BuilderProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision BuilderRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, expiresAt])
+  @@index([revisionId])
+  @@map("builder_preview_grants")
+}
+
+model BuilderDeploymentLink {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  revisionId     String   @map("revision_id")
+  deploymentId   String   @unique @map("deployment_id")
+  idempotencyKey String   @unique @map("idempotency_key")
+  status         String   @default("QUEUED")
+  isCurrent      Boolean  @default(true) @map("is_current")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  project  BuilderProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision BuilderRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, isCurrent])
+  @@index([revisionId])
+  @@index([status])
+  @@map("builder_deployment_links")
+}
+
+model AiUsageEvent {
+  id                  String   @id @default(uuid())
+  userId              String?  @map("user_id")
+  projectId           String?  @map("project_id")
+  jobId               String?  @map("job_id")
+  provider            String
+  model               String
+  operation           String
+  promptTokens        Int      @default(0) @map("prompt_tokens")
+  completionTokens    Int      @default(0) @map("completion_tokens")
+  estimatedCostMicros Int      @default(0) @map("estimated_cost_micros")
+  status              String
+  requestId           String?  @map("request_id")
+  metadata            String   @default("{}")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([jobId])
+  @@map("ai_usage_events")
+}
+
 // ─── Client Projects ─────────────────────────────────────────────────────────
 
 model ClientProject {
-  id              String    @id @default(uuid())
-  projectCode     String    @unique @map("project_code")
-  userId          String?   @map("user_id")
-  clientId        String?   @map("client_id")
-  workspaceId     String?   @map("workspace_id")
-  name            String
-  slug            String
-  serviceType     String    @default("website") @map("service_type") // website | hosting | domain | email | vps | consultation | build | support | other
-  status          String    @default("draft") // draft | active | paused | completed | archived
-  priority        String    @default("normal")
-  description     String?
-  metadata        String    @default("{}")
-  archivedAt      DateTime? @map("archived_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(uuid())
+  projectCode String    @unique @map("project_code")
+  userId      String?   @map("user_id")
+  clientId    String?   @map("client_id")
+  workspaceId String?   @map("workspace_id")
+  name        String
+  slug        String
+  serviceType String    @default("website") @map("service_type") // website | hosting | domain | email | vps | consultation | build | support | other
+  status      String    @default("draft") // draft | active | paused | completed | archived
+  priority    String    @default("normal")
+  description String?
+  metadata    String    @default("{}")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -423,12 +611,12 @@ model ServiceAccess {
   id              String    @id @default(uuid())
   userId          String?   @map("user_id")
   organizationId  String?   @map("organization_id")
-  serviceType     String    @map("service_type")   // hosting | domain | vps | email | builder | support | other
+  serviceType     String    @map("service_type") // hosting | domain | vps | email | builder | support | other
   serviceId       String    @map("service_id")
   serviceName     String?   @map("service_name")
-  accessStatus    String    @default("pending") @map("access_status")   // pending | active | suspended | expired | cancelled | deleted
-  billingStatus   String    @default("pending") @map("billing_status")  // trial | pending | paid | overdue | failed | cancelled | free
-  adminStatus     String    @default("allowed") @map("admin_status")    // allowed | blocked | review_required
+  accessStatus    String    @default("pending") @map("access_status") // pending | active | suspended | expired | cancelled | deleted
+  billingStatus   String    @default("pending") @map("billing_status") // trial | pending | paid | overdue | failed | cancelled | free
+  adminStatus     String    @default("allowed") @map("admin_status") // allowed | blocked | review_required
   planId          String?   @map("plan_id")
   checkoutOrderId String?   @map("checkout_order_id")
   subscriptionId  String?   @map("subscription_id")
@@ -455,15 +643,15 @@ model ServiceAccess {
 // ─── Admin Policy (instruction / config data) ────────────────────────────────
 
 model AdminPolicy {
-  id                String   @id @default(uuid())
-  policyKey         String   @unique @map("policy_key")
-  category          String   // admin_power | service_toggle | watchdog | analytics | dashboard | crm
-  enabled           Boolean  @default(true)
-  valueJson         String   @default("{}") @map("value_json")
-  description       String?
-  updatedByAdminId  String?  @map("updated_by_admin_id")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  policyKey        String   @unique @map("policy_key")
+  category         String // admin_power | service_toggle | watchdog | analytics | dashboard | crm
+  enabled          Boolean  @default(true)
+  valueJson        String   @default("{}") @map("value_json")
+  description      String?
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@index([category])
   @@map("admin_policies")
@@ -497,20 +685,26 @@ model AdminCommand {
 // ─── Tickets (customer support + service complaints) ─────────────────────────
 
 model Ticket {
-  id                 String    @id @default(uuid())
-  userId             String?   @map("user_id")
-  organizationId     String?   @map("organization_id")
-  category           String    @default("general")  // billing | hosting | domain | vps | email | account | complaint | general
-  priority           String    @default("normal")   // low | normal | high | urgent
-  status             String    @default("open")     // open | pending_admin | pending_customer | resolved | closed
-  subject            String
-  relatedServiceType String?   @map("related_service_type")
-  relatedServiceId   String?   @map("related_service_id")
-  assignedAdminId    String?   @map("assigned_admin_id")
-  metadata           String    @default("{}")
-  closedAt           DateTime? @map("closed_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  userId                String?   @map("user_id")
+  organizationId        String?   @map("organization_id")
+  category              String    @default("general") // billing | hosting | domain | vps | email | account | complaint | general
+  priority              String    @default("normal") // low | normal | high | urgent
+  status                String    @default("open") // open | pending_admin | pending_customer | resolved | closed
+  subject               String
+  relatedServiceType    String?   @map("related_service_type")
+  relatedServiceId      String?   @map("related_service_id")
+  assignedAdminId       String?   @map("assigned_admin_id")
+  // Conversation bookkeeping for dashboard performance (badges, sorting).
+  lastMessageAt         DateTime? @map("last_message_at")
+  lastCustomerMessageAt DateTime? @map("last_customer_message_at")
+  lastAdminMessageAt    DateTime? @map("last_admin_message_at")
+  unreadForCustomer     Int       @default(0) @map("unread_for_customer")
+  unreadForAdmin        Int       @default(0) @map("unread_for_admin")
+  metadata              String    @default("{}")
+  closedAt              DateTime? @map("closed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   messages TicketMessage[]
 
@@ -523,14 +717,20 @@ model Ticket {
 }
 
 model TicketMessage {
-  id                  String   @id @default(uuid())
-  ticketId            String   @map("ticket_id")
-  senderUserId        String?  @map("sender_user_id")
-  senderRole          String   @map("sender_role")  // customer | admin | system
+  id                  String    @id @default(uuid())
+  ticketId            String    @map("ticket_id")
+  senderUserId        String?   @map("sender_user_id")
+  senderRole          String    @map("sender_role") // customer | admin | system
   body                String
-  attachmentsMetadata String   @default("{}") @map("attachments_metadata")
-  metadata            String   @default("{}")
-  createdAt           DateTime @default(now()) @map("created_at")
+  attachmentsMetadata String    @default("{}") @map("attachments_metadata")
+  metadata            String    @default("{}")
+  // Delivery state shown as message tags: sent → seen → replied.
+  status              String    @default("sent") @map("status")
+  seenAt              DateTime? @map("seen_at")
+  repliedAt           DateTime? @map("replied_at")
+  editedAt            DateTime? @map("edited_at")
+  deletedAt           DateTime? @map("deleted_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
@@ -548,8 +748,8 @@ model WatchdogEvent {
   serviceType       String?   @map("service_type")
   serviceId         String?   @map("service_id")
   eventType         String    @map("event_type")
-  severity          String    @default("info")   // info | warning | danger | critical
-  status            String    @default("open")   // open | reviewed | dismissed | escalated
+  severity          String    @default("info") // info | warning | danger | critical
+  status            String    @default("open") // open | reviewed | dismissed | escalated
   message           String
   metadata          String    @default("{}")
   reviewedByAdminId String?   @map("reviewed_by_admin_id")
@@ -628,7 +828,7 @@ model WebhookEvent {
   provider           String
   providerEventId    String    @map("provider_event_id")
   eventType          String    @map("event_type")
-  status             String    @default("received")  // received | ignored | processed | failed | duplicate | invalid_signature
+  status             String    @default("received") // received | ignored | processed | failed | duplicate | invalid_signature
   receivedAt         DateTime  @default(now()) @map("received_at")
   processedAt        DateTime? @map("processed_at")
   signatureValid     Boolean   @default(false) @map("signature_valid")
@@ -648,16 +848,16 @@ model WebhookEvent {
 // ─── Admin MFA (stronger authentication for admin roles) ─────────────────────
 
 model AdminMfaMethod {
-  id          String    @id @default(uuid())
-  userId      String    @map("user_id")
-  methodType  String    @map("method_type")  // totp | email_otp | backup_code
-  secretRef   String?   @map("secret_ref")   // encrypted reference, never plaintext
-  enabled     Boolean   @default(false)
-  verifiedAt  DateTime? @map("verified_at")
-  lastUsedAt  DateTime? @map("last_used_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  metadata    String    @default("{}")
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  methodType String    @map("method_type") // totp | email_otp | backup_code
+  secretRef  String?   @map("secret_ref") // encrypted reference, never plaintext
+  enabled    Boolean   @default(false)
+  verifiedAt DateTime? @map("verified_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  metadata   String    @default("{}")
 
   @@index([userId])
   @@map("admin_mfa_methods")
@@ -666,21 +866,21 @@ model AdminMfaMethod {
 // ─── Payment Methods (safe provider references only) ─────────────────────────
 
 model PaymentMethod {
-  id                 String    @id @default(uuid())
-  userId             String?   @map("user_id")
-  organizationId     String?   @map("organization_id")
-  provider           String    // paypal | stripe | manual
-  providerMethodId   String?   @map("provider_method_id")
-  methodType         String    @default("unknown") @map("method_type")  // card | paypal | bank_transfer
-  brand              String?   // visa | mastercard | paypal | etc
-  last4              String?   @map("last4")
-  expiryMonth        Int?      @map("expiry_month")
-  expiryYear         Int?      @map("expiry_year")
-  isDefault          Boolean   @default(false) @map("is_default")
-  status             String    @default("active")
-  metadata           String    @default("{}")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  userId           String?  @map("user_id")
+  organizationId   String?  @map("organization_id")
+  provider         String // paypal | stripe | manual
+  providerMethodId String?  @map("provider_method_id")
+  methodType       String   @default("unknown") @map("method_type") // card | paypal | bank_transfer
+  brand            String? // visa | mastercard | paypal | etc
+  last4            String?  @map("last4")
+  expiryMonth      Int?     @map("expiry_month")
+  expiryYear       Int?     @map("expiry_year")
+  isDefault        Boolean  @default(false) @map("is_default")
+  status           String   @default("active")
+  metadata         String   @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([organizationId])
@@ -690,21 +890,21 @@ model PaymentMethod {
 // ─── Discount Codes ───────────────────────────────────────────────────────────
 
 model DiscountCode {
-  id              String    @id @default(uuid())
-  code            String    @unique
-  description     String?
-  discountType    String    @default("percent") @map("discount_type")  // percent | fixed
-  discountValue   Float     @map("discount_value")
-  currency        String    @default("USD")
-  maxUses         Int?      @map("max_uses")
-  usedCount       Int       @default(0) @map("used_count")
-  appliesTo       String    @default("all") @map("applies_to")  // all | hosting | vps | domain | email
-  enabled         Boolean   @default(true)
-  expiresAt       DateTime? @map("expires_at")
-  createdByAdminId String?  @map("created_by_admin_id")
-  metadata        String    @default("{}")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  code             String    @unique
+  description      String?
+  discountType     String    @default("percent") @map("discount_type") // percent | fixed
+  discountValue    Float     @map("discount_value")
+  currency         String    @default("USD")
+  maxUses          Int?      @map("max_uses")
+  usedCount        Int       @default(0) @map("used_count")
+  appliesTo        String    @default("all") @map("applies_to") // all | hosting | vps | domain | email
+  enabled          Boolean   @default(true)
+  expiresAt        DateTime? @map("expires_at")
+  createdByAdminId String?   @map("created_by_admin_id")
+  metadata         String    @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   redemptions DiscountRedemption[]
 
@@ -713,14 +913,14 @@ model DiscountCode {
 }
 
 model DiscountRedemption {
-  id             String   @id @default(uuid())
-  discountCodeId String   @map("discount_code_id")
-  userId         String?  @map("user_id")
-  orderId        String?  @map("order_id")
-  serviceId      String?  @map("service_id")
-  amountSavedCents Int    @default(0) @map("amount_saved_cents")
-  metadata       String   @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id               String   @id @default(uuid())
+  discountCodeId   String   @map("discount_code_id")
+  userId           String?  @map("user_id")
+  orderId          String?  @map("order_id")
+  serviceId        String?  @map("service_id")
+  amountSavedCents Int      @default(0) @map("amount_saved_cents")
+  metadata         String   @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   discountCode DiscountCode @relation(fields: [discountCodeId], references: [id])
 
@@ -732,16 +932,16 @@ model DiscountRedemption {
 // ─── Provider Integrations + Sync Runs ───────────────────────────────────────
 
 model ProviderIntegration {
-  id              String    @id @default(uuid())
-  providerKey     String    @unique @map("provider_key")  // render | paypal | spaceship | vultr | sendgrid
-  displayName     String    @map("display_name")
-  status          String    @default("unknown")  // healthy | degraded | error | unknown | disabled
-  lastHealthAt    DateTime? @map("last_health_at")
-  lastSyncAt      DateTime? @map("last_sync_at")
-  errorMessage    String?   @map("error_message")
-  metadata        String    @default("{}")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  providerKey  String    @unique @map("provider_key") // render | paypal | spaceship | vultr | sendgrid
+  displayName  String    @map("display_name")
+  status       String    @default("unknown") // healthy | degraded | error | unknown | disabled
+  lastHealthAt DateTime? @map("last_health_at")
+  lastSyncAt   DateTime? @map("last_sync_at")
+  errorMessage String?   @map("error_message")
+  metadata     String    @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   syncRuns ProviderSyncRun[]
 
@@ -749,16 +949,16 @@ model ProviderIntegration {
 }
 
 model ProviderSyncRun {
-  id                   String    @id @default(uuid())
-  providerIntegrationId String?  @map("provider_integration_id")
-  providerKey          String    @map("provider_key")
-  syncType             String    @map("sync_type")  // health_check | full_sync | partial_sync
-  status               String    @default("running")  // running | completed | failed
-  startedAt            DateTime  @default(now()) @map("started_at")
-  finishedAt           DateTime? @map("finished_at")
-  recordsSynced        Int       @default(0) @map("records_synced")
-  errorMessage         String?   @map("error_message")
-  metadata             String    @default("{}")
+  id                    String    @id @default(uuid())
+  providerIntegrationId String?   @map("provider_integration_id")
+  providerKey           String    @map("provider_key")
+  syncType              String    @map("sync_type") // health_check | full_sync | partial_sync
+  status                String    @default("running") // running | completed | failed
+  startedAt             DateTime  @default(now()) @map("started_at")
+  finishedAt            DateTime? @map("finished_at")
+  recordsSynced         Int       @default(0) @map("records_synced")
+  errorMessage          String?   @map("error_message")
+  metadata              String    @default("{}")
 
   providerIntegration ProviderIntegration? @relation(fields: [providerIntegrationId], references: [id])
 
@@ -772,7 +972,7 @@ model ProviderSyncRun {
 model ScheduledJobRun {
   id             String    @id @default(uuid())
   jobKey         String    @map("job_key")
-  status         String    @default("running")  // running | completed | failed | skipped
+  status         String    @default("running") // running | completed | failed | skipped
   startedAt      DateTime  @default(now()) @map("started_at")
   finishedAt     DateTime? @map("finished_at")
   recordsScanned Int       @default(0) @map("records_scanned")
@@ -788,14 +988,14 @@ model ScheduledJobRun {
 // ─── Notification Preferences ─────────────────────────────────────────────────
 
 model NotificationPreference {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  channel      String   // email | sms | push | in_app
-  eventType    String   @map("event_type")  // billing | deployment | ticket | security | all
-  enabled      Boolean  @default(true)
-  metadata     String   @default("{}")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  channel   String // email | sms | push | in_app
+  eventType String   @map("event_type") // billing | deployment | ticket | security | all
+  enabled   Boolean  @default(true)
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([userId, channel, eventType])
   @@index([userId])
@@ -808,7 +1008,7 @@ model CrmEmailList {
   id          String   @id @default(uuid())
   name        String
   description String?
-  listType    String   @default("general") @map("list_type")  // general | billing | hosting | vps | domain | launch
+  listType    String   @default("general") @map("list_type") // general | billing | hosting | vps | domain | launch
   status      String   @default("active")
   metadata    String   @default("{}")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -825,7 +1025,7 @@ model CrmEmailListMember {
   userId         String?   @map("user_id")
   email          String
   name           String?
-  status         String    @default("subscribed")  // subscribed | unsubscribed | bounced
+  status         String    @default("subscribed") // subscribed | unsubscribed | bounced
   subscribedAt   DateTime  @default(now()) @map("subscribed_at")
   unsubscribedAt DateTime? @map("unsubscribed_at")
   metadata       String    @default("{}")
@@ -839,15 +1039,15 @@ model CrmEmailListMember {
 }
 
 model CrmAiSession {
-  id          String    @id @default(uuid())
-  adminUserId String?   @map("admin_user_id")
-  userId      String?   @map("user_id")
-  sessionType String    @default("admin") @map("session_type")  // admin | customer_support
-  status      String    @default("active")  // active | archived
-  messages    String    @default("[]")  // JSON array of {role, content, createdAt}
-  metadata    String    @default("{}")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  adminUserId String?  @map("admin_user_id")
+  userId      String?  @map("user_id")
+  sessionType String   @default("admin") @map("session_type") // admin | customer_support
+  status      String   @default("active") // active | archived
+  messages    String   @default("[]") // JSON array of {role, content, createdAt}
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([adminUserId])
   @@index([userId])
@@ -855,17 +1055,17 @@ model CrmAiSession {
 }
 
 model ChatbotInteraction {
-  id           String    @id @default(uuid())
-  sessionId    String?   @map("session_id")
-  userId       String?   @map("user_id")
-  question     String
-  answer       String
-  escalated    Boolean   @default(false)
-  ticketId     String?   @map("ticket_id")
-  serviceType  String?   @map("service_type")
-  confidence   Float?
-  metadata     String    @default("{}")
-  createdAt    DateTime  @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  sessionId   String?  @map("session_id")
+  userId      String?  @map("user_id")
+  question    String
+  answer      String
+  escalated   Boolean  @default(false)
+  ticketId    String?  @map("ticket_id")
+  serviceType String?  @map("service_type")
+  confidence  Float?
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
   @@index([sessionId])
@@ -875,7 +1075,7 @@ model ChatbotInteraction {
 
 model ChatbotKnowledgeEntry {
   id           String    @id @default(uuid())
-  category     String    // billing | hosting | domain | vps | email | account | general
+  category     String // billing | hosting | domain | vps | email | account | general
   question     String
   answer       String
   approved     Boolean   @default(false)
@@ -898,7 +1098,7 @@ model Invoice {
   organizationId String?   @map("organization_id")
   orderId        String?   @map("order_id")
   invoiceNumber  String    @unique @map("invoice_number")
-  status         String    @default("draft")  // draft | issued | paid | voided | overdue
+  status         String    @default("draft") // draft | issued | paid | voided | overdue
   currency       String    @default("USD")
   subtotalCents  Int       @default(0) @map("subtotal_cents")
   taxCents       Int       @default(0) @map("tax_cents")
@@ -955,7 +1155,7 @@ model TaxRate {
   id          String   @id @default(uuid())
   country     String?
   region      String?
-  rate        Float    @default(0)  // e.g. 0.1 for 10%
+  rate        Float    @default(0) // e.g. 0.1 for 10%
   description String?
   enabled     Boolean  @default(true)
   metadata    String   @default("{}")
@@ -966,17 +1166,17 @@ model TaxRate {
 }
 
 model CustomerLifecycle {
-  id              String    @id @default(uuid())
-  userId          String    @unique @map("user_id")
-  stage           String    @default("signup")  // signup | onboarding | active | churned | reactivated
-  firstServiceAt  DateTime? @map("first_service_at")
-  firstPaymentAt  DateTime? @map("first_payment_at")
-  lastActivityAt  DateTime? @map("last_activity_at")
-  churnedAt       DateTime? @map("churned_at")
-  reactivatedAt   DateTime? @map("reactivated_at")
-  metadata        String    @default("{}")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(uuid())
+  userId         String    @unique @map("user_id")
+  stage          String    @default("signup") // signup | onboarding | active | churned | reactivated
+  firstServiceAt DateTime? @map("first_service_at")
+  firstPaymentAt DateTime? @map("first_payment_at")
+  lastActivityAt DateTime? @map("last_activity_at")
+  churnedAt      DateTime? @map("churned_at")
+  reactivatedAt  DateTime? @map("reactivated_at")
+  metadata       String    @default("{}")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([stage])
   @@map("customer_lifecycles")
@@ -986,8 +1186,8 @@ model ServiceHealthCheck {
   id          String   @id @default(uuid())
   serviceType String   @map("service_type")
   serviceId   String   @map("service_id")
-  checkType   String   @map("check_type")  // ping | http | dns | provider_sync
-  status      String   @default("unknown")  // healthy | degraded | down | unknown
+  checkType   String   @map("check_type") // ping | http | dns | provider_sync
+  status      String   @default("unknown") // healthy | degraded | down | unknown
   latencyMs   Int?     @map("latency_ms")
   message     String?
   metadata    String   @default("{}")
@@ -1002,8 +1202,8 @@ model Incident {
   id          String    @id @default(uuid())
   title       String
   description String?
-  status      String    @default("open")  // open | investigating | identified | monitoring | resolved
-  severity    String    @default("warning")  // info | warning | critical
+  status      String    @default("open") // open | investigating | identified | monitoring | resolved
+  severity    String    @default("warning") // info | warning | critical
   serviceType String?   @map("service_type")
   serviceId   String?   @map("service_id")
   startedAt   DateTime  @default(now()) @map("started_at")
@@ -1019,13 +1219,13 @@ model Incident {
 }
 
 model IncidentUpdate {
-  id          String   @id @default(uuid())
-  incidentId  String   @map("incident_id")
-  status      String
-  message     String
-  postedById  String?  @map("posted_by_id")
-  metadata    String   @default("{}")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  incidentId String   @map("incident_id")
+  status     String
+  message    String
+  postedById String?  @map("posted_by_id")
+  metadata   String   @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
@@ -1039,7 +1239,7 @@ model MaintenanceWindow {
   description String?
   serviceType String?   @map("service_type")
   serviceId   String?   @map("service_id")
-  status      String    @default("scheduled")  // scheduled | active | completed | cancelled
+  status      String    @default("scheduled") // scheduled | active | completed | cancelled
   startsAt    DateTime  @map("starts_at")
   endsAt      DateTime? @map("ends_at")
   metadata    String    @default("{}")
@@ -1051,17 +1251,17 @@ model MaintenanceWindow {
 }
 
 model ExportJob {
-  id          String    @id @default(uuid())
-  adminUserId String?   @map("admin_user_id")
-  exportType  String    @map("export_type")  // users | orders | receipts | activity | tickets
-  status      String    @default("pending")  // pending | running | completed | failed | expired
-  filePath    String?   @map("file_path")    // internal only, never exposed to API responses
-  rowCount    Int       @default(0) @map("row_count")
-  errorMessage String?  @map("error_message")
-  expiresAt   DateTime? @map("expires_at")
-  metadata    String    @default("{}")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  adminUserId  String?   @map("admin_user_id")
+  exportType   String    @map("export_type") // users | orders | receipts | activity | tickets
+  status       String    @default("pending") // pending | running | completed | failed | expired
+  filePath     String?   @map("file_path") // internal only, never exposed to API responses
+  rowCount     Int       @default(0) @map("row_count")
+  errorMessage String?   @map("error_message")
+  expiresAt    DateTime? @map("expires_at")
+  metadata     String    @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@index([adminUserId, createdAt])
   @@index([status])
@@ -1072,16 +1272,16 @@ model ExportJob {
 
 model DashboardWarning {
   id               String    @id @default(uuid())
-  warningType      String    @map("warning_type")  // slow_requests | high_401_count | high_403_count | api_probe_spike | analytics_spam | etc.
+  warningType      String    @map("warning_type") // slow_requests | high_401_count | high_403_count | api_probe_spike | analytics_spam | etc.
   affectedRoute    String?   @map("affected_route")
   affectedService  String?   @map("affected_service")
-  severity         String    @default("low")  // low | medium | high
+  severity         String    @default("low") // low | medium | high
   count            Int       @default(1)
   avgDurationMs    Int?      @map("avg_duration_ms")
   peakDurationMs   Int?      @map("peak_duration_ms")
   firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
   lastSeenAt       DateTime  @default(now()) @map("last_seen_at")
-  status           String    @default("open")  // open | dismissed | escalated
+  status           String    @default("open") // open | dismissed | escalated
   dismissedByAdmin String?   @map("dismissed_by_admin")
   dismissedAt      DateTime? @map("dismissed_at")
   escalatedToEvent String?   @map("escalated_to_event")
@@ -1099,14 +1299,54 @@ model DashboardWarning {
 // ─── Retention Policy ─────────────────────────────────────────────────────────
 
 model RetentionPolicy {
-  id            String   @id @default(uuid())
-  entityType    String   @unique @map("entity_type")
-  retainDays    Int      @map("retain_days")
-  description   String?
-  enabled       Boolean  @default(true)
-  metadata      String   @default("{}")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  entityType  String   @unique @map("entity_type")
+  retainDays  Int      @map("retain_days")
+  description String?
+  enabled     Boolean  @default(true)
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("retention_policies")
+}
+
+// ─── Service Requests (CRM intake — not support tickets) ─────────────────────
+// The table has existed via ensureServiceRequestsTable() since before this
+// model; serviceRequestService.js already queries prisma.serviceRequest, so
+// this model makes that delegate real. Shape matches the ensured SQL exactly.
+
+model ServiceRequest {
+  id                     String    @id @default(uuid())
+  requestNumber          String    @unique @map("request_number")
+  userId                 String?   @map("user_id")
+  organizationId         String?   @map("organization_id")
+  source                 String    @default("public_form")
+  requestType            String    @map("request_type")
+  status                 String    @default("new")
+  priority               String    @default("normal")
+  contactName            String    @map("contact_name")
+  contactEmail           String    @map("contact_email")
+  contactPhone           String?   @map("contact_phone")
+  companyName            String?   @map("company_name")
+  subject                String
+  description            String
+  budgetRange            String?   @map("budget_range")
+  timeline               String?
+  preferredContactMethod String?   @map("preferred_contact_method")
+  assignedAdminId        String?   @map("assigned_admin_id")
+  convertedLeadId        String?   @map("converted_lead_id")
+  convertedTicketId      String?   @map("converted_ticket_id")
+  metadata               String    @default("{}")
+  adminNotes             String?   @map("admin_notes")
+  lastContactedAt        DateTime? @map("last_contacted_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([requestType, createdAt])
+  @@index([userId, createdAt])
+  @@index([assignedAdminId, status])
+  @@index([contactEmail])
+  @@map("service_requests")
 }

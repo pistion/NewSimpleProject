@@ -351,6 +351,55 @@ export async function ensureCrmEmailTables() {
 }
 
 /**
+ * Self-heal additive columns on the ticket tables (same push-based reason as
+ * ensureUserColumns): conversation bookkeeping on `tickets` and delivery
+ * status on `ticket_messages`. Only additive, defaulted/nullable columns.
+ * Idempotent. SQLite only.
+ */
+export async function ensureTicketColumns() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+
+  const tables = {
+    tickets: [
+      ['last_message_at', 'DATETIME'],
+      ['last_customer_message_at', 'DATETIME'],
+      ['last_admin_message_at', 'DATETIME'],
+      ['unread_for_customer', 'INTEGER NOT NULL DEFAULT 0'],
+      ['unread_for_admin', 'INTEGER NOT NULL DEFAULT 0'],
+    ],
+    ticket_messages: [
+      ['status', "TEXT NOT NULL DEFAULT 'sent'"],
+      ['seen_at', 'DATETIME'],
+      ['replied_at', 'DATETIME'],
+      ['edited_at', 'DATETIME'],
+      ['deleted_at', 'DATETIME'],
+    ],
+  };
+
+  try {
+    for (const [table, columns] of Object.entries(tables)) {
+      const rows = await prisma.$queryRawUnsafe(`PRAGMA table_info('${table}')`);
+      if (!Array.isArray(rows) || rows.length === 0) continue; // fresh DB → db:push creates it
+      const have = new Set(rows.map((r) => r.name));
+      const added = [];
+      for (const [name, def] of columns) {
+        if (have.has(name)) continue;
+        try {
+          await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${name}" ${def}`);
+          added.push(name);
+        } catch (err) {
+          console.error(`[db] Failed to add ${table}.${name}:`, err.message);
+        }
+      }
+      if (added.length) console.log(`[db] Self-healed missing ${table} columns: ${added.join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[db] ensureTicketColumns failed:', err.message);
+  }
+}
+
+/**
  * Provider resource ownership map (VPS SSH keys, snapshots, backups…).
  * Every provider-account-level resource a customer creates is recorded here so
  * list/delete/restore can be scoped to the owning organization instead of
@@ -390,6 +439,187 @@ export async function ensureProviderResourcesTable() {
     );
   } catch (err) {
     console.error('[db] ensureProviderResourcesTable failed:', err.message);
+  }
+}
+
+/**
+ * Canonical Site Builder tables. This project currently uses Prisma db:push
+ * plus additive SQLite bootstraps instead of checked-in migration files, so
+ * create the new durable BuilderProject lifecycle tables idempotently at boot.
+ */
+export async function ensureBuilderLifecycleTables() {
+  const url = process.env.DATABASE_URL || '';
+  if (!url.startsWith('file:')) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_projects" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "user_id" TEXT NOT NULL,
+        "client_project_id" TEXT,
+        "source_type" TEXT NOT NULL,
+        "template_id" TEXT,
+        "template_version" TEXT,
+        "template_source_commit" TEXT,
+        "template_manifest_hash" TEXT,
+        "name" TEXT NOT NULL,
+        "slug" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'DRAFT',
+        "version" INTEGER NOT NULL DEFAULT 1,
+        "current_revision_id" TEXT,
+        "approved_revision_id" TEXT,
+        "plan_json" TEXT NOT NULL DEFAULT '{}',
+        "answer_sheet_json" TEXT NOT NULL DEFAULT '{}',
+        "metadata" TEXT NOT NULL DEFAULT '{}',
+        "archived_at" DATETIME,
+        "deleted_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_projects_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_projects_user_id_slug_key" ON "builder_projects" ("user_id", "slug")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_projects_user_id_status_idx" ON "builder_projects" ("user_id", "status")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_projects_client_project_id_idx" ON "builder_projects" ("client_project_id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_projects_template_id_template_version_idx" ON "builder_projects" ("template_id", "template_version")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_projects_updated_at_idx" ON "builder_projects" ("updated_at")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_revisions" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "project_id" TEXT NOT NULL,
+        "revision_number" INTEGER NOT NULL,
+        "parent_revision_id" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'DRAFT',
+        "plan_snapshot_json" TEXT NOT NULL DEFAULT '{}',
+        "answer_sheet_json" TEXT NOT NULL DEFAULT '{}',
+        "generated_site_json" TEXT NOT NULL DEFAULT '{}',
+        "artifact_location" TEXT,
+        "artifact_checksum" TEXT,
+        "source_commit" TEXT,
+        "generation_model" TEXT,
+        "generation_usage_json" TEXT NOT NULL DEFAULT '{}',
+        "validation_json" TEXT NOT NULL DEFAULT '{}',
+        "change_request_json" TEXT NOT NULL DEFAULT '{}',
+        "created_by_user_id" TEXT,
+        "approved_by_user_id" TEXT,
+        "approved_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_revisions_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "builder_projects" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_revisions_project_id_revision_number_key" ON "builder_revisions" ("project_id", "revision_number")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_revisions_project_id_status_idx" ON "builder_revisions" ("project_id", "status")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_revisions_artifact_checksum_idx" ON "builder_revisions" ("artifact_checksum")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_jobs" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "project_id" TEXT NOT NULL,
+        "revision_id" TEXT,
+        "job_type" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'QUEUED',
+        "stage" TEXT,
+        "idempotency_key" TEXT NOT NULL,
+        "request_hash" TEXT,
+        "payload_json" TEXT NOT NULL DEFAULT '{}',
+        "result_json" TEXT NOT NULL DEFAULT '{}',
+        "progress_json" TEXT NOT NULL DEFAULT '{}',
+        "error_code" TEXT,
+        "error_message" TEXT,
+        "attempt" INTEGER NOT NULL DEFAULT 0,
+        "max_attempts" INTEGER NOT NULL DEFAULT 3,
+        "available_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "lease_owner" TEXT,
+        "lease_expires_at" DATETIME,
+        "started_at" DATETIME,
+        "finished_at" DATETIME,
+        "cancelled_at" DATETIME,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_jobs_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "builder_projects" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "builder_jobs_revision_id_fkey" FOREIGN KEY ("revision_id") REFERENCES "builder_revisions" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_jobs_idempotency_key_key" ON "builder_jobs" ("idempotency_key")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_jobs_status_available_at_idx" ON "builder_jobs" ("status", "available_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_jobs_lease_expires_at_idx" ON "builder_jobs" ("lease_expires_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_jobs_project_id_created_at_idx" ON "builder_jobs" ("project_id", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_jobs_revision_id_idx" ON "builder_jobs" ("revision_id")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_job_events" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "job_id" TEXT NOT NULL,
+        "sequence" INTEGER NOT NULL,
+        "stage" TEXT,
+        "level" TEXT NOT NULL DEFAULT 'info',
+        "message" TEXT NOT NULL,
+        "details_json" TEXT NOT NULL DEFAULT '{}',
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_job_events_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "builder_jobs" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_job_events_job_id_sequence_key" ON "builder_job_events" ("job_id", "sequence")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_job_events_job_id_created_at_idx" ON "builder_job_events" ("job_id", "created_at")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_preview_grants" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "project_id" TEXT NOT NULL,
+        "revision_id" TEXT NOT NULL,
+        "token_hash" TEXT NOT NULL,
+        "audience" TEXT NOT NULL DEFAULT 'owner',
+        "expires_at" DATETIME NOT NULL,
+        "revoked_at" DATETIME,
+        "last_used_at" DATETIME,
+        "created_by_user_id" TEXT,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_preview_grants_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "builder_projects" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "builder_preview_grants_revision_id_fkey" FOREIGN KEY ("revision_id") REFERENCES "builder_revisions" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_preview_grants_token_hash_key" ON "builder_preview_grants" ("token_hash")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_preview_grants_project_id_expires_at_idx" ON "builder_preview_grants" ("project_id", "expires_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_preview_grants_revision_id_idx" ON "builder_preview_grants" ("revision_id")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "builder_deployment_links" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "project_id" TEXT NOT NULL,
+        "revision_id" TEXT NOT NULL,
+        "deployment_id" TEXT NOT NULL,
+        "idempotency_key" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'QUEUED',
+        "is_current" BOOLEAN NOT NULL DEFAULT 1,
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "builder_deployment_links_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "builder_projects" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "builder_deployment_links_revision_id_fkey" FOREIGN KEY ("revision_id") REFERENCES "builder_revisions" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_deployment_links_deployment_id_key" ON "builder_deployment_links" ("deployment_id")`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "builder_deployment_links_idempotency_key_key" ON "builder_deployment_links" ("idempotency_key")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_deployment_links_project_id_is_current_idx" ON "builder_deployment_links" ("project_id", "is_current")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_deployment_links_revision_id_idx" ON "builder_deployment_links" ("revision_id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_deployment_links_status_idx" ON "builder_deployment_links" ("status")`);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "ai_usage_events" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "user_id" TEXT,
+        "project_id" TEXT,
+        "job_id" TEXT,
+        "provider" TEXT NOT NULL,
+        "model" TEXT NOT NULL,
+        "operation" TEXT NOT NULL,
+        "prompt_tokens" INTEGER NOT NULL DEFAULT 0,
+        "completion_tokens" INTEGER NOT NULL DEFAULT 0,
+        "estimated_cost_micros" INTEGER NOT NULL DEFAULT 0,
+        "status" TEXT NOT NULL,
+        "request_id" TEXT,
+        "metadata" TEXT NOT NULL DEFAULT '{}',
+        "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_user_id_created_at_idx" ON "ai_usage_events" ("user_id", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_project_id_created_at_idx" ON "ai_usage_events" ("project_id", "created_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ai_usage_events_job_id_idx" ON "ai_usage_events" ("job_id")`);
+  } catch (err) {
+    console.error('[db] ensureBuilderLifecycleTables failed:', err.message);
   }
 }
 

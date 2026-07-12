@@ -25,6 +25,7 @@ import publicSalesRoutes from './routes/public-sales.routes.js';
 import commerceRoutes from './routes/commerce.routes.js';
 import templateRoutes from './routes/template.routes.js';
 import templateAiRoutes from './routes/template-ai.routes.js';
+import builderRoutes from './routes/builder.routes.js';
 import eventsRoutes from './routes/events.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import billingRoutes from './routes/billing.routes.js';
@@ -63,8 +64,10 @@ import {
   ensureDeploymentSubscriptionsTable,
   ensureServiceRequestsTable,
   ensureCrmEmailTables,
+  ensureBuilderLifecycleTables,
   ensureProviderResourcesTable,
   ensureVpsTenancyBackfill,
+  ensureTicketColumns,
 } from './services/db.js';
 import { auditWrites } from './middleware/audit.middleware.js';
 import renderApiService from './services/renderApiService.js';
@@ -231,6 +234,7 @@ app.use('/api/v1/domains', requireFeature('DOMAINS'), domainPublicRoutes);
 // Template catalog is part of the Site Builder surface. TEMPLATE_MARKETPLACE
 // remains reserved for the future paid template store.
 app.use('/api/v1/templates', requireFeature('SITE_BUILDER'), templateRoutes);
+app.use('/api/v1/builder', requireFeature('SITE_BUILDER'), builderRoutes);
 app.use('/api/template-ai', templateAiRoutes);
 app.use('/api/v1/events', eventsRoutes);
 
@@ -250,7 +254,7 @@ app.use('/api/v1/workspaces/:workspaceId/billing', billingRoutes);
 app.use('/api/v1/workspaces/:workspaceId/settings', requireFeature('SETTINGS'), settingsRoutes);
 app.use('/api/v1/workspaces/:workspaceId/events', eventStreamRoutes);
 
-// VPS hosting — Vultr-backed cloud servers (not part of the MVP).
+// VPS Services — Vultr-backed virtual servers.
 app.use('/api/v1/vps-hosting', requireFeature('VPS'), vpsHostingRoutes);
 
 // Render-powered customer hosting surface used by the site builder and hosting dashboard.
@@ -418,8 +422,10 @@ async function boot() {
       .then(() => ensureDeploymentSubscriptionsTable())
       .then(() => ensureServiceRequestsTable())
       .then(() => ensureCrmEmailTables())
+      .then(() => ensureBuilderLifecycleTables())
       .then(() => ensureProviderResourcesTable())
       .then(() => ensureVpsTenancyBackfill())
+      .then(() => ensureTicketColumns())
       .catch((err) => console.error('[glondia] Database connection FAILED:', err.message, '\n  Check that the persistent disk is mounted and DATABASE_URL is correct.'));
   });
 

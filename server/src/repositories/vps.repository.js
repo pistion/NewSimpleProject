@@ -40,6 +40,12 @@ export async function listByOrganization(organizationId) {
   });
 }
 
+/** Admin resolver lookup: records by id, including soft-deleted ones. */
+export async function findManyByIds(ids) {
+  if (!ids?.length) return [];
+  return prisma.vpsService.findMany({ where: { id: { in: ids } } });
+}
+
 /** Any live (non-deleted) service already linked to a checkout order. */
 export async function findByCheckoutOrderId(checkoutOrderId) {
   return prisma.vpsService.findFirst({

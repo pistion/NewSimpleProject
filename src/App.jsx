@@ -30,6 +30,7 @@ import ProfilePage from './features/profile/ProfilePage.jsx';
 import EmailManagementPage from './features/email/EmailManagementPage.jsx';
 import GlondiaMailApp from './features/glondia-mail/GlondiaMailApp.jsx';
 import { VpsHostingList, VpsCreateWizard, VpsDetail } from './vps-hosting';
+import SupportPage from './features/tickets/TicketsPage.jsx';
 import { isFeatureEnabled } from './app/features.js';
 import { notifyDataChanged } from './api';
 import { isAuthenticated, clearAuthSession, getStoredAuth, storeAuthSession, AUTH_CHANGED_EVENT, login as authLogin } from './api/auth.js';
@@ -65,8 +66,9 @@ const VIEW_TO_PATH = {
   email: 'email',
   profile: 'profile',
   settings: 'settings',
-  'vps-hosting': 'cloud-servers',
-  'vps-create': 'cloud-servers/new',
+  'vps-hosting': 'vps-services',
+  'vps-create': 'vps-services/new',
+  support: 'support',
 };
 
 const PATH_TO_VIEW = {
@@ -80,8 +82,11 @@ const PATH_TO_VIEW = {
   email: 'email',
   profile: 'profile',
   settings: 'settings',
+  'vps-services': 'vps-hosting',
+  'vps-services/new': 'vps-create',
   'cloud-servers': 'vps-hosting',
   'cloud-servers/new': 'vps-create',
+  support: 'support',
 };
 
 function accountClientId(user = getStoredAuth().user) {
@@ -118,10 +123,11 @@ function accountPathFor(route, user = getStoredAuth().user) {
     return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/roxanne`;
   }
   if (route.view === 'builder-import') {
-    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/site-builder/import`;
+    const mode = route.params?.mode === 'zip' ? 'zip-upload' : 'github-upload';
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/hosting/${mode}`;
   }
   if (route.view === 'vps-detail' && route.params?.id) {
-    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/cloud-servers/${encodeURIComponent(route.params.id)}`;
+    return `/${CLIENT_ROUTE_PREFIX}/${clientId}/vps-services/${encodeURIComponent(route.params.id)}`;
   }
 
   const suffix = VIEW_TO_PATH[route.view];
@@ -135,16 +141,18 @@ function routeFromAccountPath(pathname = window.location.pathname) {
   const rest = parts.slice(2).map((p) => decodeURIComponent(p));
   const key = rest.join('/');
 
+  if (key === 'hosting/github-upload') return { view: 'builder-import', params: { mode: 'github' } };
+  if (key === 'hosting/zip-upload') return { view: 'builder-import', params: { mode: 'zip' } };
   if (rest[0] === 'hosting' && rest[1]) return { view: 'hosting-detail', params: { id: rest[1] } };
   if (rest[0] === 'domains' && rest[1] && rest[2] === 'dns') return { view: 'dns', params: { domain: rest[1] } };
   if (key === 'site-builder/templates') return { view: 'builder-templates' };
   if (key === 'site-builder/roxanne') return { view: 'builder-roxanne' };
-  if (key === 'site-builder/import') return { view: 'builder-import' };
+  if (key === 'site-builder/import') return { view: 'builder-import', params: { mode: 'github' } };
   if (key === 'site-builder/setup') return { view: 'builder-ai-intake' };
   if (key === 'site-builder/plan') return { view: 'builder-site-plan' };
   if (key === 'site-builder/deploy') return { view: 'builder-deployment-settings' };
   if (rest[0] === 'site-builder' && rest[1] === 'editor' && rest[2]) return { view: 'builder-editor', params: { id: rest[2], siteId: rest[2] } };
-  if (rest[0] === 'cloud-servers' && rest[1] && rest[1] !== 'new') return { view: 'vps-detail', params: { id: rest[1] } };
+  if ((rest[0] === 'vps-services' || rest[0] === 'cloud-servers') && rest[1] && rest[1] !== 'new') return { view: 'vps-detail', params: { id: rest[1] } };
 
   return { view: PATH_TO_VIEW[key] || 'overview' };
 }
@@ -361,6 +369,7 @@ function ClientDashboardApp() {
     "overview","hosting-list","hosting-detail","domains-mine","domains-buy","dns",
     "builder-gallery","builder-templates","builder-roxanne","builder-import","builder-editor","builder-ai-intake","builder-deployment-settings","builder-site-plan",
     "analytics","activity","billing","email","settings","profile","vps-hosting","vps-create","vps-detail",
+    "support",
   ]);
 
   // Render — in demo/dev mode skip auth gate entirely; real JWT check only in live mode
@@ -398,6 +407,7 @@ function ClientDashboardApp() {
       case "vps-hosting":       return <VpsHostingList navigate={navigate} />;
       case "vps-create":        return <VpsCreateWizard navigate={navigate} initialPlan={route.params?.plan || ''} initialPlanType={route.params?.planType || ''} />;
       case "vps-detail":        return <VpsDetail id={route.params?.id} navigate={navigate} />;
+      case "support":           return <SupportPage initialTicketId={route.params?.ticketId || null} />;
       default:
         window.location.href = "/";
         return null;
@@ -407,10 +417,12 @@ function ClientDashboardApp() {
   // Sidebar key
   const activeKey = (() => {
     if (route.view.startsWith("hosting")) return "hosting";
+    if (route.view === "builder-import") return "hosting";
     if (route.view.startsWith("vps")) return "vps-hosting";
+    if (route.view === "support") return "support";
     if (route.view === "domains-mine") return "domains";
     if (route.view === "domains-buy") return "buy";
-    if (route.view === "dns") return "dns";
+    if (route.view === "dns") return "domains";
     if (route.view.startsWith("builder")) return "builder";
     return route.view;
   })();
@@ -420,23 +432,24 @@ function ClientDashboardApp() {
       case "overview":        return [{ label: "Workspace" }, { label: "Overview" }];
       case "hosting-list":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Hosting" }];
       case "hosting-detail":  return [{ label: "Hosting", onClick: () => navigate({ view: "hosting-list" }) }, { label: route.params?.id || "project" }];
-      case "domains-mine":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Domains" }];
-      case "domains-buy":     return [{ label: "Domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: "Buy a domain" }];
-      case "dns":             return [{ label: "Domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: route.params?.domain || "DNS" }, { label: "DNS records" }];
+      case "domains-mine":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "My domains" }];
+      case "domains-buy":     return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Buy a domain" }];
+      case "dns":             return [{ label: "My domains", onClick: () => navigate({ view: "domains-mine" }) }, { label: route.params?.domain || "Domain settings" }, { label: "DNS records" }];
       case "builder-gallery":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Site builder" }];
       case "builder-ai-intake":           return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Template setup" }];
       case "builder-site-plan":           return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Plan" }];
       case "builder-deployment-settings": return [{ label: "Template setup", onClick: () => navigate({ view: "builder-ai-intake" }) }, { label: "Deploy" }];
-      case "builder-templates": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Templates" }];
+      case "builder-templates": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Choose templates" }];
       case "builder-roxanne": return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "RoxanneAI" }];
-      case "builder-import":  return [{ label: "Site builder", onClick: () => navigate({ view: "builder-gallery" }) }, { label: "Import" }];
+      case "builder-import":  return [{ label: "Hosting", onClick: () => navigate({ view: "hosting-list" }) }, { label: route.params?.mode === "zip" ? "ZIP upload" : "GitHub upload" }];
       case "builder-editor":  return [{ label: "Templates", onClick: () => navigate({ view: "builder-templates" }) }, { label: "Editor" }];
       case "billing":         return [{ label: "Workspace" }, { label: "Billing" }];
       case "email":           return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Business Email" }];
       case "profile":         return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Profile" }];
-      case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Cloud Servers" }];
-      case "vps-create":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
-      case "vps-detail":     return [{ label: "Cloud Servers", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];
+      case "vps-hosting":    return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "VPS Services" }];
+      case "vps-create":     return [{ label: "VPS Services", onClick: () => navigate({ view: "vps-hosting" }) }, { label: "New server" }];
+      case "vps-detail":     return [{ label: "VPS Services", onClick: () => navigate({ view: "vps-hosting" }) }, { label: route.params?.id || "Server" }];
+      case "support":        return [{ label: "Workspace", onClick: () => navigate({ view: "overview" }) }, { label: "Contact support" }];
       default:                return [{ label: "Workspace" }];
     }
   })();

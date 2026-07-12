@@ -1,7 +1,7 @@
 // dashboard-search.jsx — topbar command-palette search for the client dashboard.
 //
 // Self-contained: owns its open/query state, loads the same account records the
-// dashboard pages render (projects, registrar domains, cloud servers), and
+// dashboard pages render (projects, registrar domains, VPS services), and
 // navigates with the router's route objects. Mounted by DashTopbar.
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -159,10 +159,10 @@ function buildGroups(query, { projects, domains, servers }) {
       key: `vps-${s.id}`,
       icon: 'Cpu',
       title: s.label || s.hostname || s.id,
-      sub: `Cloud server · ${s.status || 'Unknown'}`,
+      sub: `VPS service · ${s.status || 'Unknown'}`,
       route: { view: 'vps-detail', params: { id: s.id } },
     }));
-  if (serverItems.length) groups.push({ label: 'Cloud servers', items: serverItems });
+  if (serverItems.length) groups.push({ label: 'VPS services', items: serverItems });
 
   const navItems = nav.filter((n) => matches(q, n.title)).slice(0, MAX_PER_GROUP);
   if (navItems.length) groups.push({ label: 'Navigation', items: navItems });

@@ -132,10 +132,9 @@ export const DASH_NAV = [
     items: [
       { key: "overview",     label: "Overview",       icon: "LayoutDashboard", route: { view: "overview" } },
       { key: "hosting",      label: "Hosting",        icon: "Server",          route: { view: "hosting-list" } },
-      { key: "vps-hosting",  label: "Cloud Servers",  icon: "Cpu",             route: { view: "vps-hosting" }, feature: "vps" },
-      { key: "domains",      label: "Domains",        icon: "Globe",           route: { view: "domains-mine" }, feature: "domains" },
-      { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  indent: true, feature: "domains" },
-      { key: "dns",          label: "DNS records",    icon: "Network",         route: { view: "dns" },          indent: true, feature: "domains" },
+      { key: "vps-hosting",  label: "VPS Services",   icon: "Cpu",             route: { view: "vps-hosting" }, feature: "vps" },
+      { key: "buy",          label: "Buy a domain",   icon: "Cart",            route: { view: "domains-buy" },  feature: "domains", domainRoot: true },
+      { key: "domains",      label: "My domains",     icon: "Globe",           route: { view: "domains-mine" }, feature: "domains", indent: true, navChild: true },
       { key: "builder",      label: "Site builder",   icon: "Layers",          route: { view: "builder-gallery" } },
     ],
   },
@@ -171,6 +170,21 @@ function visibleNavGroups() {
 }
 
 export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
+  // Unread admin replies badge on "Contact support" (best-effort, silent).
+  const [supportUnread, setSupportUnread] = useState(0);
+  React.useEffect(() => {
+    let alive = true;
+    const poll = () => {
+      import('./api/tickets.js')
+        .then((m) => m.getTicketsUnreadCount())
+        .then((r) => { if (alive) setSupportUnread(r?.count ?? 0); })
+        .catch(() => {});
+    };
+    poll();
+    const t = setInterval(poll, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [active]);
+
   return (
     <aside className={`dash-side ${mobileOpen ? 'is-open' : ''}`}>
       <div className="dash-side-head">
@@ -188,7 +202,7 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
               const isActive = item.key === active;
               return (
                 <a key={item.key}
-                   className={`dash-side-link ${isActive ? "active" : ""}`}
+                   className={`dash-side-link ${isActive ? "active" : ""} ${item.domainRoot ? "domain-root" : ""} ${item.navChild ? "nav-child" : ""}`}
                    href="#"
                    style={item.indent ? { paddingLeft: 32 } : undefined}
                    onClick={(e) => { e.preventDefault(); navigate(item.route); }}>
@@ -211,8 +225,10 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
           >
             <ICN.Send size={15} /> Invite a friend
           </a>
-          <a href="mailto:johnweslytawa@gmail.com" className="side-util-link">
-            <ICN.ExternalLink size={15} /> Contact support
+          <a href="#" className={`side-util-link ${active === 'support' ? 'active' : ''}`}
+             onClick={(e) => { e.preventDefault(); navigate({ view: "support" }); }}>
+            <ICN.MessageSquare size={15} /> Contact support
+            {supportUnread > 0 && <span className="support-unread-badge">{supportUnread > 9 ? '9+' : supportUnread}</span>}
           </a>
           <div className="side-utils-sep" />
           <a href="https://status.render.com" target="_blank" rel="noopener noreferrer" className="side-util-link">
@@ -236,10 +252,12 @@ export function DashSidebar({ active, navigate, mobileOpen = false, onClose }) {
 const NOTIF_ICON = {
   success: 'CheckCircle', billing: 'CreditCard', receipt: 'Cloud', subscription: 'RefreshCw',
   deployment: 'Server', account: 'User', warning: 'AlertCircle', danger: 'AlertCircle', info: 'Bell',
+  ticket: 'MessageSquare',
 };
 const NOTIF_COLOR = {
   success: 'var(--accent)', billing: '#b8860b', receipt: 'var(--info, #7fb5e6)', subscription: '#b8860b',
   warning: '#b8860b', danger: 'var(--danger)', deployment: 'var(--accent)', info: 'var(--text-muted)',
+  ticket: 'var(--accent)',
 };
 
 function relTime(value) {
@@ -256,6 +274,11 @@ function relTime(value) {
 // Admin work happens in the separate /dashboard app (not this client shell).
 function routeForAction(url) {
   const u = String(url || '');
+  if (u.includes('#support') || u.includes('/support')) return { view: 'support' };
+  if (u.includes('#tickets')) {
+    window.location.href = '/dashboard#tickets';
+    return null;
+  }
   if (u.includes('/admin') || u.includes('/dashboard')) {
     window.location.href = '/dashboard';
     return null;

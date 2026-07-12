@@ -51,12 +51,11 @@ export function DomainsMine({ navigate }) {
     <>
       <div className="page-head">
         <div>
-          <div className="page-eyebrow">Domains</div>
-          <h1>Your domains</h1>
+          <div className="page-eyebrow">Domains / My domains</div>
+          <h1>My domains</h1>
           <p className="sub">Manage every domain you've registered or transferred to Glondia. Link them to projects, edit DNS, set up renewals.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-outline" disabled title="Transfer-in will be available soon"><ICN.Refresh size={14} /> Transfer in</button>
           <button
             className="btn btn-primary"
             disabled={!canBuy}
@@ -78,7 +77,7 @@ export function DomainsMine({ navigate }) {
       )}
 
       <div className="grid-4">
-        <Stat k="Domains" v={domains.length} d="across all TLDs" />
+        <Stat k="My domains" v={domains.length} d="across all TLDs" />
         <Stat k="Renewing in 30d" v={domains.filter(d => d.auto).length} d="auto-renew protects you" />
         <Stat k="Connected" v={connectedCount} d={domains.length ? `of ${domains.length} domain${domains.length === 1 ? '' : 's'}` : "No domains yet"} />
         <Stat k="Total this year" v="—" d="Loaded from billing API" />
@@ -97,7 +96,7 @@ export function DomainsMine({ navigate }) {
 
       <div className="card card-flush">
         <div className="card-head">
-          <h2>All domains</h2>
+          <h2>My domains</h2>
           <div className="row" style={{ gap: 8 }}>
             <Tabs value="All" onChange={() => {}} options={["All", "Active", "Pending DNS", "Transferring"]} />
             <button className="btn btn-sm btn-outline"><ICN.Filter size={14} /> TLD</button>
@@ -123,7 +122,7 @@ export function DomainsMine({ navigate }) {
                   <Empty icon="Globe" title="No domains yet"
                     body={providerConfigured === false
                       ? "Domain registration is not configured yet. Contact support when you're ready to connect a registrar."
-                      : "Register or transfer a domain to get started."}
+                      : "Buy a domain to get started."}
                     action={canBuy ? (
                       <button className="btn btn-sm btn-primary" onClick={() => navigate({ view: "domains-buy" })}>
                         <ICN.Plus size={13} /> Buy a domain
@@ -162,7 +161,7 @@ export function DomainsMine({ navigate }) {
                   )}
                   <button className="btn btn-sm btn-ghost"
                           onClick={() => navigate({ view: "dns", params: { domain: d.name } })}>
-                    <ICN.Network size={14} /> DNS
+                    <ICN.Network size={14} /> DNS settings
                   </button>
                   <button className="btn btn-sm btn-ghost"><ICN.Settings size={14} /></button>
                 </td>
@@ -1385,12 +1384,12 @@ export function DnsEditor({ domain = "", navigate }) {
       <div className="page-head">
         <div>
           <a className="page-eyebrow" href="#" onClick={(e) => { e.preventDefault(); navigate({ view: "domains-mine" }); }}>
-            ← Domains
+            ← My domains
           </a>
           <h1 style={{ marginTop: 8 }}>
-            DNS for <span className="mono" style={{ fontSize: 32, color: "var(--accent)" }}>{domainLabel}</span>
+            Domain settings: <span className="mono" style={{ fontSize: 32, color: "var(--accent)" }}>{domainLabel}</span>
           </h1>
-          <p className="sub">Records propagate globally in seconds. Glondia handles SSL automatically for any host pointing at a project.</p>
+          <p className="sub">Manage DNS records for this purchased domain. Records propagate globally in seconds.</p>
         </div>
         <div className="actions">
           <button className="btn btn-outline" onClick={() => setShowImport(v => !v)}>

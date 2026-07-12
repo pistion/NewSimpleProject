@@ -189,8 +189,8 @@ export function VpsHostingList({ navigate, refreshKey = 0 }) {
       <div className="page-head">
         <div>
           <div className="page-eyebrow">Hosting</div>
-          <h1>Cloud Servers</h1>
-          <p className="sub">Provision and manage virtual servers — choose your region, resources, and OS.</p>
+          <h1>VPS Services</h1>
+          <p className="sub">Provision and manage virtual private servers — choose your region, resources, and OS.</p>
         </div>
         <div className="actions">
           {tab === 'servers' && (
@@ -249,7 +249,7 @@ export function VpsHostingList({ navigate, refreshKey = 0 }) {
             <Empty
               icon="Server"
               title="No servers yet"
-              body="Provision your first cloud server in minutes — choose your region, plan, and OS."
+              body="Provision your first VPS in minutes — choose your region, plan, and OS."
               action={
                 <button className="btn btn-primary" onClick={() => navigate({ view: 'vps-create' })}>
                   <ICN.Plus size={14} /> Deploy first server
@@ -409,7 +409,7 @@ export function VpsCreateWizard({ navigate, initialPlan = '', initialPlanType = 
     <>
       <div className="page-head">
         <div>
-          <div className="page-eyebrow">Cloud Servers</div>
+          <div className="page-eyebrow">VPS Services</div>
           <h1>Deploy a server</h1>
           <p className="sub">Choose your plan type, region, OS, and options — deploy instantly, billed monthly by usage.</p>
         </div>
@@ -977,7 +977,7 @@ export function VpsDetail({ id, navigate, onDestroyed }) {
     <>
       <div className="page-head">
         <div>
-          <div className="page-eyebrow">Cloud Servers</div>
+          <div className="page-eyebrow">VPS Services</div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {loading ? <Skel w="180px" h={28} /> : server.label}
             {!loading && <StatusBadge value={server.status} />}

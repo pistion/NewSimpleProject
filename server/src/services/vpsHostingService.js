@@ -1,5 +1,5 @@
 /**
- * vpsHostingService.js — Cloud Servers (VPS) business logic.
+ * vpsHostingService.js — VPS Services business logic.
  *
  * Layering:
  *   controller → this service → repositories (Prisma) / provider adapter / billing

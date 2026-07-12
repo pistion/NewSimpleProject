@@ -3,7 +3,7 @@ import React, { useState as useStateB } from 'react';
 import { ICN } from '../../../icons';
 import { useTemplates } from '../../../use-templates';
 import { createBuilderSite, publishBuilderSite, createRenderDeployment, getStoredAuth } from '../../../api';
-import { deployTailoredTemplate, getTailoredTemplateSite, getTailoredTemplatePreviewUrl } from '../../../api/template-ai.js';
+import { deployTailoredTemplate, getTailoredTemplateSite, createTailoredTemplatePreviewUrl } from '../../../api/template-ai.js';
 
 const PLAN_COPY = {
   starter: { label: 'Starter', estimate: '$0/mo while available on free/static hosting', note: 'Best for early preview sites and simple static launches.' },
@@ -68,15 +68,20 @@ export function BuilderDeploymentSettings({ siteId, templateId, templateType, na
   const publishDirectory = 'dist';
   const hasSourceRepo = Boolean(repoUrl.trim());
 
-  const handleOpenPreview = () => {
+  const handleOpenPreview = async () => {
     if (!siteId || tailoredPages.length === 0) {
       setDeployError('Preview is not ready yet. Regenerate the site with RoxanneAI first.');
       return;
     }
     const pageIndex = Math.max(0, tailoredPages.findIndex((page) => page === previewPage));
-    const url = getTailoredTemplatePreviewUrl(siteId, pageIndex);
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) setDeployError('Browser blocked the preview popup. Allow popups and try again.');
+    try {
+      // Previews need a signed, expiring grant — request one, then open it.
+      const url = await createTailoredTemplatePreviewUrl(siteId, pageIndex);
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) setDeployError('Browser blocked the preview popup. Allow popups and try again.');
+    } catch (err) {
+      setDeployError(err.message || 'Could not open the preview.');
+    }
   };
 
   const handleDeploy = async () => {

@@ -56,16 +56,16 @@ export function BuilderGallery({ navigate }) {
   const showAi = isFeatureEnabled('aiBuilder');
   // Template picker is part of the core Site Builder surface.
   const showTemplates = isFeatureEnabled('siteBuilder');
-  const visibleCount = 1 + (showAi ? 1 : 0) + (showTemplates ? 1 : 0);
+  const visibleCount = Math.max(1, (showAi ? 1 : 0) + (showTemplates ? 1 : 0));
 
   return (
     <>
       <div className="page-head">
         <div>
           <div className="page-eyebrow">Site builder</div>
-          <h1>How do you want to create your website?</h1>
+          <h1>Choose how to build your site</h1>
           <p className="sub">
-            Import an existing project from GitHub or a ZIP upload to get it hosted on Glondia.
+            Start with a template or use RoxanneAI to shape the first version before sending it to Hosting.
           </p>
         </div>
       </div>
@@ -78,7 +78,7 @@ export function BuilderGallery({ navigate }) {
           <div>
             <div style={{ fontWeight: 700 }}>Recommended path</div>
             <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
-              Bring your own project into Glondia. Import directly from a GitHub repository or upload a ZIP of your site.
+              Choose templates here. Existing projects from GitHub or ZIP upload now live under Hosting.
             </div>
           </div>
         </div>
@@ -110,38 +110,6 @@ export function BuilderGallery({ navigate }) {
             tone="templates"
           />
         )}
-
-        <div className="card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 260 }}>
-          <div className="row between" style={{ alignItems: 'flex-start', gap: 12 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ICN.Git size={20} />
-            </div>
-            <span className="badge info"><span className="dot" />Import</span>
-          </div>
-
-          <div>
-            <div className="page-eyebrow" style={{ marginBottom: 6 }}>Bring your own project</div>
-            <h2 style={{ margin: 0, fontSize: 20 }}>Import ZIP or GitHub</h2>
-            <p className="muted" style={{ margin: '8px 0 0', fontSize: 13, lineHeight: 1.55 }}>
-              Pull an existing project into Glondia. GitHub import is available now; ZIP upload is visible here as the next upload method to complete.
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gap: 7, marginTop: 'auto' }}>
-            <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.CheckCircle size={14} style={{ color: 'var(--accent)' }} />GitHub repository import exists</div>
-            <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.AlertCircle size={14} style={{ color: 'var(--warning)' }} />ZIP upload needs final check</div>
-            <div className="row" style={{ gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><ICN.CheckCircle size={14} style={{ color: 'var(--accent)' }} />Hosting settings are collected</div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
-            <button className="btn btn-primary" onClick={() => navigate({ view: 'builder-import', params: { mode: 'github' } })}>
-              <ICN.Git size={14} /> GitHub
-            </button>
-            <button className="btn btn-outline" onClick={() => navigate({ view: 'builder-import', params: { mode: 'zip' } })}>
-              <ICN.Box size={14} /> ZIP upload
-            </button>
-          </div>
-        </div>
       </div>
     </>
   );

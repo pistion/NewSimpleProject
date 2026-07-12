@@ -1,0 +1,86 @@
+{
+  "repository": "pistion/NewSimpleProject",
+  "auditedBaselineCommit": "4f90ab3965e04db716f31a629c95ed9521a895f4",
+  "files": [
+    {
+      "name": "01_CLAUDE_CODE_MASTER_PROMPT.md",
+      "bytes": 12094,
+      "sha256": "63430e1635d5206a1ca04b6ae20ceec50b2e230ce694dd8b13147b7e070dce75"
+    },
+    {
+      "name": "02_CURRENT_STATE_AND_TARGET_ARCHITECTURE.md",
+      "bytes": 7947,
+      "sha256": "f69d3a3d5f1d5e0a184b5ae7a480cfa0f334db592a0e926464dbb118d2121579"
+    },
+    {
+      "name": "03_PHASED_IMPLEMENTATION_ROADMAP.md",
+      "bytes": 9323,
+      "sha256": "ade367adbd7198265cffe1d4caf8d195bebd4c0be8b8ee96723e1ee50c1d33af"
+    },
+    {
+      "name": "04_SECURITY_AND_MALWARE_HARDENING.md",
+      "bytes": 8721,
+      "sha256": "6ac4c99b33e77f980cb28b8698b08a3d07a369d881465304e58fcbc3352a7cfb"
+    },
+    {
+      "name": "05_DATABASE_SCHEMA_AND_DATA_MIGRATION.md",
+      "bytes": 13989,
+      "sha256": "b0590a035dcbf896fd94bfd7f376066f8fb54596d810940e8fb18427f5c7b9e8"
+    },
+    {
+      "name": "06_BACKEND_API_CONTRACTS_AND_STATE_MACHINE.md",
+      "bytes": 6080,
+      "sha256": "f34f881af904f10890a644819b8a398137af7519360d721ed29429ceed93b747"
+    },
+    {
+      "name": "07_FRONTEND_FLOW_UNIFICATION.md",
+      "bytes": 6817,
+      "sha256": "223237e304896c787a9aeda25059f39fb6bb1ef637a2ca3bb0b5f598b66ea868"
+    },
+    {
+      "name": "08_DURABLE_JOBS_GENERATION_AND_DEPLOYMENT.md",
+      "bytes": 4446,
+      "sha256": "4933bea2027513b881db01be7352a1993917025df39092c43dc99f84cf4a3d31"
+    },
+    {
+      "name": "09_HOSTING_BILLING_AND_PROVIDER_INTEGRATION.md",
+      "bytes": 4407,
+      "sha256": "a898f087c765c84c01a989e9fdced3ce4f5f9c7c2f9ab7829b6ef161904e6868"
+    },
+    {
+      "name": "10_TESTING_CI_OBSERVABILITY.md",
+      "bytes": 4410,
+      "sha256": "4af099d650928de5a28fe3c042f4622b57c9320d2653c4e64bddce725fa1a064"
+    },
+    {
+      "name": "11_ROLLOUT_MIGRATION_AND_ROLLBACK.md",
+      "bytes": 3540,
+      "sha256": "e10218bc8bb3424ff2dfb437facf51e1cb4a53d5d8c7921677dc461b52d6427b"
+    },
+    {
+      "name": "12_CURRENT_FILE_PATCH_MAP.md",
+      "bytes": 6429,
+      "sha256": "7a034d312607af9e23ffdfc9c9ae0cfbc7b240abe9d230de19d33da22e19a899"
+    },
+    {
+      "name": "13_ACCEPTANCE_AND_DEFINITION_OF_DONE.md",
+      "bytes": 5116,
+      "sha256": "00e07ab672d9c43d7e3384b711e32795dffc7eeb5238d371efe2404738c39aac"
+    },
+    {
+      "name": "14_FINAL_IMPLEMENTATION_REPORT_TEMPLATE.md",
+      "bytes": 2640,
+      "sha256": "083e67b048dbc062cc0d7534c4d8f7934215910b5a247cafcd324a6844482763"
+    },
+    {
+      "name": "CLAUDE_CODE_START_HERE.md",
+      "bytes": 961,
+      "sha256": "12296a4ab6b4bee10e352ed64117ab86f161a9a70bdefe05c3bb16ccd70344f6"
+    },
+    {
+      "name": "README.md",
+      "bytes": 3431,
+      "sha256": "36d2c84f59e295e084268df3685dfdd5512415a6cedd2b5c0f82259bf0f4e55a"
+    }
+  ]
+}

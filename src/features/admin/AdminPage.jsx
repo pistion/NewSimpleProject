@@ -11,13 +11,17 @@ import {
   getAdminActivity,
   getAdminConfigStatus,
 } from '../../api/admin.js';
+import { getAdminTicketsUnreadCount } from '../../api/adminTickets.js';
 
 import { AdminOverviewSection }  from './sections/AdminOverviewSection.jsx';
-import { AdminCustomersSection, UserDetailDrawer } from './sections/AdminCustomersSection.jsx';
+import { AdminCustomersSection } from './sections/AdminCustomersSection.jsx';
+import { AdminCustomerDetail } from './sections/AdminCustomerDetail.jsx';
+import { suspendUser as apiSuspendUser, reactivateUser as apiReactivateUser } from '../../api/admin.js';
 import { AdminHostingTabs }      from './hosting/AdminHostingTabs.jsx';
 import { AdminBillingTabs }      from './billing/AdminBillingTabs.jsx';
 import { AdminActivitySection }  from './sections/AdminActivitySection.jsx';
 import { AdminSettingsSection }  from './sections/AdminSettingsSection.jsx';
+import { AdminTicketsSection }   from './sections/AdminTicketsSection.jsx';
 
 const { useState, useEffect, useCallback } = React;
 
@@ -26,6 +30,7 @@ const TABS = [
   { key: 'customers',  label: 'Customers',  icon: ICN.Users },
   { key: 'hosting',    label: 'Hosting',    icon: ICN.Server },
   { key: 'billing',    label: 'Billing',    icon: ICN.CreditCard },
+  { key: 'tickets',    label: 'Tickets',    icon: ICN.MessageSquare },
   { key: 'activity',   label: 'Activity',   icon: ICN.Activity },
   { key: 'settings',   label: 'Settings',   icon: ICN.Settings },
 ];
@@ -49,6 +54,7 @@ export function AdminPage() {
   const [busyId, setBusyId]           = useState(null);
   const [notice, setNotice]           = useState('');
   const [detailUserId, setDetailUserId] = useState(null);
+  const [ticketUnreadCount, setTicketUnreadCount] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
@@ -69,6 +75,9 @@ export function AdminPage() {
       setReceipts(rec || []);
       setActivity(act || []);
       setConfigStatus(cfg);
+      getAdminTicketsUnreadCount()
+        .then((r) => setTicketUnreadCount(Number(r?.count) || 0))
+        .catch(() => setTicketUnreadCount(0));
     } catch (err) {
       setError(err.message || 'Failed to load admin data.');
     } finally {
@@ -177,6 +186,14 @@ export function AdminPage() {
                   {pendingReceiptCount}
                 </span>
               )}
+              {t.key === 'tickets' && ticketUnreadCount > 0 && (
+                <span style={{
+                  background: 'var(--danger)', color: '#fff',
+                  borderRadius: 999, padding: '0 5px', fontSize: 10, fontWeight: 700,
+                }}>
+                  {ticketUnreadCount > 99 ? '99+' : ticketUnreadCount}
+                </span>
+              )}
             </button>
           );
         })}
@@ -233,6 +250,10 @@ export function AdminPage() {
         />
       )}
 
+      {!loading && tab === 'tickets' && (
+        <AdminTicketsSection onUnreadChange={setTicketUnreadCount} />
+      )}
+
       {!loading && tab === 'activity' && (
         <AdminActivitySection
           auditLogs={activity}
@@ -248,9 +269,14 @@ export function AdminPage() {
       )}
 
       {detailUserId && (
-        <UserDetailDrawer
+        <AdminCustomerDetail
           userId={detailUserId}
           onClose={() => setDetailUserId(null)}
+          busy={busyId === detailUserId}
+          onLifecycleAction={(action) => {
+            if (action === 'suspend') act(detailUserId, () => apiSuspendUser(detailUserId, 'admin_suspended'), 'Suspend');
+            if (action === 'reactivate') act(detailUserId, () => apiReactivateUser(detailUserId, false), 'Reactivate');
+          }}
         />
       )}
     </div>

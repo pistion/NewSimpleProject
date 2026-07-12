@@ -53,9 +53,17 @@ export async function getTailoredTemplateSite(siteId) {
   });
 }
 
-export function getTailoredTemplatePreviewUrl(siteId, page = 0) {
-  const path = `/template-ai/sites/${encodeURIComponent(siteId)}/preview?page=${encodeURIComponent(page)}`;
-  return liveApiUrl(path);
+/**
+ * Previews require a signed grant now — generated HTML is never served
+ * anonymously. Asks the API for a short-lived preview URL to open/embed.
+ */
+export async function createTailoredTemplatePreviewUrl(siteId, page = 0) {
+  const result = await liveApiRequest(`/template-ai/sites/${encodeURIComponent(siteId)}/preview-grants`, {
+    method: 'POST',
+    body: { page },
+  });
+  // result.url is an absolute API path (/api/...); liveApiUrl re-adds the base.
+  return liveApiUrl(String(result.url).replace(/^\/api/, ''));
 }
 
 // Legacy compatibility only. New code should use src/api/hosting-deploy.js.

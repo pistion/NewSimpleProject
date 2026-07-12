@@ -18,6 +18,14 @@ export async function findByService(serviceType, serviceId, tx = prisma) {
   });
 }
 
+/** Every access row owned by one user — the customer's service index. */
+export async function listByUser(userId) {
+  return prisma.serviceAccess.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 /** Admin listing with owner info. */
 export async function listAccess({ where = {}, limit = 30, offset = 0 } = {}) {
   const [items, total] = await Promise.all([

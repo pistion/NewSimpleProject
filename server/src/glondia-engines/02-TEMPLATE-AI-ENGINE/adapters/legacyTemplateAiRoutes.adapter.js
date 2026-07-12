@@ -33,6 +33,8 @@ import { validateZipSite, getZipDeployConfigStatus } from '../../01-HOSTING-DEPL
 import { handleZipDeploy } from '../../01-HOSTING-DEPLOY-ENGINE/adapters/templateAiZipRoute.adapter.js';
 import { requireFeature } from '../../../middleware/featureFlag.js';
 import authMiddleware from '../../../middleware/authMiddleware.js';
+import { aiSuggestRateLimit, zipUploadRateLimit } from '../../../middleware/rateLimit.middleware.js';
+import { aiQuotaLimit, auditAiCall, recordAiUsage } from '../../../middleware/aiProtection.middleware.js';
 
 const router = express.Router();
 
@@ -70,16 +72,17 @@ router.put('/plans/:planId/answer-sheet', requireSiteBuilder, authMiddleware, an
 router.post('/plans/:planId/answer-sheet/approve', requireSiteBuilder, authMiddleware, answerSheetController.approveAnswerSheet);
 
 // ── Site plan AI endpoints (require BOTH SITE_BUILDER + AI_BUILDER) ──────────
-router.post('/plans/:planId/ai/suggest-sitemap', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
+// AI-spending: rate-limited per user and audited (hardening plan Phase 1).
+router.post('/plans/:planId/ai/suggest-sitemap', requireSiteBuilder, requireAiBuilder, authMiddleware, aiSuggestRateLimit, aiQuotaLimit, auditAiCall('plan_suggest_sitemap'), recordAiUsage('plan_suggest_sitemap'), async (req, res, next) => {
   try { res.json({ data: await suggestSitemapForPlan(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/autofill-brief', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/autofill-brief', requireSiteBuilder, requireAiBuilder, authMiddleware, aiSuggestRateLimit, aiQuotaLimit, auditAiCall('plan_autofill_brief'), recordAiUsage('plan_autofill_brief'), async (req, res, next) => {
   try { res.json({ data: await autofillBrief(req.params.planId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-sections/:pageId', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-sections/:pageId', requireSiteBuilder, requireAiBuilder, authMiddleware, aiSuggestRateLimit, aiQuotaLimit, auditAiCall('plan_suggest_sections'), recordAiUsage('plan_suggest_sections'), async (req, res, next) => {
   try { res.json({ data: await suggestSectionsForPage(req.params.planId, req.params.pageId) }); } catch (e) { next(e); }
 });
-router.post('/plans/:planId/ai/suggest-wireframe', requireSiteBuilder, requireAiBuilder, authMiddleware, async (req, res, next) => {
+router.post('/plans/:planId/ai/suggest-wireframe', requireSiteBuilder, requireAiBuilder, authMiddleware, aiSuggestRateLimit, aiQuotaLimit, auditAiCall('plan_suggest_wireframe'), recordAiUsage('plan_suggest_wireframe'), async (req, res, next) => {
   try { res.json({ data: await suggestWireframe(req.params.planId) }); } catch (e) { next(e); }
 });
 
@@ -108,11 +111,25 @@ function handleMulterError(err, _req, res, next) {
   return res.status(400).json({ error: err.message || 'File upload failed.', code: err.code || 'UPLOAD_ERROR' });
 }
 
+/**
+ * Verify the upload really is a ZIP by magic bytes (PK\x03\x04, or the
+ * empty/spanned variants), not just filename/MIME (hardening plan Phase 1).
+ */
+function requireZipMagicBytes(req, res, next) {
+  const buf = req.file?.buffer;
+  const ok = buf && buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b
+    && ((buf[2] === 0x03 && buf[3] === 0x04) || (buf[2] === 0x05 && buf[3] === 0x06) || (buf[2] === 0x07 && buf[3] === 0x08));
+  if (!ok) {
+    return res.status(400).json({ error: 'The uploaded file is not a valid ZIP archive.', code: 'ZIP_INVALID_SIGNATURE' });
+  }
+  next();
+}
+
 router.get('/zip/settings', (_req, res) => {
   try { res.json(getZipDeployConfigStatus()); } catch { res.status(500).json({ error: 'Failed to read ZIP deploy config.', code: 'ZIP_SETTINGS_ERROR' }); }
 });
 
-router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (req, res) => {
+router.post('/zip/deploy', authMiddleware, zipUploadRateLimit, upload.single('siteZip'), handleMulterError, requireZipMagicBytes, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'siteZip file is required.', code: 'ZIP_MISSING_FILE' });
     await handleZipDeploy(req, res);
@@ -124,7 +141,7 @@ router.post('/zip/deploy', upload.single('siteZip'), handleMulterError, async (r
   }
 });
 
-router.post('/zip/validate', upload.single('siteZip'), handleMulterError, async (req, res) => {
+router.post('/zip/validate', authMiddleware, zipUploadRateLimit, upload.single('siteZip'), handleMulterError, requireZipMagicBytes, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'siteZip file is required.', code: 'ZIP_MISSING_FILE' });
     res.json(await validateZipSite({ fileName: req.file.originalname, fileBase64: req.file.buffer.toString('base64') }));

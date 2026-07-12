@@ -84,6 +84,7 @@ export function HostingList({ navigate }) {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('apps');
   const [prefillConfig, setPrefillConfig] = useState(null);
+  const [showDeployOptions, setShowDeployOptions] = useState(false);
 
   // Read ?prefill= query param set by template-configurator after AI generation
   useEffect(() => {
@@ -116,7 +117,7 @@ export function HostingList({ navigate }) {
           {tab === 'apps' && (
             <>
               <button className="btn btn-outline" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button>
-              <button className="btn btn-primary" onClick={() => navigate({ view: 'builder-import', params: { mode: 'github' } })}><ICN.Git size={14} /> Deploy from GitHub</button>
+              <button className="btn btn-primary" onClick={() => setShowDeployOptions((open) => !open)}><ICN.Plus size={14} /> New deploy</button>
             </>
           )}
         </div>
@@ -163,16 +164,72 @@ export function HostingList({ navigate }) {
       <Tabs value={tab} onChange={setTab} options={[{ value: 'apps', label: 'My apps' }, { value: 'settings', label: 'Settings' }]} />
       {tab === 'apps' ? (
         <>
+          {showDeployOptions && <HostingDeploySetup navigate={navigate} onClose={() => setShowDeployOptions(false)} />}
           {error && <div className="card" style={{ padding: '10px 14px', color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
           {loading
             ? <div className="card" style={{ padding: '42px 24px' }}><Empty icon="Server" title="Loading hosting apps..." /></div>
             : apps.length === 0
-              ? <div className="card" style={{ padding: '48px 24px' }}><Empty icon="Server" title="No hosted apps yet" body="Build with the Site Builder or deploy from GitHub to create your first hosting app." action={<button className="btn btn-primary" onClick={() => navigate({ view: 'builder-templates' })}><ICN.Layers size={14} /> Site builder</button>} /></div>
+              ? <div className="card" style={{ padding: '48px 24px' }}><Empty icon="Server" title="No hosted apps yet" body="Start a deploy above from GitHub, ZIP upload, or choose a template in Site builder." /></div>
               : <div className="grid-2">{apps.map((app) => <HostingAppCard key={app.deploymentId || app.id} app={app} navigate={navigate} />)}</div>
           }
         </>
       ) : <HostingSettings />}
     </>
+  );
+}
+
+function HostingDeploySetup({ navigate, onClose }) {
+  const go = (route) => {
+    onClose?.();
+    navigate(route);
+  };
+  const options = [
+    {
+      icon: ICN.Git,
+      title: 'Deploy from GitHub',
+      body: 'Connect an existing repository, confirm build settings, then hand it to Hosting.',
+      action: 'Start GitHub deploy',
+      onClick: () => go({ view: 'builder-import', params: { mode: 'github' } }),
+    },
+    {
+      icon: ICN.Box,
+      title: 'Upload ZIP',
+      body: 'Drop a deployable ZIP package, validate the source, then send it to Hosting.',
+      action: 'Start ZIP upload',
+      onClick: () => go({ view: 'builder-import', params: { mode: 'zip' } }),
+    },
+    {
+      icon: ICN.Layers,
+      title: 'Choose template',
+      body: 'Use Site builder templates first, then send the generated site into Hosting.',
+      action: 'Open Site builder',
+      onClick: () => go({ view: 'builder-templates' }),
+      secondary: true,
+    },
+  ];
+
+  return (
+    <div className="card hosting-deploy-setup">
+      <button className="btn btn-icon btn-ghost hosting-deploy-close" onClick={onClose} aria-label="Close deploy options"><ICN.X size={16} /></button>
+      <h3 style={{ marginTop: 0, marginBottom: 4 }}>Choose a deploy source</h3>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+        Select how this hosting deployment should start.
+      </p>
+      <div className="hosting-deploy-options">
+        {options.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button key={option.title} type="button" className="hosting-deploy-option" onClick={option.onClick}>
+              <span className="hosting-deploy-option-icon"><Icon size={18} /></span>
+              <span style={{ flex: 1 }}>
+                <strong>{option.title}</strong>
+                <small>{option.body}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

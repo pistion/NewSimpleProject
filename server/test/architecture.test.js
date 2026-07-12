@@ -28,6 +28,8 @@ const MUST_NOT_TOUCH_DB = [
   'controllers/vpsHostingController.js',
   'routes/vpsHostingRoutes.js',
   'middleware/serviceAccess.middleware.js',
+  'services/adminCustomerOversightService.js',
+  'controllers/adminCustomerController.js',
 ];
 
 for (const rel of MUST_NOT_TOUCH_DB) {
@@ -44,6 +46,10 @@ const REPOSITORIES = [
   'repositories/vpsAction.repository.js',
   'repositories/serviceAccess.repository.js',
   'repositories/providerResource.repository.js',
+  'repositories/customer.repository.js',
+  'repositories/billing.repository.js',
+  'repositories/operations.repository.js',
+  'repositories/audit.repository.js',
 ];
 
 for (const rel of REPOSITORIES) {

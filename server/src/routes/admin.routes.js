@@ -11,6 +11,7 @@ import { requireAdmin } from '../middleware/requireAdmin.js';
 import { requirePermission } from '../middleware/requirePermission.middleware.js';
 import { requireRecentMfa } from '../middleware/requireRecentMfa.middleware.js';
 import adminService from '../services/adminService.js';
+import * as adminCustomerCtrl from '../controllers/adminCustomerController.js';
 import { adminTicketRouter } from './tickets.routes.js';
 import { adminServiceRequestRouter } from './service-requests.routes.js';
 import crmContactsRouter from './crm-contacts.routes.js';
@@ -128,6 +129,16 @@ router.post('/receipts/:receiptId/reject',
   async (req, res, next) => {
     try { res.json({ data: await adminService.rejectReceipt(req.params.receiptId, req.user.id, req.body?.note), requestId: req.id }); } catch (e) { next(e); }
   });
+
+// ── Customer oversight (unified detail; ServiceAccess is the service index) ──
+// Layered: route → adminCustomerController → adminCustomerOversightService →
+// repositories → shared db.js. Old endpoints below are preserved unchanged.
+router.get('/customers/:userId/overview',   adminCustomerCtrl.getOverview);
+router.get('/customers/:userId/services',   adminCustomerCtrl.getServices);
+router.get('/customers/:userId/billing',    adminCustomerCtrl.getBilling);
+router.get('/customers/:userId/support',    adminCustomerCtrl.getSupport);
+router.get('/customers/:userId/operations', adminCustomerCtrl.getOperations);
+router.get('/customers/:userId/activity',   adminCustomerCtrl.getActivity);
 
 // ── User detail + account lifecycle ───────────────────────────────────────────
 router.get('/users/:userId', async (req, res, next) => {
