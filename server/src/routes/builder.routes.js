@@ -88,8 +88,13 @@ router.post('/projects/:projectId/revisions/:revisionId/preview-grants', wrap(as
 }));
 
 router.post('/projects/:projectId/deployments', wrap(async (req, res) => {
-  const result = await builder.createDeployment(req.user, req.params.projectId, req.body || {}, req.headers['idempotency-key']);
+  const result = await builder.createDeployment(req.user, req.params.projectId, req.body || {}, req.headers['idempotency-key'], req.id);
   send(res, result.data, result.statusCode, req);
+}));
+
+router.get('/projects/:projectId/deployments', wrap(async (req, res) => {
+  const data = await builder.listDeployments(req.user, req.params.projectId);
+  send(res, data, 200, req);
 }));
 
 function send(res, data, status, req) {

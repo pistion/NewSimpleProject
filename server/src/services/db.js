@@ -646,6 +646,27 @@ export async function ensureBuilderLifecycleTables() {
         "last_seen_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "builder_worker_heartbeats_last_seen_at_idx" ON "builder_worker_heartbeats" ("last_seen_at")`);
+
+    // Additive provider-identity columns on deployment links (idempotency:
+    // retries must reuse the recorded hosting/Render resources).
+    const linkColumns = [
+      ['hosting_deployment_id', 'TEXT'],
+      ['render_service_id', 'TEXT'],
+      ['render_deploy_id', 'TEXT'],
+      ['live_url', 'TEXT'],
+      ['error_message', 'TEXT'],
+      ['metadata', "TEXT NOT NULL DEFAULT '{}'"],
+    ];
+    const linkInfo = await prisma.$queryRawUnsafe(`PRAGMA table_info('builder_deployment_links')`);
+    const haveLinkCols = new Set((linkInfo || []).map((r) => r.name));
+    for (const [name, def] of linkColumns) {
+      if (haveLinkCols.has(name)) continue;
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "builder_deployment_links" ADD COLUMN "${name}" ${def}`);
+      } catch (err) {
+        console.error(`[db] Failed to add builder_deployment_links.${name}:`, err.message);
+      }
+    }
   } catch (err) {
     console.error('[db] ensureBuilderLifecycleTables failed:', err.message);
   }

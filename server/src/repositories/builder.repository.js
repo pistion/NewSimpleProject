@@ -340,19 +340,86 @@ export async function createPreviewGrant({ projectId, revisionId, userId, tokenH
   return { id, projectId, revisionId, tokenHash, expiresAt };
 }
 
-export async function createDeploymentLink({ projectId, revisionId, deploymentId, idempotencyKey }) {
-  const id = randomUUID();
-  await prisma.$executeRawUnsafe(
-    `UPDATE "builder_deployment_links" SET "is_current" = 0 WHERE "project_id" = ?`,
-    projectId,
-  );
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO "builder_deployment_links" (
-      "id", "project_id", "revision_id", "deployment_id", "idempotency_key", "status", "is_current", "created_at", "updated_at")
-     VALUES (?, ?, ?, ?, ?, 'QUEUED', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    id, projectId, revisionId, deploymentId, idempotencyKey,
-  );
-  return { id, projectId, revisionId, deploymentId, idempotencyKey, status: 'QUEUED', isCurrent: true };
+/**
+ * Reserve a deployment identity, create the durable BUILDER_DEPLOY_REVISION
+ * job, and move the project to DEPLOYMENT_QUEUED — one transaction, one
+ * idempotency key. Returns { reused, conflict, illegal?, link, job }.
+ */
+export async function createDeploymentJob({ project, revision, userId, idempotencyKey, requestHash, payload, requestId }) {
+  return prisma.$transaction(async (tx) => {
+    const existingJob = await tx.$queryRawUnsafe(
+      `SELECT * FROM "builder_jobs" WHERE "idempotency_key" = ? LIMIT 1`, idempotencyKey,
+    );
+    if (existingJob[0]) {
+      const linkRows = await tx.$queryRawUnsafe(
+        `SELECT * FROM "builder_deployment_links" WHERE "idempotency_key" = ? LIMIT 1`, idempotencyKey,
+      );
+      return {
+        reused: true,
+        conflict: existingJob[0].request_hash !== requestHash,
+        job: mapJobRow(existingJob[0]),
+        link: linkRows[0] ? mapDeploymentRow(linkRows[0]) : null,
+      };
+    }
+
+    if (!isLegalTransition(project.status, 'DEPLOYMENT_QUEUED')) {
+      return { illegal: true, status: project.status, target: 'DEPLOYMENT_QUEUED' };
+    }
+
+    const linkId = randomUUID();
+    const jobId = randomUUID();
+    const deploymentId = `bld-${randomUUID()}`;
+    await tx.$executeRawUnsafe(
+      `UPDATE "builder_deployment_links" SET "is_current" = 0, "updated_at" = CURRENT_TIMESTAMP WHERE "project_id" = ?`,
+      project.id,
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "builder_deployment_links" (
+        "id", "project_id", "revision_id", "deployment_id", "idempotency_key", "status", "is_current",
+        "metadata", "created_at", "updated_at")
+       VALUES (?, ?, ?, ?, ?, 'QUEUED', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      linkId, project.id, revision.id, deploymentId, idempotencyKey,
+      jsonText({ schemaVersion: 1, data: { artifactChecksum: revision.artifactChecksum } }),
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "builder_jobs" (
+        "id", "project_id", "revision_id", "job_type", "status", "stage", "idempotency_key",
+        "request_hash", "payload_json", "progress_json", "created_at", "updated_at")
+       VALUES (?, ?, ?, 'BUILDER_DEPLOY_REVISION', 'QUEUED', 'queued', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      jobId, project.id, revision.id, idempotencyKey, requestHash,
+      jsonText({ schemaVersion: 1, data: { ...payload, linkId, deploymentId } }),
+      jsonText({ schemaVersion: 1, data: { stage: 'queued', percent: 0 } }),
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "builder_job_events" ("id", "job_id", "sequence", "stage", "message", "details_json")
+       VALUES (?, ?, 1, 'queued', 'Deployment job queued.', ?)`,
+      randomUUID(), jobId, jsonText({ schemaVersion: 1, data: { deploymentId, revisionId: revision.id } }),
+    );
+    if (project.status !== 'DEPLOYMENT_QUEUED') {
+      const moved = await transitionInTx(tx, {
+        projectId: project.id,
+        from: project.status,
+        to: 'DEPLOYMENT_QUEUED',
+        actorType: 'user',
+        actorId: userId,
+        reason: 'deployment_requested',
+        requestId,
+        jobId,
+      });
+      if (!moved) {
+        const err = new Error('Project status changed while queuing deployment.');
+        err.status = 409;
+        err.code = 'BUILDER_STATUS_RACE';
+        throw err;
+      }
+    }
+    return {
+      reused: false,
+      conflict: false,
+      link: { id: linkId, projectId: project.id, revisionId: revision.id, deploymentId, idempotencyKey, status: 'QUEUED', isCurrent: true },
+      job: { id: jobId, status: 'QUEUED' },
+    };
+  });
 }
 
 export async function findDeploymentByIdempotencyKey(idempotencyKey) {
@@ -361,6 +428,86 @@ export async function findDeploymentByIdempotencyKey(idempotencyKey) {
     idempotencyKey,
   );
   return rows[0] ? mapDeploymentRow(rows[0]) : null;
+}
+
+export async function getDeploymentLinkById(linkId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM "builder_deployment_links" WHERE "id" = ? LIMIT 1`, linkId,
+  );
+  return rows[0] ? mapDeploymentRow(rows[0]) : null;
+}
+
+export async function listDeploymentsForProject(projectId, userId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT l.* FROM "builder_deployment_links" l
+     JOIN "builder_projects" p ON p."id" = l."project_id"
+     WHERE l."project_id" = ? AND p."user_id" = ?
+     ORDER BY l."created_at" DESC`,
+    projectId, userId,
+  );
+  return rows.map(mapDeploymentRow);
+}
+
+const LINK_PATCH_COLUMNS = {
+  status: 'status',
+  hostingDeploymentId: 'hosting_deployment_id',
+  renderServiceId: 'render_service_id',
+  renderDeployId: 'render_deploy_id',
+  liveUrl: 'live_url',
+  errorMessage: 'error_message',
+};
+
+/** Patch provider identity/status on a deployment link (worker-side). */
+export async function updateDeploymentLink(linkId, patch = {}) {
+  const sets = [];
+  const params = [];
+  for (const [key, column] of Object.entries(LINK_PATCH_COLUMNS)) {
+    if (patch[key] !== undefined) {
+      sets.push(`"${column}" = ?`);
+      params.push(patch[key]);
+    }
+  }
+  if (patch.metadata !== undefined) {
+    sets.push(`"metadata" = ?`);
+    params.push(jsonText({ schemaVersion: 1, data: patch.metadata }));
+  }
+  if (!sets.length) return getDeploymentLinkById(linkId);
+  await prisma.$executeRawUnsafe(
+    `UPDATE "builder_deployment_links" SET ${sets.join(', ')}, "updated_at" = CURRENT_TIMESTAMP WHERE "id" = ?`,
+    ...params, linkId,
+  );
+  return getDeploymentLinkById(linkId);
+}
+
+/**
+ * Enqueue a durable follow-up job (billing attach, reconciliation, …).
+ * Idempotent on the key: an existing job is returned untouched.
+ */
+export async function enqueueJob({
+  projectId, revisionId = null, jobType, idempotencyKey, payload = {},
+  maxAttempts = 3, delayMs = 0,
+}) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT * FROM "builder_jobs" WHERE "idempotency_key" = ? LIMIT 1`, idempotencyKey,
+    );
+    if (existing[0]) return { reused: true, job: mapJobRow(existing[0]) };
+    const jobId = randomUUID();
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "builder_jobs" (
+        "id", "project_id", "revision_id", "job_type", "status", "stage", "idempotency_key",
+        "payload_json", "progress_json", "max_attempts", "available_at", "created_at", "updated_at")
+       VALUES (?, ?, ?, ?, 'QUEUED', 'queued', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      jobId, projectId, revisionId, jobType, idempotencyKey,
+      jsonText({ schemaVersion: 1, data: payload }),
+      jsonText({ schemaVersion: 1, data: { stage: 'queued', percent: 0 } }),
+      Number(maxAttempts), sqliteTimestamp(delayMs),
+    );
+    return { reused: false, job: await (async () => {
+      const rows = await tx.$queryRawUnsafe(`SELECT * FROM "builder_jobs" WHERE "id" = ? LIMIT 1`, jobId);
+      return mapJobRow(rows[0]);
+    })() };
+  });
 }
 
 // ── Durable worker: timestamps ───────────────────────────────────────────────
@@ -829,6 +976,12 @@ export function mapDeploymentRow(row) {
     idempotencyKey: row.idempotency_key,
     status: row.status,
     isCurrent: Boolean(row.is_current),
+    hostingDeploymentId: row.hosting_deployment_id ?? null,
+    renderServiceId: row.render_service_id ?? null,
+    renderDeployId: row.render_deploy_id ?? null,
+    liveUrl: row.live_url ?? null,
+    errorMessage: row.error_message ?? null,
+    metadata: parseJsonText(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

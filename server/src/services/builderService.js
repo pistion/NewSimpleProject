@@ -3,6 +3,7 @@ import * as repo from '../repositories/builder.repository.js';
 import { durableJobsEnabled, isolatedPreviewEnabled, jobsUnavailableError } from '../builder/builderFlags.js';
 import { hasFreshWorkerHeartbeat } from '../builder/builderReadiness.service.js';
 import { pinTemplate } from '../builder/generation/templateLoader.js';
+import { verifyArtifact } from '../builder/generation/artifactWriter.js';
 import {
   requireExpectedVersion,
   sanitizeCreateProjectInput,
@@ -233,7 +234,7 @@ export async function revokePreviewGrant(user, grantId) {
   return { grantId, revoked: true };
 }
 
-export async function createDeployment(user, projectId, body = {}, idempotencyHeader) {
+export async function createDeployment(user, projectId, body = {}, idempotencyHeader, requestId = null) {
   await assertJobsAvailable();
   const project = await getOwnedProject(user, projectId);
   const revisionId = body.revisionId || project.approvedRevisionId;
@@ -245,12 +246,49 @@ export async function createDeployment(user, projectId, body = {}, idempotencyHe
   if (!revision.artifactChecksum) {
     throw httpError('BUILDER_REVISION_ARTIFACT_REQUIRED', 'Approved revision is missing an artifact checksum.', 409);
   }
+  // The artifact must exist on disk and still match its recorded checksum.
+  try {
+    await verifyArtifact(revisionId, revision.artifactChecksum);
+  } catch (err) {
+    throw httpError(err.code || 'BUILDER_ARTIFACT_INVALID', 'The approved revision artifact failed verification.', 409);
+  }
+
+  // Customers never control provider plans/commands: only the exact revision
+  // is accepted here; tier stays a server decision (launch-first free plan).
+  const payload = {
+    schemaVersion: 1,
+    revisionId,
+    artifactChecksum: revision.artifactChecksum,
+  };
   const scopedKey = scopedIdempotencyKey(user.id, 'deploy', projectId, idempotencyHeader);
-  const existing = await repo.findDeploymentByIdempotencyKey(scopedKey);
-  if (existing) return { statusCode: 200, data: { ...existing, reused: true } };
-  const deploymentId = `bld-${randomUUID()}`;
-  const link = await repo.createDeploymentLink({ projectId, revisionId, deploymentId, idempotencyKey: scopedKey });
-  return { statusCode: 202, data: { ...link, reused: false } };
+  const requestHash = repo.stableHash(payload);
+  const result = await repo.createDeploymentJob({
+    project, revision, userId: user.id,
+    idempotencyKey: scopedKey, requestHash, payload, requestId,
+  });
+  if (result.conflict) {
+    throw httpError('IDEMPOTENCY_KEY_REUSED', 'This idempotency key was already used with different input.', 409);
+  }
+  if (result.illegal) {
+    throw httpError('BUILDER_ILLEGAL_TRANSITION', `Deployment cannot start while the project is ${result.status}.`, 409, {
+      status: result.status,
+      target: result.target,
+    });
+  }
+  return {
+    statusCode: result.reused ? 200 : 202,
+    data: {
+      jobId: result.job.id,
+      jobStatus: result.job.status,
+      deployment: result.link,
+      reused: result.reused,
+    },
+  };
+}
+
+export async function listDeployments(user, projectId) {
+  await getOwnedProject(user, projectId);
+  return repo.listDeploymentsForProject(projectId, user.id);
 }
 
 function withSummaries(project) {

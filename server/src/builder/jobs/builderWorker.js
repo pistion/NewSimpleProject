@@ -12,7 +12,10 @@
 
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { readdir, rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import * as repo from '../../repositories/builder.repository.js';
+import { workspaceRootDir } from '../generation/artifactWriter.js';
 import { getJobHandler, registeredJobTypes } from './jobRegistry.js';
 
 const RETRYABLE_CODES = new Set([
@@ -48,6 +51,7 @@ export function createBuilderWorker(options = {}) {
   let stopping = false;
   let pollTimer = null;
   let heartbeatTimer = null;
+  let cleanupTimer = null;
   let inFlight = null; // Promise for the currently-running job
 
   async function heartbeat() {
@@ -58,6 +62,32 @@ export function createBuilderWorker(options = {}) {
       });
     } catch (err) {
       log('heartbeat failed:', err.message);
+    }
+  }
+
+  // Stateless periodic hygiene: expired preview grants and orphaned job
+  // workspaces (a crash between CREATE_WORKSPACE and the finally-cleanup).
+  // Runs at startup and hourly, so it survives restarts by construction.
+  async function cleanup() {
+    try {
+      const removedGrants = await repo.deleteExpiredPreviewGrants();
+      let removedWorkspaces = 0;
+      const root = workspaceRootDir();
+      const maxAgeMs = Number(process.env.BUILDER_WORKSPACE_MAX_AGE_MS || 24 * 60 * 60 * 1000);
+      const entries = await readdir(root).catch(() => []);
+      for (const entry of entries) {
+        const dir = join(root, entry);
+        const stats = await stat(dir).catch(() => null);
+        if (stats && Date.now() - stats.mtimeMs > maxAgeMs) {
+          await rm(dir, { recursive: true, force: true }).catch(() => {});
+          removedWorkspaces += 1;
+        }
+      }
+      if (removedGrants || removedWorkspaces) {
+        log(`cleanup: ${removedGrants} expired grants, ${removedWorkspaces} stale workspaces removed`);
+      }
+    } catch (err) {
+      log('cleanup failed:', err.message);
     }
   }
 
@@ -173,6 +203,9 @@ export function createBuilderWorker(options = {}) {
       await heartbeat();
       heartbeatTimer = setInterval(heartbeat, heartbeatMs);
       if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
+      cleanup();
+      cleanupTimer = setInterval(cleanup, Number(process.env.BUILDER_CLEANUP_INTERVAL_MS || 60 * 60 * 1000));
+      if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
       schedule(0);
       log(`started as ${workerId} (poll ${pollMs}ms, lease ${leaseMs}ms)`);
     },
@@ -180,6 +213,7 @@ export function createBuilderWorker(options = {}) {
       stopping = true;
       if (pollTimer) clearTimeout(pollTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (cleanupTimer) clearInterval(cleanupTimer);
       if (inFlight) {
         // Let the in-flight job finish; its lease protects it if we're killed.
         await Promise.race([

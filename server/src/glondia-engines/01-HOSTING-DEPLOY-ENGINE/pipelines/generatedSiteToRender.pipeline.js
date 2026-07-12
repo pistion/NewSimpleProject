@@ -176,16 +176,23 @@ export async function run(input = {}, context = {}) {
       errorMessage: null,
     });
 
-    // Billing attach (non-blocking, same as ZIP/GitHub-link pipelines)
-    queueDeploymentBillingAttach({
-      deployment: updated,
-      user: { id: normalized.userId },
-      kind: normalized.source || 'generated-template',
-      billingTierId: input.billingTierId || input.tierId || null,
-    });
+    // Billing attach (non-blocking, same as ZIP/GitHub-link pipelines).
+    // The canonical Builder deploy job passes skipBillingAttach=true and queues
+    // a durable BILLING_ATTACH job instead, so billing survives restarts.
+    if (input.skipBillingAttach !== true) {
+      queueDeploymentBillingAttach({
+        deployment: updated,
+        user: { id: normalized.userId },
+        kind: normalized.source || 'generated-template',
+        billingTierId: input.billingTierId || input.tierId || null,
+      });
+    }
 
-    // Post-deploy poller (non-blocking, same as ZIP/GitHub-link pipelines)
-    startPostDeployPolling(deployment.deploymentId);
+    // Post-deploy poller (non-blocking, same as ZIP/GitHub-link pipelines).
+    // The Builder deploy job uses a durable DEPLOYMENT_RECONCILE job instead.
+    if (input.skipPostDeployPolling !== true) {
+      startPostDeployPolling(deployment.deploymentId);
+    }
 
     return updated;
   } catch (error) {
