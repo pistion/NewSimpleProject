@@ -58,6 +58,8 @@ before(async () => {
       for (const [id, email, clientId] of [
         ['cust-a', 'cust-a@test.local', 'glondiac-0001'],
         ['cust-b', 'cust-b@test.local', 'glondiac-0002'],
+        ['cust-c', 'cust-c@test.local', 'glondiac-0003'],
+        ['cust-d', 'cust-d@test.local', 'glondiac-0004'],
         ['admin-user', 'admin@test.local', null],
       ]) {
         await prisma.user.create({ data: { id, email, clientId, passwordHash: 'x', role: id === 'admin-user' ? 'admin' : 'owner' } });
@@ -112,6 +114,49 @@ before(async () => {
     body: { plan: 'vc2-1c-1gb', region: 'syd', osId: 2284, label: 'oversight-b' },
   });
   assert.equal(vpsB.status, 201);
+
+  const extraSeed = `
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    (async () => {
+      await prisma.serviceAccess.create({
+        data: {
+          userId: null,
+          organizationId: 'glondiac-0001',
+          serviceType: 'email',
+          serviceId: 'org-email-a',
+          serviceName: 'Org email A',
+          accessStatus: 'active',
+          billingStatus: 'paid',
+        },
+      });
+      await prisma.serviceAccess.create({
+        data: {
+          userId: null,
+          organizationId: 'foreign-org',
+          serviceType: 'email',
+          serviceId: 'foreign-email',
+          serviceName: 'Foreign email',
+          accessStatus: 'active',
+          billingStatus: 'paid',
+        },
+      });
+      for (const order of [
+        { userId: 'cust-a', organizationId: 'cust-a', currency: 'PGK', totalAmountCents: 10000, status: 'pending' },
+        { userId: 'cust-a', organizationId: 'cust-a', currency: 'USD', totalAmountCents: 5000, status: 'pending' },
+        { userId: 'cust-b', organizationId: 'cust-b', currency: 'PGK', totalAmountCents: 12345, status: 'pending' },
+        { userId: 'cust-d', organizationId: 'cust-d', currency: 'PGK', totalAmountCents: 9999, status: 'paid' },
+      ]) {
+        await prisma.checkoutOrder.create({ data: { ...order, type: 'deployment', provider: 'test' } });
+      }
+      await prisma.$disconnect();
+    })().catch((e) => { console.error(e); process.exit(1); });
+  `;
+  execSync(`node -e "${extraSeed.replaceAll('"', '\\"').replaceAll('\n', ' ')}"`, {
+    cwd: projectRoot,
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'inherit',
+  });
 }, { timeout: 120000 });
 
 after(() => {
@@ -163,6 +208,38 @@ test('overview returns every section for one customer', async () => {
   assert.equal(overview.summary.services >= 1, true);
 });
 
+test('customer-scope ServiceAccess includes user-owned and organization-owned rows only', async () => {
+  assert.ok(overview, 'overview loaded');
+  assert.ok(overview.services.some((s) => s.serviceType === 'vps' && s.serviceName === 'oversight-a'), 'user-owned ServiceAccess must be included');
+  assert.ok(overview.services.some((s) => s.serviceType === 'email' && s.serviceName === 'Org email A'), 'organization-owned ServiceAccess must be included');
+  assert.equal(overview.services.some((s) => s.serviceName === 'Foreign email'), false, 'foreign organization ServiceAccess must not leak');
+});
+
+test('outstanding totals are grouped by currency', async () => {
+  assert.deepEqual(overview.summary.outstandingByCurrency, [
+    { currency: 'PGK', amountCents: 10000 },
+    { currency: 'USD', amountCents: 5000 },
+  ]);
+  assert.equal('outstandingAmountCents' in overview.summary, false);
+  assert.equal('currency' in overview.summary, false);
+});
+
+test('one-currency outstanding total remains a single grouped amount', async () => {
+  const res = await admin('/admin/customers/cust-b/overview');
+  assert.equal(res.status, 200);
+  const body = (await res.json()).data;
+  assert.deepEqual(body.summary.outstandingByCurrency, [
+    { currency: 'PGK', amountCents: 12345 },
+  ]);
+});
+
+test('no pending orders returns an empty outstanding group', async () => {
+  const res = await admin('/admin/customers/cust-d/overview');
+  assert.equal(res.status, 200);
+  const body = (await res.json()).data;
+  assert.deepEqual(body.summary.outstandingByCurrency, []);
+});
+
 test('cross-customer isolation: no foreign services or tickets leak', async () => {
   assert.ok(overview, 'overview loaded');
   const foreign = overview.services.find((s) => s.serviceName === 'oversight-b');
@@ -195,4 +272,39 @@ test('old admin endpoints are preserved', async () => {
   assert.equal(detail.status, 200);
   const legacy = (await detail.json()).data;
   assert.ok('deployments' in legacy && 'orders' in legacy && 'receipts' in legacy, 'legacy detail shape unchanged');
+});
+
+test('existing admin user lifecycle actions are preserved', async () => {
+  const suspend = await admin('/admin/users/cust-c/suspend', {
+    method: 'POST',
+    body: { reason: 'freeze compatibility' },
+  });
+  assert.equal(suspend.status, 200);
+  assert.equal((await suspend.json()).data.accountStatus, 'suspended');
+
+  const reactivate = await admin('/admin/users/cust-c/reactivate', {
+    method: 'POST',
+    body: { resumeDeployments: false },
+  });
+  assert.equal(reactivate.status, 200);
+  assert.equal((await reactivate.json()).data.accountStatus, 'active');
+
+  const disable = await admin('/admin/users/cust-c/disable', {
+    method: 'POST',
+    body: { reason: 'freeze compatibility' },
+  });
+  assert.equal(disable.status, 200);
+  assert.equal((await disable.json()).data.accountStatus, 'disabled');
+
+  const remove = await admin('/admin/users/cust-c/delete', {
+    method: 'POST',
+    body: { reason: 'freeze compatibility' },
+  });
+  assert.equal(remove.status, 200);
+  const removed = (await remove.json()).data;
+  assert.equal(removed.deleted, true);
+  assert.equal(removed.id, 'cust-c');
+
+  const detail = await admin('/admin/users/cust-c');
+  assert.equal(detail.status, 404);
 });

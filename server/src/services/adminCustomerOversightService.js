@@ -24,6 +24,7 @@ import * as vpsRepo from '../repositories/vps.repository.js';
 import { listByOwners as listProviderResourcesByOwners } from '../repositories/providerResource.repository.js';
 import { listAllTickets } from './ticketService.js';
 import { readHostingStore } from './hostingStore.js';
+import { groupAmountsByCurrency, resolveCustomerOwnershipScope } from './adminCustomerScope.js';
 
 function httpError(message, status = 400, code = undefined) {
   return Object.assign(new Error(message), { status, code, expose: true });
@@ -33,13 +34,9 @@ function safeJson(text) {
   try { return JSON.parse(text || '{}'); } catch { return {}; }
 }
 
-/**
- * Ownership scope for one customer. Tokens historically used as
- * organizationId: the user id itself (VPS post-backfill) and the
- * human-readable client id.
- */
-function ownershipScope(customer) {
-  return [...new Set([customer.id, customer.clientId].filter(Boolean))];
+async function loadOwnershipScope(customer) {
+  const discovered = await customerRepo.listOrganizationIdsForCustomer(customer.id);
+  return resolveCustomerOwnershipScope(customer, discovered);
 }
 
 /** Run one optional section; failures become warnings, not 500s. */
@@ -100,10 +97,12 @@ function normalizeService({
  */
 export async function resolveCustomerServices(userId) {
   const customer = await loadCustomer(userId);
-  const orgIds = ownershipScope(customer);
+  const scope = await loadOwnershipScope(customer);
+  const orgIds = scope.organizationIds;
   const warnings = [];
+  warnings.push(...scope.warnings);
 
-  const accessRows = await accessRepo.listByUser(userId);
+  const accessRows = await accessRepo.listByCustomerScope({ userId: scope.userId, organizationIds: scope.organizationIds });
   const byType = new Map();
   for (const row of accessRows) {
     if (!byType.has(row.serviceType)) byType.set(row.serviceType, []);
@@ -245,7 +244,7 @@ export async function resolveCustomerServices(userId) {
 
 export async function getCustomerBilling(userId) {
   const customer = await loadCustomer(userId);
-  const orgIds = ownershipScope(customer);
+  const orgIds = (await loadOwnershipScope(customer)).organizationIds;
   const [orders, receipts, subscriptions, invoices, creditNotes, paymentMethods] = await Promise.all([
     billingRepo.listOrdersByUser(userId),
     billingRepo.listReceiptsByUser(userId),
@@ -268,7 +267,7 @@ export async function getCustomerSupport(userId) {
 
 export async function getCustomerOperations(userId) {
   const customer = await loadCustomer(userId);
-  const orgIds = ownershipScope(customer);
+  const orgIds = (await loadOwnershipScope(customer)).organizationIds;
   const { services } = await resolveCustomerServices(userId);
   const serviceRefs = services.map((s) => ({ serviceType: s.serviceType, serviceId: s.id }));
   const serviceIds = services.map((s) => s.id);
@@ -302,7 +301,7 @@ export async function getCustomerOperations(userId) {
 
 export async function getCustomerActivity(userId, { limit = 50, offset = 0 } = {}) {
   const customer = await loadCustomer(userId);
-  const orgIds = ownershipScope(customer);
+  const orgIds = (await loadOwnershipScope(customer)).organizationIds;
   const [audit, adminCommands] = await Promise.all([
     auditRepo.listAuditForCustomer(userId, orgIds, { limit, offset }),
     auditRepo.listAdminCommandsForCustomer(userId, { limit: 25 }),
@@ -339,7 +338,7 @@ export async function getCustomerOverview(userId) {
 
   const openTickets = (support.tickets ?? []).filter((t) => !['resolved', 'closed'].includes(t.status));
   const pendingOrders = (billing.orders ?? []).filter((o) => ['pending', 'payment_uploaded'].includes(o.status));
-  const outstandingAmountCents = pendingOrders.reduce((sum, o) => sum + (o.totalAmountCents || 0), 0);
+  const outstandingByCurrency = groupAmountsByCurrency(pendingOrders);
 
   const summary = {
     projects: projects.length,
@@ -351,8 +350,7 @@ export async function getCustomerOverview(userId) {
     urgentTickets: openTickets.filter((t) => t.priority === 'urgent').length,
     pendingOrders: pendingOrders.length,
     pendingReceipts: (billing.receipts ?? []).filter((r) => r.status === 'pending').length,
-    outstandingAmountCents,
-    currency: (billing.orders ?? [])[0]?.currency ?? 'PGK',
+    outstandingByCurrency,
     warnings: warnings.length,
   };
 

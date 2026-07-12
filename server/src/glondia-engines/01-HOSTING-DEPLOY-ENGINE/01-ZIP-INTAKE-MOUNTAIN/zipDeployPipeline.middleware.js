@@ -6,7 +6,7 @@ import { appendDeployStep, deployContext } from '../00-SHARED/deployFlowState.mi
 
 export function validateZipUpload(req, res, next) {
   const file = req.file || req.files?.siteZip?.[0] || req.files?.zip?.[0] || req.files?.file?.[0];
-  if (!file?.buffer) {
+  if (!file?.buffer && !file?.path) {
     return res.status(400).json({
       success: false,
       error: { code: 'ZIP_MISSING_FILE', message: 'A ZIP file is required (field zip, file, or siteZip).' },

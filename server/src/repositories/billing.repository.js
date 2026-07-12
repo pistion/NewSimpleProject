@@ -86,3 +86,48 @@ export async function listPaymentMethodsByUser(userId, organizationIds = []) {
     createdAt: r.createdAt,
   }));
 }
+
+export function listAdminDeploymentOrders({ limit = 500, select = null } = {}) {
+  return prisma.checkoutOrder.findMany({
+    where: { type: 'deployment' },
+    ...(select ? { select } : {}),
+    orderBy: { createdAt: 'desc' },
+    take: Number(limit),
+  });
+}
+
+export function countPendingReceipts() {
+  return prisma.paymentReceipt.count({ where: { status: 'pending' } });
+}
+
+export function countDeploymentCleanupJobs() {
+  return prisma.deploymentCleanupJob.count();
+}
+
+export function listAdminReceipts({ limit = 500 } = {}) {
+  return prisma.paymentReceipt.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: Number(limit),
+    include: { checkoutOrder: { select: { id: true, status: true, deploymentId: true, userId: true, totalAmountCents: true, currency: true } } },
+  });
+}
+
+export function findReceiptWithOrder(receiptId) {
+  return prisma.paymentReceipt.findUnique({ where: { id: receiptId }, include: { checkoutOrder: true } });
+}
+
+export function updateReceipt(receiptId, data) {
+  return prisma.paymentReceipt.update({ where: { id: receiptId }, data });
+}
+
+export function updateOrder(orderId, data) {
+  return prisma.checkoutOrder.update({ where: { id: orderId }, data });
+}
+
+export function findOrderById(orderId) {
+  return prisma.checkoutOrder.findUnique({ where: { id: orderId } });
+}
+
+export function deleteOrderById(orderId) {
+  return prisma.checkoutOrder.delete({ where: { id: orderId } });
+}

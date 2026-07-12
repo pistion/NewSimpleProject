@@ -13,7 +13,7 @@ import { stageFail, stageStart, stageSuccess } from '../../00-SHARED/stageLogger
 export function normalizeZipUploadInput(input = {}, context = {}) {
   const file = input.file;
   const fields = input.fields || {};
-  if (!file?.buffer) {
+  if (!file?.buffer && !file?.path) {
     throw badRequest('A ZIP file is required. Send multipart/form-data with field name zip, file, or siteZip.', 'zip_upload', 'ZIP_FILE_REQUIRED');
   }
 

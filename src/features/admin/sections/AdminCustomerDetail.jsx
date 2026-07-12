@@ -25,6 +25,11 @@ function SummaryCard({ label, value, tone }) {
   );
 }
 
+function groupedMoney(amounts = []) {
+  if (!amounts.length) return 'None';
+  return amounts.map((row) => money(row.amountCents, row.currency)).join(' / ');
+}
+
 function Section({ title, count, children }) {
   const items = React.Children.toArray(children);
   return (
@@ -155,7 +160,7 @@ export function AdminCustomerDetail({ userId, onClose, onLifecycleAction, busy }
               {s && (
                 <div className="admin-summary-grid">
                   <SummaryCard label="Services" value={`${s.activeServices}/${s.services} active`} />
-                  <SummaryCard label="Outstanding" value={money(s.outstandingAmountCents, s.currency)} tone={s.outstandingAmountCents > 0 ? 'warn' : 'default'} />
+                  <SummaryCard label="Outstanding" value={groupedMoney(s.outstandingByCurrency)} tone={(s.outstandingByCurrency ?? []).length > 0 ? 'warn' : 'default'} />
                   <SummaryCard label="Open tickets" value={s.openTickets} tone={s.urgentTickets > 0 ? 'danger' : 'default'} />
                   <SummaryCard label="Pending receipts" value={s.pendingReceipts} />
                   <SummaryCard label="Failed services" value={s.failedServices} tone={s.failedServices > 0 ? 'danger' : 'default'} />

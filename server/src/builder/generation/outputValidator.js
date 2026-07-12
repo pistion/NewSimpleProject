@@ -109,7 +109,7 @@ export async function validateWorkspace(workspaceDir, { requireEntry = 'index.ht
     }
   }
 
-  if (!hasEntry) {
+  if (requireEntry && !hasEntry) {
     errors.push({ code: 'MISSING_DEPLOYABLE_ENTRY', file: requireEntry });
   }
 

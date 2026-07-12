@@ -41,3 +41,24 @@ export async function listAdminCommandsForCustomer(userId, { limit = 50 } = {}) 
     take: Number(limit),
   });
 }
+
+export function listAdminActivity({ limit = 100, offset = 0, action = null, userId = null } = {}) {
+  const where = {};
+  if (action) where.action = { contains: action };
+  if (userId) where.actorUserId = userId;
+  return prisma.auditLog.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: Number(limit) || 100,
+    skip: Number(offset) || 0,
+    select: {
+      id: true,
+      actorUserId: true,
+      action: true,
+      entityType: true,
+      entityId: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+}

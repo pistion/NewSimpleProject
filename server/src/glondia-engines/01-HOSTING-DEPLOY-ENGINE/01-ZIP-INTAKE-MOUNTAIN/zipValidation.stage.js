@@ -9,7 +9,7 @@ import { detectProject } from '../02-UNZIP-AND-DETECT-MOUNTAIN/projectDetector.s
 import { resolveDeployMode } from '../02-UNZIP-AND-DETECT-MOUNTAIN/deployModeResolver.stage.js';
 
 export async function validateZipDeploymentPreview({ file, fields = {} } = {}) {
-  if (!file?.buffer) {
+  if (!file?.buffer && !file?.path) {
     const error = new Error('A ZIP file is required.');
     error.status = 400;
     error.code = 'ZIP_MISSING_FILE';
@@ -19,7 +19,7 @@ export async function validateZipDeploymentPreview({ file, fields = {} } = {}) {
 
   const validationDir = path.join(tmpdir(), `glondia-zip-validate-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   try {
-    const extracted = await extractZipSafely(file.buffer, validationDir);
+    const extracted = await extractZipSafely(file.buffer || file.path, validationDir);
     const detected = await detectProject(validationDir, extracted.files);
     const deployMode = resolveDeployMode({
       detected,

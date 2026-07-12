@@ -26,6 +26,21 @@ export async function listByUser(userId) {
   });
 }
 
+/** Every access row owned by a customer user or one of their organization ids. */
+export async function listByCustomerScope({ userId, organizationIds = [] } = {}) {
+  const or = [];
+  if (userId) or.push({ userId });
+  const orgs = [...new Set((organizationIds ?? []).filter(Boolean))];
+  if (orgs.length) or.push({ organizationId: { in: orgs } });
+  if (!or.length) return [];
+
+  const rows = await prisma.serviceAccess.findMany({
+    where: { OR: or },
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+  });
+  return [...new Map(rows.map((row) => [row.id, row])).values()];
+}
+
 /** Admin listing with owner info. */
 export async function listAccess({ where = {}, limit = 30, offset = 0 } = {}) {
   const [items, total] = await Promise.all([

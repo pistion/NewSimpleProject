@@ -104,6 +104,31 @@ export async function findClientProjectsByIds(ids) {
   return prisma.clientProject.findMany({ where: { id: { in: ids } } });
 }
 
+export async function listOrganizationIdsForCustomer(userId) {
+  const [access, vps, hosting, business, orders, invoices, tickets, requests, providerResources] = await Promise.all([
+    prisma.serviceAccess.findMany({ where: { userId, organizationId: { not: null } }, select: { organizationId: true } }),
+    prisma.vpsService.findMany({ where: { createdByUserId: userId }, select: { organizationId: true } }),
+    prisma.webHostingService.findMany({ where: { createdByUserId: userId }, select: { organizationId: true } }),
+    prisma.businessService.findMany({ where: { createdByUserId: userId }, select: { organizationId: true } }),
+    prisma.checkoutOrder.findMany({ where: { userId }, select: { organizationId: true } }),
+    prisma.invoice.findMany({ where: { userId }, select: { organizationId: true } }),
+    prisma.ticket.findMany({ where: { userId, organizationId: { not: null } }, select: { organizationId: true } }),
+    prisma.serviceRequest.findMany({ where: { userId, organizationId: { not: null } }, select: { organizationId: true } }),
+    prisma.providerResource.findMany({ where: { userId }, select: { organizationId: true } }),
+  ]);
+  return [...new Set([
+    ...access,
+    ...vps,
+    ...hosting,
+    ...business,
+    ...orders,
+    ...invoices,
+    ...tickets,
+    ...requests,
+    ...providerResources,
+  ].map((row) => row.organizationId).filter(Boolean))];
+}
+
 /** CRM service requests filed by (or matched to) this customer. */
 export async function listServiceRequestsByUser(userId, email = null, { limit = 100 } = {}) {
   return prisma.serviceRequest.findMany({

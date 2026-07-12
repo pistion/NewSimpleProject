@@ -3,9 +3,9 @@
  *
  * Admins can see all users, deployments, orders and receipts, approve/reject
  * manual receipts, mark deployments paid, and delete/suspend deployments.
- * Deployments are read from the JSON hosting store; everything else is Prisma.
+ * Deployments are read from the JSON hosting store; database access goes
+ * through repositories.
  */
-import { prisma } from './db.js';
 import { readHostingStore, mutateHostingStore, nowIso } from './hostingStore.js';
 import { writeAuditLog } from './auditLogService.js';
 import renderApiService from './renderApiService.js';
@@ -21,6 +21,9 @@ import { getPromoUsage } from './deploymentPromoService.js';
 import { syncServiceAccessOnPayment } from './serviceAccessService.js';
 import { createUserNotification } from './notificationService.js';
 import { archiveGeneratedSiteFolder } from '../glondia-engines/01-HOSTING-DEPLOY-ENGINE/03-GITHUB-SOURCE-MOUNTAIN/generatedSiteRepoCleanup.stage.js';
+import * as adminUserRepo from '../repositories/adminUser.repository.js';
+import * as billingRepo from '../repositories/billing.repository.js';
+import * as auditRepo from '../repositories/audit.repository.js';
 
 const VALID_ROLES = new Set(['owner', 'admin', 'member']);
 const VALID_ACCOUNT_STATUS = new Set(['active', 'suspended', 'disabled', 'deleted']);
@@ -71,10 +74,7 @@ function receiptListView(r) {
 
 /** Revoke all live refresh tokens for a user (forces re-login / logout everywhere). */
 async function revokeUserRefreshTokens(userId) {
-  return prisma.refreshToken.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  return adminUserRepo.revokeRefreshTokens(userId);
 }
 
 function deploymentView(d, orderByDeployment = {}) {
@@ -134,10 +134,10 @@ function safeJson(text) {
 
 export async function getOverview() {
   const [userRows, orders, receiptsPending, cleanupJobs, deployments, promo] = await Promise.all([
-    prisma.user.findMany({ select: { accountStatus: true, promoEligible: true, promoClaimedAt: true } }),
-    prisma.checkoutOrder.findMany({ where: { type: 'deployment' }, select: { status: true, totalAmountCents: true, currency: true, metadata: true } }),
-    prisma.paymentReceipt.count({ where: { status: 'pending' } }),
-    prisma.deploymentCleanupJob.count(),
+    adminUserRepo.listOverviewUsers(),
+    billingRepo.listAdminDeploymentOrders({ select: { status: true, totalAmountCents: true, currency: true, metadata: true } }),
+    billingRepo.countPendingReceipts(),
+    billingRepo.countDeploymentCleanupJobs(),
     loadDeployments(),
     getPromoUsage(),
   ]);
@@ -237,14 +237,14 @@ export async function getOverview() {
 export async function listUsers() {
   // Full rows mapped through userView, which whitelists safe fields (no
   // passwordHash, no raw avatar/ID-photo paths) and derives hasAvatar/avatarUrl.
-  const rows = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+  const rows = await adminUserRepo.listUsers();
   return rows.map(userView);
 }
 
 export async function listDeployments(ownerUserId = null) {
   const [deployments, orders] = await Promise.all([
     loadDeployments(),
-    prisma.checkoutOrder.findMany({ where: { type: 'deployment' } }),
+    billingRepo.listAdminDeploymentOrders(),
   ]);
   const byId = {};
   for (const o of orders) {
@@ -259,31 +259,20 @@ export async function listDeployments(ownerUserId = null) {
 }
 
 export async function listOrders() {
-  return prisma.checkoutOrder.findMany({
-    where: { type: 'deployment' },
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-  });
+  return billingRepo.listAdminDeploymentOrders();
 }
 
 export async function listReceipts() {
-  const rows = await prisma.paymentReceipt.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-    include: { checkoutOrder: { select: { id: true, status: true, deploymentId: true, userId: true, totalAmountCents: true, currency: true } } },
-  });
+  const rows = await billingRepo.listAdminReceipts();
   // Never leak the raw SSD filePath in list responses.
   return rows.map(receiptListView);
 }
 
 export async function approveReceipt(receiptId, adminUserId) {
-  const receipt = await prisma.paymentReceipt.findUnique({ where: { id: receiptId }, include: { checkoutOrder: true } });
+  const receipt = await billingRepo.findReceiptWithOrder(receiptId);
   if (!receipt) throw Object.assign(new Error('Receipt not found.'), { status: 404, expose: true });
 
-  await prisma.paymentReceipt.update({
-    where: { id: receipt.id },
-    data: { status: 'approved', reviewedByUserId: adminUserId, reviewedAt: new Date() },
-  });
+  await billingRepo.updateReceipt(receipt.id, { status: 'approved', reviewedByUserId: adminUserId, reviewedAt: new Date() });
 
   const order = receipt.checkoutOrder;
   let paidResult = null;
@@ -291,7 +280,7 @@ export async function approveReceipt(receiptId, adminUserId) {
     paidResult = await markDeploymentPaid({ deploymentId: order.deploymentId, checkoutOrderId: order.id, actorUserId: adminUserId, via: 'manual_admin_approval' });
     await syncServiceAccessOnPayment({ userId: receipt.userId || order?.userId, deploymentId: order.deploymentId, orderId: order.id, via: 'manual_admin_approval' });
   } else if (order) {
-    await prisma.checkoutOrder.update({ where: { id: order.id }, data: { status: 'paid', paidAt: new Date() } });
+    await billingRepo.updateOrder(order.id, { status: 'paid', paidAt: new Date() });
   }
 
   await writeAuditLog({
@@ -315,18 +304,15 @@ export async function approveReceipt(receiptId, adminUserId) {
 }
 
 export async function rejectReceipt(receiptId, adminUserId, note = null) {
-  const receipt = await prisma.paymentReceipt.findUnique({ where: { id: receiptId }, include: { checkoutOrder: true } });
+  const receipt = await billingRepo.findReceiptWithOrder(receiptId);
   if (!receipt) throw Object.assign(new Error('Receipt not found.'), { status: 404, expose: true });
 
-  await prisma.paymentReceipt.update({
-    where: { id: receipt.id },
-    data: { status: 'rejected', reviewedByUserId: adminUserId, reviewedAt: new Date(), reviewNote: note ? String(note).slice(0, 1000) : null },
-  });
+  await billingRepo.updateReceipt(receipt.id, { status: 'rejected', reviewedByUserId: adminUserId, reviewedAt: new Date(), reviewNote: note ? String(note).slice(0, 1000) : null });
 
   // Return the order to pending so the user can retry payment within the window.
   const order = receipt.checkoutOrder;
   if (order && order.status !== 'paid') {
-    await prisma.checkoutOrder.update({ where: { id: order.id }, data: { status: 'pending' } });
+    await billingRepo.updateOrder(order.id, { status: 'pending' });
     if (order.deploymentId) {
       const deployment = await findDeploymentRecord(order.deploymentId);
       if (deployment && deployment.paymentStatus !== 'paid') {
@@ -388,12 +374,12 @@ export async function adminDeleteDeployment(deploymentId, adminUserId) {
 
 /** Full admin view of a single user: profile + their deployments, orders, receipts. */
 export async function getUserDetail(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
   const [orders, receiptRows, store] = await Promise.all([
-    prisma.checkoutOrder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
-    prisma.paymentReceipt.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 500 }),
+    billingRepo.listOrdersByUser(userId, { limit: 500 }),
+    billingRepo.listReceiptsByUser(userId, { limit: 500 }),
     readHostingStore(),
   ]);
 
@@ -422,7 +408,7 @@ export async function getUserDetail(userId) {
 
 /** Update a limited, validated set of profile/account fields. */
 export async function updateUser(userId, patch = {}, adminUserId = null) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
   const data = {};
@@ -441,7 +427,7 @@ export async function updateUser(userId, patch = {}, adminUserId = null) {
     data.accountStatus = String(patch.accountStatus);
   }
 
-  const updated = await prisma.user.update({ where: { id: userId }, data });
+  const updated = await adminUserRepo.updateUser(userId, data);
 
   await writeAuditLog({
     actorUserId: adminUserId,
@@ -540,17 +526,10 @@ async function cascadeBringDownUserDeployments(userId, reason) {
  * admin can reactivate. Cascades a suspend to all of the user's sites.
  */
 export async function suspendUser(userId, reason = null, adminUserId = null) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      accountStatus: 'suspended',
-      disabledAt: new Date(),
-      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_suspended',
-    },
-  });
+  const updated = await adminUserRepo.suspendUser(userId, reason);
   await revokeUserRefreshTokens(userId);
   const deployments = await cascadeSuspendUserDeployments(userId, reason || 'account_suspended');
 
@@ -566,17 +545,10 @@ export async function suspendUser(userId, reason = null, adminUserId = null) {
 }
 
 export async function disableUser(userId, reason = null, adminUserId = null) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      accountStatus: 'disabled',
-      disabledAt: new Date(),
-      disabledReason: reason ? String(reason).slice(0, 1000) : 'admin_disabled',
-    },
-  });
+  const updated = await adminUserRepo.disableUser(userId, reason);
   await revokeUserRefreshTokens(userId);
 
   await writeAuditLog({
@@ -591,19 +563,10 @@ export async function disableUser(userId, reason = null, adminUserId = null) {
 }
 
 export async function reactivateUser(userId, adminUserId = null, { resumeDeployments = false } = {}) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      accountStatus: 'active',
-      reactivatedAt: new Date(),
-      disabledReason: null,
-      disabledAt: null,
-      deletedAt: null,
-    },
-  });
+  const updated = await adminUserRepo.reactivateUser(userId);
 
   // Optionally resume the user's suspended sites (only those suspended at the
   // account level — never auto-revive account_deleted sites).
@@ -644,51 +607,7 @@ export async function reactivateUser(userId, adminUserId = null, { resumeDeploym
  * do not break hard-delete.
  */
 async function purgeUserOwnedPrismaRows(userId) {
-  const cleaned = {};
-  async function tryDelete(label, fn) {
-    try {
-      const result = await fn();
-      cleaned[label] = result?.count ?? result ?? true;
-    } catch (err) {
-      cleaned[label] = `skip: ${err.message}`;
-    }
-  }
-
-  // Ownership / auth / messaging
-  await tryDelete('refreshToken', () => prisma.refreshToken.deleteMany({ where: { userId } }));
-  await tryDelete('notification', () => prisma.notification.deleteMany({ where: { userId } }));
-  await tryDelete('notificationPreference', () => prisma.notificationPreference.deleteMany({ where: { userId } }));
-  await tryDelete('adminMfaMethod', () => prisma.adminMfaMethod.deleteMany({ where: { userId } }));
-  await tryDelete('ticket', () => prisma.ticket.deleteMany({ where: { userId } })); // messages cascade
-  await tryDelete('serviceRequest', () => prisma.serviceRequest.deleteMany({ where: { userId } }));
-  await tryDelete('serviceAccess', () => prisma.serviceAccess.deleteMany({ where: { userId } }));
-  await tryDelete('watchdogEvent', () => prisma.watchdogEvent.deleteMany({ where: { userId } }));
-  await tryDelete('analyticsEvent', () => prisma.analyticsEvent.deleteMany({ where: { userId } }));
-  await tryDelete('chatbotInteraction', () => prisma.chatbotInteraction.deleteMany({ where: { userId } }));
-  await tryDelete('crmAiSession', () => prisma.crmAiSession.deleteMany({ where: { userId } }));
-  await tryDelete('crmEmailListMember', () => prisma.crmEmailListMember.deleteMany({ where: { userId } }));
-  await tryDelete('customerLifecycle', () => prisma.customerLifecycle.deleteMany({ where: { userId } }));
-
-  // Billing / commerce owned by the customer
-  await tryDelete('paymentMethod', () => prisma.paymentMethod.deleteMany({ where: { userId } }));
-  await tryDelete('discountRedemption', () => prisma.discountRedemption.deleteMany({ where: { userId } }));
-  await tryDelete('invoice', () => prisma.invoice.deleteMany({ where: { userId } }));
-  await tryDelete('creditNote', () => prisma.creditNote.deleteMany({ where: { userId } }));
-  await tryDelete('paymentReceipt', () => prisma.paymentReceipt.deleteMany({ where: { userId } }));
-  await tryDelete('deploymentSubscription', () => prisma.deploymentSubscription.deleteMany({ where: { userId } }));
-  await tryDelete('deploymentCleanupJob', () => prisma.deploymentCleanupJob.deleteMany({ where: { userId } }));
-  await tryDelete('checkoutOrder', () => prisma.checkoutOrder.deleteMany({ where: { userId } }));
-
-  // Infrastructure services created by the customer
-  await tryDelete('vpsService', () => prisma.vpsService.deleteMany({ where: { createdByUserId: userId } }));
-  await tryDelete('webHostingService', () => prisma.webHostingService.deleteMany({ where: { createdByUserId: userId } }));
-  await tryDelete('businessService', () => prisma.businessService.deleteMany({ where: { createdByUserId: userId } }));
-
-  // Notes / commands targeting this customer (keep admin-authored history only when not target)
-  await tryDelete('adminNote', () => prisma.adminNote.deleteMany({ where: { targetUserId: userId } }));
-  await tryDelete('adminCommand', () => prisma.adminCommand.deleteMany({ where: { targetUserId: userId } }));
-
-  return cleaned;
+  return adminUserRepo.purgeUserOwnedRows(userId);
 }
 
 /**
@@ -723,7 +642,7 @@ async function purgeUserHostingDeployments(userId) {
  * Admin accounts cannot be deleted here (protect operator access).
  */
 export async function deleteUser(userId, reason = null, adminUserId = null) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
   if (adminUserId && userId === adminUserId) {
@@ -742,7 +661,7 @@ export async function deleteUser(userId, reason = null, adminUserId = null) {
 
   // 2) Purge related main-DB rows, then the user row itself.
   const cleaned = await purgeUserOwnedPrismaRows(userId);
-  await prisma.user.delete({ where: { id: userId } });
+  await adminUserRepo.deleteUser(userId);
 
   // 3) Drop hosting-store ownership for this user.
   const hosting = await purgeUserHostingDeployments(userId);
@@ -776,10 +695,10 @@ export async function deleteUser(userId, reason = null, adminUserId = null) {
 }
 
 export async function setUserIdPhotoPath(userId, filePath, adminUserId = null) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await adminUserRepo.findUserById(userId);
   if (!user) throw httpError('User not found.', 404);
 
-  const updated = await prisma.user.update({ where: { id: userId }, data: { idPhotoPath: filePath } });
+  const updated = await adminUserRepo.setUserIdPhotoPath(userId, filePath);
 
   await writeAuditLog({
     actorUserId: adminUserId,
@@ -945,25 +864,7 @@ export async function setDeploymentRenderPlan(deploymentId, plan, { redeploy = f
  */
 export async function getActivity({ limit = 100, offset = 0, action = null, userId = null } = {}) {
   try {
-    const where = {};
-    if (action) where.action = { contains: action };
-    if (userId) where.actorUserId = userId;
-    const rows = await prisma.auditLog.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: Number(limit) || 100,
-      skip: Number(offset) || 0,
-      select: {
-        id: true,
-        actorUserId: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        status: true,
-        createdAt: true,
-      },
-    });
-    return rows;
+    return await auditRepo.listAdminActivity({ limit, offset, action, userId });
   } catch (err) {
     // Table may not exist yet — return empty rather than crashing
     if (err?.code === 'P2021') return [];
@@ -1006,11 +907,11 @@ export function getConfigStatus() {
 }
 
 export async function deleteOrder(orderId, adminUserId) {
-  const order = await prisma.checkoutOrder.findUnique({ where: { id: orderId } });
+  const order = await billingRepo.findOrderById(orderId);
   if (!order) throw httpError('Order not found.', 404);
 
   // Hard-delete — cascades to linked PaymentReceipt rows (onDelete: Cascade).
-  await prisma.checkoutOrder.delete({ where: { id: orderId } });
+  await billingRepo.deleteOrderById(orderId);
 
   await writeAuditLog({
     actorUserId: adminUserId,

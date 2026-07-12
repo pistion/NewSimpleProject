@@ -122,14 +122,17 @@ fi
 `;
 }
 
+// Package lifecycle scripts (preinstall/install/postinstall/prepare) never
+// run for customer source: installs use --ignore-scripts. Only the explicit,
+// server-approved build command executes.
 function installOnlyBuildScript({ framework, nodeVersion }) {
   return `#!/usr/bin/env bash
 set -euo pipefail
-echo "[glondia] Installing dependencies for ${framework || 'Node.js server'} (no build step)"
+echo "[glondia] Installing dependencies for ${framework || 'Node.js server'} (no build step, lifecycle scripts disabled)"
 ${nodeVersion ? `echo "[glondia] Requested Node version: ${nodeVersion}"\n` : ''}if [ -f package-lock.json ]; then
-  npm ci
+  npm ci --ignore-scripts
 else
-  npm install
+  npm install --ignore-scripts
 fi
 echo "[glondia] No build command detected; dependencies installed only."
 `;
@@ -138,11 +141,11 @@ echo "[glondia] No build command detected; dependencies installed only."
 function sourceBuildScript({ buildCommand, publishDirectory, framework, nodeVersion }) {
   return `#!/usr/bin/env bash
 set -euo pipefail
-echo "[glondia] Installing and building ${framework || 'project'}"
+echo "[glondia] Installing and building ${framework || 'project'} (lifecycle scripts disabled)"
 ${nodeVersion ? `echo "[glondia] Requested Node version: ${nodeVersion}"\n` : ''}if [ -f package-lock.json ]; then
-  npm ci
+  npm ci --ignore-scripts
 else
-  npm install
+  npm install --ignore-scripts
 fi
 ${buildCommand}
 if [ ! -d "${publishDirectory}" ] && [ -f index.html ]; then

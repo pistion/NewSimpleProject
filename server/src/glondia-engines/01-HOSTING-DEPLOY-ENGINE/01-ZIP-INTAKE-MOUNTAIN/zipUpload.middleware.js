@@ -1,12 +1,34 @@
 /**
  * zipUpload.middleware.js - ZIP upload middleware only.
+ *
+ * Uploads stream to a DISK QUARANTINE directory
+ * (DATA_DIR/quarantine/uploads) under a server-generated filename — never
+ * into process memory and never under a customer-controlled name. The
+ * quarantined file is removed when the response finishes; downstream stages
+ * read it via file.path.
  */
+import { mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { join, resolve } from 'node:path';
 import multer from 'multer';
 
+function quarantineDir() {
+  const dataDir = resolve(process.env.DATA_DIR || join(process.cwd(), '.glondia-data'));
+  const dir = join(dataDir, 'quarantine', 'uploads');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      try { cb(null, quarantineDir()); } catch (err) { cb(err); }
+    },
+    filename: (_req, _file, cb) => cb(null, `upload-${randomUUID()}.zip`),
+  }),
   limits: {
-    fileSize: Number(process.env.ZIP_UPLOAD_MAX_BYTES || process.env.MAX_ZIP_BYTES || 100 * 1024 * 1024),
+    fileSize: Number(process.env.ZIP_MAX_COMPRESSED_BYTES || process.env.ZIP_UPLOAD_MAX_BYTES || process.env.MAX_ZIP_BYTES || 100 * 1024 * 1024),
     files: 1,
   },
   fileFilter: (_req, file, cb) => {
@@ -29,8 +51,25 @@ const zipUploadFields = upload.fields([
   { name: 'siteZip', maxCount: 1 },
 ]);
 
+function collectUploadedPaths(req) {
+  const paths = [];
+  for (const list of Object.values(req.files || {})) {
+    for (const file of list || []) {
+      if (file?.path) paths.push(file.path);
+    }
+  }
+  if (req.file?.path) paths.push(req.file.path);
+  return paths;
+}
+
 export function zipUploadMiddleware(req, res, next) {
   zipUploadFields(req, res, (error) => {
+    // Quarantined uploads never outlive the request that carried them.
+    res.on('close', () => {
+      for (const filePath of collectUploadedPaths(req)) {
+        rm(filePath, { force: true }).catch(() => {});
+      }
+    });
     if (!error) return next();
     next(normalizeZipUploadError(error));
   });

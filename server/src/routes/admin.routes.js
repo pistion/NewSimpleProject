@@ -19,7 +19,7 @@ import {
   listServiceAccess, getServiceAccess,
   adminUpdateServiceAccess, adminSuspendServiceAccess, adminReactivateServiceAccess,
 } from '../services/serviceAccessService.js';
-import { prisma } from '../services/db.js';
+import * as adminDashboardRepo from '../repositories/adminDashboard.repository.js';
 import {
   getReceiptMeta,
   streamReceipt,
@@ -313,51 +313,30 @@ router.post('/service-access/:id/reactivate',
 router.get('/warnings', async (req, res, next) => {
   try {
     const { limit = 50, offset = 0, status, warningType } = req.query;
-    const where = {
-      ...(status      ? { status }      : { status: { not: 'dismissed' } }),
-      ...(warningType ? { warningType } : {}),
-    };
-    const [items, total] = await Promise.all([
-      prisma.dashboardWarning.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
-      }),
-      prisma.dashboardWarning.count({ where }),
-    ]);
-    res.json({ data: { items, total, limit: Number(limit), offset: Number(offset) }, requestId: req.id });
+    res.json({ data: await adminDashboardRepo.listDashboardWarnings({ limit, offset, status, warningType }), requestId: req.id });
   } catch (e) { next(e); }
 });
 
 router.post('/warnings/:id/dismiss', async (req, res, next) => {
   try {
-    const updated = await prisma.dashboardWarning.update({
-      where: { id: req.params.id },
-      data: { status: 'dismissed', dismissedByAdmin: req.user.id, dismissedAt: new Date() },
-    });
+    const updated = await adminDashboardRepo.dismissDashboardWarning(req.params.id, req.user.id);
     res.json({ data: updated, requestId: req.id });
   } catch (e) { next(e); }
 });
 
 router.post('/warnings/:id/escalate', async (req, res, next) => {
   try {
-    const warning = await prisma.dashboardWarning.findUnique({ where: { id: req.params.id } });
+    const warning = await adminDashboardRepo.findDashboardWarning(req.params.id);
     if (!warning) return res.status(404).json({ error: { message: 'Warning not found.' }, requestId: req.id });
 
-    const watchdog = await prisma.watchdogEvent.create({
-      data: {
-        eventType: warning.warningType,
-        severity: 'high',
-        message: `Escalated from DashboardWarning: ${warning.warningType}`,
-        metadata: JSON.stringify({ warningId: warning.id, escalatedBy: req.user.id, note: req.body?.note }),
-      },
+    const watchdog = await adminDashboardRepo.createWatchdogEvent({
+      eventType: warning.warningType,
+      severity: 'high',
+      message: `Escalated from DashboardWarning: ${warning.warningType}`,
+      metadata: JSON.stringify({ warningId: warning.id, escalatedBy: req.user.id, note: req.body?.note }),
     });
 
-    const updated = await prisma.dashboardWarning.update({
-      where: { id: req.params.id },
-      data: { status: 'escalated', escalatedToEvent: watchdog.id },
-    });
+    const updated = await adminDashboardRepo.updateDashboardWarning(req.params.id, { status: 'escalated', escalatedToEvent: watchdog.id });
 
     res.json({ data: updated, requestId: req.id });
   } catch (e) { next(e); }
@@ -369,20 +348,7 @@ router.post('/warnings/:id/escalate', async (req, res, next) => {
 router.get('/watchdog', async (req, res, next) => {
   try {
     const { limit = 50, offset = 0, status, severity } = req.query;
-    const where = {
-      ...(status   ? { status }   : { status: { not: 'dismissed' } }),
-      ...(severity ? { severity } : {}),
-    };
-    const [items, total] = await Promise.all([
-      prisma.watchdogEvent.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
-      }),
-      prisma.watchdogEvent.count({ where }),
-    ]);
-    res.json({ data: { items, total, limit: Number(limit), offset: Number(offset) }, requestId: req.id });
+    res.json({ data: await adminDashboardRepo.listWatchdogEvents({ limit, offset, status, severity }), requestId: req.id });
   } catch (e) { next(e); }
 });
 
@@ -390,10 +356,7 @@ router.post('/watchdog/:id/review',
   requirePermission('watchdog:review'),
   async (req, res, next) => {
     try {
-      const updated = await prisma.watchdogEvent.update({
-        where: { id: req.params.id },
-        data: { status: 'reviewed', reviewedByAdminId: req.user.id, reviewedAt: new Date() },
-      });
+      const updated = await adminDashboardRepo.updateWatchdogEvent(req.params.id, { status: 'reviewed', reviewedByAdminId: req.user.id, reviewedAt: new Date() });
       res.json({ data: updated, requestId: req.id });
     } catch (e) { next(e); }
   });
@@ -402,10 +365,7 @@ router.post('/watchdog/:id/dismiss',
   requirePermission('watchdog:dismiss'),
   async (req, res, next) => {
     try {
-      const updated = await prisma.watchdogEvent.update({
-        where: { id: req.params.id },
-        data: { status: 'dismissed', reviewedByAdminId: req.user.id, reviewedAt: new Date() },
-      });
+      const updated = await adminDashboardRepo.updateWatchdogEvent(req.params.id, { status: 'dismissed', reviewedByAdminId: req.user.id, reviewedAt: new Date() });
       res.json({ data: updated, requestId: req.id });
     } catch (e) { next(e); }
   });
@@ -415,20 +375,7 @@ router.post('/watchdog/:id/dismiss',
 router.get('/commands', async (req, res, next) => {
   try {
     const { limit = 50, offset = 0, adminUserId, commandType } = req.query;
-    const where = {
-      ...(adminUserId  ? { adminUserId }  : {}),
-      ...(commandType  ? { commandType }  : {}),
-    };
-    const [items, total] = await Promise.all([
-      prisma.adminCommand.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
-      }),
-      prisma.adminCommand.count({ where }),
-    ]);
-    res.json({ data: { items, total, limit: Number(limit), offset: Number(offset) }, requestId: req.id });
+    res.json({ data: await adminDashboardRepo.listAdminCommands({ limit, offset, adminUserId, commandType }), requestId: req.id });
   } catch (e) { next(e); }
 });
 
@@ -436,14 +383,13 @@ router.get('/commands', async (req, res, next) => {
 // Schema fields: policyKey (unique), category, enabled, valueJson, description
 router.get('/policies', async (req, res, next) => {
   try {
-    const items = await prisma.adminPolicy.findMany({ orderBy: { policyKey: 'asc' } });
-    res.json({ data: items, requestId: req.id });
+    res.json({ data: await adminDashboardRepo.listAdminPolicies(), requestId: req.id });
   } catch (e) { next(e); }
 });
 
 router.get('/policies/:key', async (req, res, next) => {
   try {
-    const policy = await prisma.adminPolicy.findUnique({ where: { policyKey: req.params.key } });
+    const policy = await adminDashboardRepo.findAdminPolicy(req.params.key);
     if (!policy) return res.status(404).json({ error: { message: 'Policy not found.' }, requestId: req.id });
     res.json({ data: policy, requestId: req.id });
   } catch (e) { next(e); }
@@ -454,32 +400,12 @@ router.put('/policies/:key', async (req, res, next) => {
     const { valueJson, category, description, enabled } = req.body;
     if (!valueJson) return res.status(400).json({ error: { message: 'valueJson is required.' }, requestId: req.id });
 
-    const before = await prisma.adminPolicy.findUnique({ where: { policyKey: req.params.key } });
-    const policy = await prisma.adminPolicy.upsert({
-      where: { policyKey: req.params.key },
-      update: {
-        valueJson: String(valueJson),
-        ...(description !== undefined ? { description } : {}),
-        ...(enabled     !== undefined ? { enabled: Boolean(enabled) } : {}),
-        updatedByAdminId: req.user.id,
-      },
-      create: {
-        policyKey: req.params.key,
-        category: category || 'dashboard',
-        valueJson: String(valueJson),
-        description: description || null,
-        updatedByAdminId: req.user.id,
-      },
-    });
-
-    await prisma.adminCommand.create({
-      data: {
-        adminUserId: req.user.id,
-        commandType: 'policy.updated',
-        beforeState: before ? JSON.stringify({ valueJson: before.valueJson }) : '{}',
-        afterState: JSON.stringify({ valueJson: String(valueJson) }),
-        metadata: JSON.stringify({ policyKey: req.params.key }),
-      },
+    const policy = await adminDashboardRepo.upsertAdminPolicy(req.params.key, {
+      valueJson,
+      category,
+      description,
+      enabled,
+      adminUserId: req.user.id,
     });
 
     res.json({ data: policy, requestId: req.id });

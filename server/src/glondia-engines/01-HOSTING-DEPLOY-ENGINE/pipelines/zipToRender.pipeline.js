@@ -63,7 +63,7 @@ export async function run(input = {}, context = {}) {
 
   try {
     await addDeploymentLog(deployment.deploymentId, `ZIP upload received: ${file.originalname}.`, 'info');
-    const extracted = await extractZipSafely(file.buffer, siteDir);
+    const extracted = await extractZipSafely(file.buffer || file.path, siteDir);
     const detected = await detectProject(siteDir, extracted.files);
     // Resolve the deploy mode (auto unless the user picked one) and let it drive
     // the build script and Render service settings.
